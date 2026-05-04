@@ -1,0 +1,56 @@
+# 前端形态 docker compose:postgres + 前端应用(含 sync-worker 在容器内并发跑)。
+#
+# 用法:
+#   1) 准备 .env(从 .env.example 复制并修改):
+#      只需准备 AUTH_SECRET / ENCRYPTION_KEY / 管理员账号。
+#      backend 地址、共享密钥、自动/手动模式可启动后在 /admin/sync 网页端保存。
+#   2) docker compose -f docker-compose.frontend.yml up -d
+#
+# 与完整版的差异:
+#   - 没有 redis(无 BullMQ)
+#   - 没有 worker 容器(只有 app + sync-worker 同进程)
+#   - app 镜像换成 Dockerfile.frontend(无 Playwright/yt-dlp/ffmpeg)
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    command: ["postgres", "-c", "shared_buffers=32MB", "-c", "max_connections=20"]
+    environment:
+      POSTGRES_USER: shibei
+      POSTGRES_PASSWORD: shibei
+      POSTGRES_DB: shibei_blog
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U shibei -d shibei_blog"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    mem_limit: 128m
+    restart: unless-stopped
+
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile.frontend
+    depends_on:
+      postgres:
+        condition: service_healthy
+    env_file:
+      - .env
+    environment:
+      APP_MODE: frontend
+      NODE_OPTIONS: --max-old-space-size=256
+    ports:
+      - "80:3000"
+      - "3000:3000"
+    command: ["sh", "scripts/start-app.sh"]
+    volumes:
+      # 持久化用户上传的视频/音乐(导入的 ZIP 也会落到这里)
+      - app-uploads:/app/public/uploads
+    mem_limit: 320m
+    restart: unless-stopped
+
+volumes:
+  postgres-data:
+  app-uploads:
