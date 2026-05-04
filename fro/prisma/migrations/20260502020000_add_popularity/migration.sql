@@ -1,2 +1,0 @@
-ALTER TABLE "Source" ADD COLUMN "popularity" INTEGER NOT NULL DEFAULT 0;
-ALTER TABLE "Source" ADD COLUMN "popularityUpdatedAt" TIMESTAMP(3);

@@ -1,1 +1,0 @@
-ALTER TABLE "SiteSettings" ADD COLUMN "autoPublish" BOOLEAN NOT NULL DEFAULT false;
