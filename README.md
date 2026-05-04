@@ -2,6 +2,23 @@
 
 ShiBei 是一个面向个人或小团队的信息整理博客系统。它的核心目标不是单纯写文章，而是把“抓取资料、AI 初步整理、人工审核发布、前台轻量阅读”串成一个完整流程。系统使用 Next.js、Prisma、PostgreSQL、Redis、BullMQ 与 Docker 构建，既可以单机运行，也可以拆成前端应用和后端应用分别部署。前端应用只负责展示文章、展示视频、接收同步数据和提供公开页面；后端应用负责抓取网页/RSS、调用 OpenAI-compatible 模型生成草稿、执行自动整理任务、导出文章 ZIP 包；完整版应用则把两者放在一台服务器中运行。
 
+### Docker Hub 镜像
+
+已构建并托管于 Docker Hub，无需本地编译：
+
+```bash
+# 前端应用（轻量，1.12 GB）
+docker pull safg/shibei:frontend
+
+# 后端应用（含 Playwright + yt-dlp + ffmpeg，3.15 GB）
+docker pull safg/shibei:backend
+
+# 完整版（前端+后端合一，3.15 GB）
+docker pull safg/shibei:full
+```
+
+> 镜像地址：https://hub.docker.com/r/safg/shibei
+
 ## 一、系统形态
 
 本项目支持三种部署形态：
