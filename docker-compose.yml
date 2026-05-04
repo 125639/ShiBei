@@ -30,7 +30,7 @@ services:
     restart: unless-stopped
 
   app:
-    build: .
+    image: safg/shibei:full
     depends_on:
       postgres:
         condition: service_healthy
@@ -51,7 +51,7 @@ services:
     restart: unless-stopped
 
   worker:
-    build: .
+    image: safg/shibei:full
     depends_on:
       postgres:
         condition: service_healthy

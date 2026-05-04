@@ -40,9 +40,7 @@ services:
     restart: unless-stopped
 
   app:
-    build:
-      context: .
-      dockerfile: Dockerfile.backend
+    image: safg/shibei:backend
     depends_on:
       postgres:
         condition: service_healthy
@@ -62,9 +60,7 @@ services:
     restart: unless-stopped
 
   worker:
-    build:
-      context: .
-      dockerfile: Dockerfile.backend
+    image: safg/shibei:backend
     depends_on:
       postgres:
         condition: service_healthy

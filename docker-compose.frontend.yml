@@ -30,9 +30,7 @@ services:
     restart: unless-stopped
 
   app:
-    build:
-      context: .
-      dockerfile: Dockerfile.frontend
+    image: safg/shibei:frontend
     depends_on:
       postgres:
         condition: service_healthy
