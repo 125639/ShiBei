@@ -1,0 +1,91 @@
+# 后端形态 docker compose:postgres + redis + backend 应用 + worker。
+# 与完整版几乎一致,差别在 APP_MODE=backend(中间件会把公开路由重定向到 /admin)。
+#
+# 用法:
+#   1) 准备 .env:
+#      共享密钥可启动后在 /admin/sync 保存；模型配置在 /admin/settings 中保存。
+#   2) docker compose -f docker-compose.backend.yml up -d
+#   3) backend 通常监听内网,不直接暴露给最终用户;给前端的 BACKEND_API_URL
+#      可以是 http://<backend-host>:3000(同机内网即可)。
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    command: ["postgres", "-c", "shared_buffers=128MB", "-c", "max_connections=40"]
+    environment:
+      POSTGRES_USER: shibei
+      POSTGRES_PASSWORD: shibei
+      POSTGRES_DB: shibei_blog
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U shibei -d shibei_blog"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    mem_limit: 384m
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--save", "", "--appendonly", "no", "--maxmemory", "128mb", "--maxmemory-policy", "allkeys-lru"]
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    mem_limit: 192m
+    restart: unless-stopped
+
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile.backend
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    env_file:
+      - .env
+    environment:
+      APP_MODE: backend
+      NODE_OPTIONS: --max-old-space-size=768
+    ports:
+      - "3000:3000"
+    command: ["sh", "scripts/start-app.sh"]
+    volumes:
+      - app-uploads:/app/public/uploads
+    mem_limit: 768m
+    restart: unless-stopped
+
+  worker:
+    build:
+      context: .
+      dockerfile: Dockerfile.backend
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    env_file:
+      - .env
+    environment:
+      APP_MODE: backend
+      NODE_OPTIONS: --max-old-space-size=768
+      FETCH_WORKER_CONCURRENCY: 1
+      RESEARCH_WORKER_CONCURRENCY: 1
+      AUDIENCE_WORKER_CONCURRENCY: 1
+      SCHEDULE_WORKER_CONCURRENCY: 1
+    command: ["npm", "run", "worker"]
+    volumes:
+      - app-uploads:/app/public/uploads
+    mem_limit: 1024m
+    restart: unless-stopped
+
+volumes:
+  postgres-data:
+  redis-data:
+  app-uploads:
