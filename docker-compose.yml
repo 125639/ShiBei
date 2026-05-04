@@ -1,0 +1,78 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    command: ["postgres", "-c", "shared_buffers=128MB", "-c", "max_connections=50"]
+    environment:
+      POSTGRES_USER: shibei
+      POSTGRES_PASSWORD: shibei
+      POSTGRES_DB: shibei_blog
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U shibei -d shibei_blog"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    mem_limit: 512m
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--save", "", "--appendonly", "no", "--maxmemory", "192mb", "--maxmemory-policy", "allkeys-lru"]
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    mem_limit: 256m
+    restart: unless-stopped
+
+  app:
+    build: .
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    env_file:
+      - .env
+    environment:
+      APP_MODE: full
+      NODE_OPTIONS: --max-old-space-size=1024
+    ports:
+      - "80:3000"
+      - "3000:3000"
+    command: ["sh", "scripts/start-app.sh"]
+    volumes:
+      - app-uploads:/app/public/uploads
+    mem_limit: 1024m
+    restart: unless-stopped
+
+  worker:
+    build: .
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    env_file:
+      - .env
+    environment:
+      APP_MODE: full
+      NODE_OPTIONS: --max-old-space-size=1024
+      FETCH_WORKER_CONCURRENCY: 1
+      RESEARCH_WORKER_CONCURRENCY: 1
+      AUDIENCE_WORKER_CONCURRENCY: 1
+      SCHEDULE_WORKER_CONCURRENCY: 1
+    command: ["npm", "run", "worker"]
+    volumes:
+      - app-uploads:/app/public/uploads
+    mem_limit: 1536m
+    restart: unless-stopped
+
+volumes:
+  postgres-data:
+  redis-data:
+  app-uploads:
