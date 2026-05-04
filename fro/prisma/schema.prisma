@@ -1,0 +1,302 @@
+generator client {
+  provider      = "prisma-client-js"
+  binaryTargets = ["native", "debian-openssl-3.0.x", "linux-musl-openssl-3.0.x"]
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum SourceType {
+  WEB
+  RSS
+  VIDEO
+  EXA
+}
+
+enum SourceRegion {
+  DOMESTIC
+  INTERNATIONAL
+  UNKNOWN
+}
+
+enum SourceStatus {
+  ACTIVE
+  PAUSED
+}
+
+enum JobStatus {
+  QUEUED
+  RUNNING
+  COMPLETED
+  FAILED
+}
+
+enum PostStatus {
+  DRAFT
+  PUBLISHED
+  ARCHIVED
+}
+
+enum VideoType {
+  LOCAL
+  EMBED
+  LINK
+}
+
+enum CompilationKind {
+  SINGLE_ARTICLE
+  DAILY_DIGEST
+  WEEKLY_ROUNDUP
+}
+
+model AdminUser {
+  id           String   @id @default(cuid())
+  username     String   @unique
+  passwordHash String
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+}
+
+model SiteSettings {
+  id                   String   @id @default("site")
+  name                 String   @default("拾贝 信息博客")
+  description          String   @default("一个可以抓取、整理并发布信息的个人博客。")
+  ownerName            String   @default("管理员")
+  autoPublish          Boolean  @default(false)
+  autoCurationEnabled  Boolean  @default(false)
+  newsDisplayMode      String   @default("grid")
+  newsLanguageMode     String   @default("default-language")
+  defaultLanguage      String   @default("zh")
+  defaultTheme         String   @default("minimal")
+  defaultFont          String   @default("serif-cjk")
+  textOnlyMode         Boolean  @default(false)
+  maxStorageMb         Int      @default(2048)
+  cleanupAfterDays     Int      @default(30)
+  cleanupCustomEnabled Boolean  @default(false)
+  videoMaxDurationSec  Int      @default(1200)
+  videoDownloadDomestic Boolean @default(true)
+  exaEnabled           Boolean  @default(false)
+  exaApiKeyEnc         String?
+  musicEnabledDefault  Boolean  @default(false)
+  defaultMusicId       String?
+  newsModelConfigId    String?
+  assistantModelConfigId String?
+  writingModelConfigId String?
+  translationModelConfigId String?
+  globalPromptPrefix   String   @default("")  @db.Text
+  defaultSettingsUI    String   @default("classic")
+  syncMode             String   @default("auto")
+  syncBackendUrl       String   @default("")
+  syncTokenEnc         String?
+  syncIntervalMinutes  Int      @default(15)
+  updatedAt            DateTime @updatedAt
+}
+
+model ModelConfig {
+  id          String   @id @default(cuid())
+  provider    String   @default("custom")
+  name        String
+  baseUrl     String
+  model       String
+  apiKeyEnc   String
+  temperature Float    @default(0.3)
+  maxTokens   Int      @default(1600)
+  stream      Boolean  @default(false)
+  isDefault   Boolean  @default(false)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model SummaryStyle {
+  id              String   @id @default(cuid())
+  name            String
+  tone            String   @default("客观新闻")
+  length          String   @default("中")
+  focus           String   @default("事实, 影响, 技术细节")
+  outputStructure String   @default("标题, 摘要, 关键点, 背景, 来源, 相关视频")
+  promptTemplate  String   @db.Text
+  isDefault       Boolean  @default(false)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  topics          NewsTopic[]
+}
+
+model Source {
+  id          String       @id @default(cuid())
+  name        String
+  url         String
+  type        SourceType
+  status      SourceStatus @default(ACTIVE)
+  isDefault   Boolean      @default(false)
+  isTemporary Boolean      @default(false)
+  region      SourceRegion @default(UNKNOWN)
+  popularity  Int          @default(0)
+  popularityUpdatedAt DateTime?
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+  modules     SourceModule[] @relation("SourceToModule")
+  rawItems    RawItem[]
+  jobs        FetchJob[]
+}
+
+model SourceModule {
+  id          String   @id @default(cuid())
+  name        String   @unique
+  slug        String   @unique
+  description String?
+  color       String   @default("#9f4f2f")
+  iconKey     String?
+  sortOrder   Int      @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  sources     Source[] @relation("SourceToModule")
+  topics      NewsTopic[] @relation("TopicToModule")
+}
+
+model FetchJob {
+  id             String      @id @default(cuid())
+  status         JobStatus   @default(QUEUED)
+  sourceId       String?
+  source         Source?     @relation(fields: [sourceId], references: [id], onDelete: SetNull)
+  sourceUrl      String
+  sourceType     SourceType
+  modelConfigId  String?
+  summaryStyleId String?
+  newsTopicId    String?
+  newsTopic      NewsTopic?  @relation(fields: [newsTopicId], references: [id], onDelete: SetNull)
+  error          String?     @db.Text
+  createdAt      DateTime    @default(now())
+  updatedAt      DateTime    @updatedAt
+  completedAt    DateTime?
+  rawItems       RawItem[]
+}
+
+model RawItem {
+  id          String    @id @default(cuid())
+  title       String
+  url         String
+  content     String    @db.Text
+  markdown    String    @db.Text
+  sourceId    String?
+  source      Source?   @relation(fields: [sourceId], references: [id], onDelete: SetNull)
+  fetchJobId  String?
+  fetchJob    FetchJob? @relation(fields: [fetchJobId], references: [id], onDelete: SetNull)
+  publishedAt DateTime?
+  createdAt   DateTime  @default(now())
+  post         Post?
+}
+
+model Post {
+  id        String     @id @default(cuid())
+  slug      String     @unique
+  title     String
+  titleEn   String?
+  summary   String     @db.Text
+  summaryEn String?    @db.Text
+  content   String     @db.Text
+  contentEn String?    @db.Text
+  status    PostStatus @default(DRAFT)
+  kind      CompilationKind @default(SINGLE_ARTICLE)
+  sourceUrl String?
+  sortOrder Int        @default(0)
+  translatedAt DateTime?
+  rawItemId String?    @unique
+  rawItem   RawItem?   @relation(fields: [rawItemId], references: [id], onDelete: SetNull)
+  videos    Video[]
+  tags      Tag[]      @relation("PostTags")
+  topics    NewsTopic[] @relation("PostTopics")
+  createdAt DateTime   @default(now())
+  updatedAt DateTime   @updatedAt
+  publishedAt DateTime?
+}
+
+model Video {
+  id              String    @id @default(cuid())
+  title           String
+  type            VideoType
+  url             String
+  coverUrl        String?
+  summary         String    @db.Text
+  sortOrder       Int       @default(0)
+  durationSec     Int?
+  region          SourceRegion @default(UNKNOWN)
+  sourcePlatform  String?
+  sourcePageUrl   String?
+  localPath       String?
+  fileSizeBytes   Int?
+  attribution     String?   @db.Text
+  postId          String?
+  post            Post?     @relation(fields: [postId], references: [id], onDelete: SetNull)
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+}
+
+model Music {
+  id          String   @id @default(cuid())
+  title       String
+  artist      String?
+  filePath    String
+  fileSizeBytes Int?
+  durationSec Int?
+  isEnabled   Boolean  @default(true)
+  sortOrder   Int      @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model Tag {
+  id    String @id @default(cuid())
+  name  String @unique
+  posts Post[] @relation("PostTags")
+}
+
+model NewsTopic {
+  id           String          @id @default(cuid())
+  name         String          @unique
+  slug         String          @unique
+  description  String?
+  scope        String          @default("all")
+  keywords     String          @db.Text
+  isEnabled    Boolean         @default(false)
+  compileKind  CompilationKind @default(SINGLE_ARTICLE)
+  depth        String          @default("long")
+  articleCount Int             @default(1)
+  useExa       Boolean         @default(false)
+  modules      SourceModule[]  @relation("TopicToModule")
+  styleId      String?
+  style        SummaryStyle?   @relation(fields: [styleId], references: [id], onDelete: SetNull)
+  schedule     AutoSchedule?
+  posts        Post[]          @relation("PostTopics")
+  fetchJobs    FetchJob[]
+  createdAt    DateTime        @default(now())
+  updatedAt    DateTime        @updatedAt
+}
+
+model AutoSchedule {
+  id          String    @id @default(cuid())
+  topicId     String    @unique
+  topic       NewsTopic @relation(fields: [topicId], references: [id], onDelete: Cascade)
+  cron        String
+  isEnabled   Boolean   @default(true)
+  lastRunAt   DateTime?
+  nextRunAt   DateTime?
+  bullJobKey  String?   @unique
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+}
+
+// Frontend / backend / full 间的同步状态。仅一行（id="sync"）。
+//   - lastImportedAt:frontend 上次成功 import 的时间（或 full 自测时）
+//   - lastImportedPostCount:上次 import 影响行数
+//   - lastExportedAt:backend 上次成功 export 的时间
+//   - lastError:最近一次失败的错误串（成功后清空）
+model SyncState {
+  id                    String    @id @default("sync")
+  lastImportedAt        DateTime?
+  lastImportedPostCount Int       @default(0)
+  lastExportedAt        DateTime?
+  lastError             String?   @db.Text
+  updatedAt             DateTime  @updatedAt
+}
