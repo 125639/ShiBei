@@ -1,0 +1,68 @@
+# 演示用前后端拆分:
+#   - 现有的 video-app-1 容器作为 backend(APP_MODE=full,自带 admin)
+#   - 这个 compose 起一个独立 PostgreSQL + 前端 Next.js,APP_MODE=frontend
+#   - 前端容器加入 video_default 网络(已存在),通过服务名 `app` 访问 backend
+#
+# 启动:
+#   docker compose -p video-frontdemo -f docker-compose.frontdemo.yml up -d --build
+# 销毁:
+#   docker compose -p video-frontdemo -f docker-compose.frontdemo.yml down -v
+
+services:
+  postgres-fro:
+    image: postgres:16-alpine
+    command: ["postgres", "-c", "shared_buffers=32MB", "-c", "max_connections=20"]
+    environment:
+      POSTGRES_USER: shibei
+      POSTGRES_PASSWORD: shibei
+      POSTGRES_DB: shibei_frontend
+    volumes:
+      - postgres-data-fro:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U shibei -d shibei_frontend"]
+      interval: 5s
+      timeout: 5s
+      retries: 6
+    mem_limit: 192m
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile.frontend
+    depends_on:
+      postgres-fro:
+        condition: service_healthy
+    environment:
+      APP_MODE: frontend
+      NODE_OPTIONS: --max-old-space-size=256
+      DATABASE_URL: postgresql://shibei:shibei@postgres-fro:5432/shibei_frontend?schema=public
+      AUTH_SECRET: "frontend-only-auth-secret-d61baca32c904dd102d32ae7684847ccee"
+      ENCRYPTION_KEY: "frontend-only-encryption-01127bc343892f83786563a9ac10ed2ed8"
+      ADMIN_USERNAME: admin
+      ADMIN_PASSWORD: Admin12345!
+      NEXT_PUBLIC_SITE_URL: "http://localhost:3001"
+      # 把这台前端指向现有的 backend(同一 docker 网络里 service 名是 `app`)
+      BACKEND_API_URL: "http://app:3000"
+      SYNC_TOKEN: "test-shared-secret-12345"
+      # 让 sync-worker 跑得勤一点,方便演示
+      SYNC_INTERVAL_MINUTES: "1"
+    ports:
+      - "3001:3000"
+    command: ["sh", "scripts/start-app.sh"]
+    volumes:
+      - app-uploads-fro:/app/public/uploads
+    mem_limit: 384m
+    restart: unless-stopped
+    networks:
+      default:
+      video_default:
+        # 加入 backend 所在的网络(docker compose 默认创建的 video_default)
+
+networks:
+  video_default:
+    external: true
+
+volumes:
+  postgres-data-fro:
+  app-uploads-fro:
