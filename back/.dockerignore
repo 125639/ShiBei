@@ -1,0 +1,9 @@
+node_modules
+.next
+.env
+.git
+postgres-data
+redis-data
+playwright-report
+npm-debug.log
+public/uploads
