@@ -3,16 +3,11 @@ import { NextResponse } from "next/server";
 /**
  * 返回到 admin 页面的服务端 303 跳转。
  *
- * 优先使用 request 的 origin（兼容内网/公网/反向代理多场景），其次是
- * NEXT_PUBLIC_SITE_URL 环境变量，最后回退 localhost。这样:
- *
- *   - 用户从 47.85.x.x 访问 → 跳回 47.85.x.x
- *   - 用户从 localhost:3000 访问（curl/容器内） → 跳回 localhost:3000
- *   - 用户从内网 IP 访问 → 跳回内网 IP
- *
- * @param path 站内绝对路径，例如 "/admin/sync"
- * @param request 来源请求；不传时退回 NEXT_PUBLIC_SITE_URL
- * @param status HTTP 状态码，默认 303
+ * 解析顺序（前者命中即返回）：
+ *   1. request 的真实 host（含 x-forwarded-host / x-forwarded-proto，反向代理友好）
+ *   2. NEXT_PUBLIC_SITE_URL 环境变量
+ *   3. http://localhost:3000（最终兜底，仅在 1/2 都拿不到时使用；
+ *      绝不能写死任何具体服务器 IP——那会把陌生用户的浏览器带去那台机器）
  */
 export function redirectTo(path: string, requestOrStatus?: Request | number, statusArg = 303) {
   let request: Request | undefined;
@@ -31,10 +26,12 @@ function resolveBase(request?: Request): string {
   if (request) {
     try {
       const url = new URL(request.url);
-      // request.url 在 Next.js 中已包含真实 host:port，因此直接用 origin 最准。
+      const headerHost = request.headers.get("x-forwarded-host") || request.headers.get("host");
+      const proto = request.headers.get("x-forwarded-proto") || url.protocol.replace(/:$/, "");
+      if (headerHost) return `${proto}://${headerHost}`;
       return url.origin;
     } catch {
-      // ignore，落入下一个回退
+      // ignore
     }
   }
   const envUrl = process.env.NEXT_PUBLIC_SITE_URL;
