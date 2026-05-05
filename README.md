@@ -16,7 +16,6 @@
 - [三种部署形态](#三种部署形态)
 - [快速上手](#快速上手docker)
 - [跨服务器部署（公网）](#跨服务器部署公网)
-- [挂载新数据盘到 /data](#挂载新数据盘到-data)
 - [AI 模型接入](#ai-模型接入)
 - [本地开发](#本地开发)
 - [架构与目录](#架构与目录)
@@ -100,7 +99,7 @@
 ### 1) 拉代码 + 准备环境变量
 
 ```bash
-git clone https://github.com/<你的账号>/ShellPick.git
+git clone https://github.com/125639/ShellPick.git
 cd ShellPick
 cp .env.example .env
 # 修改 AUTH_SECRET / ENCRYPTION_KEY / ADMIN_PASSWORD / NEXT_PUBLIC_SITE_URL
@@ -218,68 +217,6 @@ docker compose logs -f app worker
 - **SYNC_TOKEN** 在公网传输，必须用 HTTPS（参考上面 Caddy 配置）。HTTP 等于把密钥裸奔。
 - **后端的 `/api/public/*` 在 backend 模式下要求 Bearer SYNC_TOKEN**。本仓库已经把这层校验做进 `src/lib/sync/backend-auth.ts`：没有共享密钥的请求会被 401 拒绝，**避免有人扫到 backend IP 后免费消耗你的 AI Key**。如果你看到日志大量 401，说明确实有人在尝试，但他们打不下来。
 - **管理员后台**只对管理员 session 开放，公网暴露相对安全；改完密码、定期换 SYNC_TOKEN 即可。
-
----
-
-## 挂载新数据盘到 `/data`
-
-VPS 系统盘通常很小（10–40 GB），抓久了视频/数据库会撑爆。云厂商支持热挂一块新盘，本仓库已经准备好让 docker 数据落到新盘的覆盖文件。
-
-### 1) 宿主机上挂数据盘
-
-```bash
-# 假设新盘是 /dev/vdb（lsblk 自查）
-sudo mkfs.ext4 /dev/vdb
-sudo mkdir -p /data
-sudo mount /dev/vdb /data
-
-# 写 fstab，重启后自动挂回
-echo '/dev/vdb /data ext4 defaults,nofail 0 2' | sudo tee -a /etc/fstab
-
-# 提前建好子目录 + 设好 owner（postgres / redis 容器内部 uid 都是 999）
-sudo mkdir -p /data/postgres /data/redis /data/uploads
-sudo chown 999:999 /data/postgres /data/redis
-```
-
-### 2) 启动时叠加 data-disk 覆盖
-
-仓库里提供两个覆盖文件：
-
-| 文件 | 与谁叠加 |
-| --- | --- |
-| `docker-compose.data-disk.yml` | `docker-compose.yml`（完整版） + `docker-compose.backend.yml`（后端） |
-| `docker-compose.data-disk.frontend.yml` | `docker-compose.frontend.yml`（前端，无 redis/worker） |
-
-```bash
-# 完整版
-docker compose -f docker-compose.yml -f docker-compose.data-disk.yml up -d
-
-# 后端
-docker compose -f docker-compose.backend.yml -f docker-compose.data-disk.yml up -d
-
-# 前端
-docker compose -f docker-compose.frontend.yml -f docker-compose.data-disk.frontend.yml up -d
-```
-
-### 3) 校验
-
-```bash
-docker compose ps
-ls -la /data/postgres /data/redis /data/uploads
-# 看到 base / pg_xact / dump.rdb / video / music 等文件即成功
-```
-
-> **数据迁移**：如果你已经在默认命名卷里跑了一段时间，按下面步骤迁到 /data：
->
-> ```bash
-> docker compose down                                # 停服务，但保留命名卷
-> docker run --rm -v shellpick_postgres-data:/from -v /data/postgres:/to alpine \
->   sh -c "cd /from && cp -a . /to/"
-> docker run --rm -v shellpick_app-uploads:/from -v /data/uploads:/to alpine \
->   sh -c "cd /from && cp -a . /to/"
-> # redis 是临时数据，可以不迁
-> # 然后用 data-disk 覆盖文件重新 up -d
-> ```
 
 ---
 
@@ -403,8 +340,6 @@ ShellPick/
 ├── docker-compose.backend.yml       # 后端（postgres + redis + app + worker，APP_MODE=backend）
 ├── docker-compose.frontend.yml      # 前端（postgres + app，sync-worker 在容器内并发跑）
 ├── docker-compose.frontdemo.yml     # 演示前端接入既有 backend 的 docker 网络
-├── docker-compose.data-disk.yml     # /data 挂载覆盖（适用于完整版 / 后端）
-├── docker-compose.data-disk.frontend.yml  # /data 挂载覆盖（适用于前端）
 ├── .env.example                     # 必填环境变量样板
 ├── README.md                        # 本文件
 ├── SYNC.md                          # 同步协议详细规格
