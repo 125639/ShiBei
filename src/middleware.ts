@@ -31,6 +31,31 @@ const FRONTEND_BLOCKED_PREFIXES = [
 // 不面向最终用户,统一重定向到 admin。
 const BACKEND_PUBLIC_PREFIXES = ["/news", "/videos", "/stats", "/settings", "/about", "/write"];
 
+function buildRedirectUrl(request: NextRequest, path: string): URL {
+  const xfHost = request.headers.get("x-forwarded-host");
+  const xfProto = request.headers.get("x-forwarded-proto");
+  const host = xfHost || request.headers.get("host");
+
+  if (host && !host.startsWith("localhost") && !host.startsWith("127.")) {
+    const proto = xfProto || (host.endsWith(":443") ? "https" : "http");
+    return new URL(`${proto}://${host}${path}`);
+  }
+
+  const siteUrl = process.env.NEXT_PUBLIC_SITE_URL;
+  if (siteUrl) {
+    try {
+      const parsed = new URL(siteUrl);
+      if (parsed.hostname !== "localhost" && parsed.hostname !== "127.0.0.1") {
+        return new URL(`${parsed.origin}${path}`);
+      }
+    } catch {}
+  }
+
+  const url = request.nextUrl.clone();
+  url.pathname = path;
+  return url;
+}
+
 export function middleware(request: NextRequest) {
   const mode = getMode();
   const { pathname } = request.nextUrl;
@@ -46,8 +71,7 @@ export function middleware(request: NextRequest) {
 
   if (mode === "backend") {
     if (pathname === "/" || BACKEND_PUBLIC_PREFIXES.some((p) => pathname === p || pathname.startsWith(p + "/"))) {
-      const url = request.nextUrl.clone();
-      url.pathname = "/admin";
+      const url = buildRedirectUrl(request, "/admin");
       return NextResponse.redirect(url);
     }
   }
