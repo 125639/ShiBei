@@ -3,7 +3,7 @@
 # 🐚 ShiBei (拾贝) — 远程一键引导
 #
 # 用法（无需先克隆仓库）:
-#   curl -fsSL https://raw.githubusercontent.com/125639/ShellPick/main/scripts/bootstrap.sh | bash
+#   curl -fsSL https://raw.githubusercontent.com/125639/ShiBei/main/scripts/bootstrap.sh | bash
 #
 # 风格参考: openclaw.ai/install.sh
 # 流程: 检查依赖 → git clone → cd → bash scripts/init.sh
@@ -28,9 +28,9 @@ ui_success() { printf "${SUCCESS}✓${NC} %s\n" "$*"; }
 ui_warn()    { printf "${WARN}!${NC} %s\n" "$*"; }
 ui_error()   { printf "${ERROR}✗${NC} %s\n" "$*"; }
 
-REPO="${SHIBEI_REPO:-https://github.com/125639/ShellPick.git}"
+REPO="${SHIBEI_REPO:-https://github.com/125639/ShiBei.git}"
 BRANCH="${SHIBEI_BRANCH:-main}"
-TARGET="${SHIBEI_DIR:-$HOME/ShellPick}"
+TARGET="${SHIBEI_DIR:-$HOME/ShiBei}"
 
 echo
 printf "${ACCENT}${BOLD}  🐚 ShiBei Bootstrap${NC}\n"

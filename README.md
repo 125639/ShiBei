@@ -99,13 +99,13 @@
 ### 🚀 一键安装（推荐）
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/125639/ShellPick/main/scripts/bootstrap.sh | bash
+curl -fsSL https://raw.githubusercontent.com/125639/ShiBei/main/scripts/bootstrap.sh | bash
 ```
 
 `bootstrap.sh` 会做三件事：
 
 1. 检查 `git` / `openssl` / `docker` 是否就绪
-2. `git clone` 仓库到 `~/ShellPick`（已存在则 `git pull`）
+2. `git clone` 仓库到 `~/ShiBei`（已存在则 `git pull`）
 3. 自动运行 `scripts/init.sh` 进入交互式向导
 
 向导会自动：
@@ -118,20 +118,20 @@ curl -fsSL https://raw.githubusercontent.com/125639/ShellPick/main/scripts/boots
 
 向导结束会打印对应模式的 `docker compose ... up -d` 命令、健康检查 URL 和登录账号。
 
-> **环境变量覆盖**：`SHIBEI_REPO`（默认仓库）、`SHIBEI_BRANCH`（默认 `main`）、`SHIBEI_DIR`（默认 `~/ShellPick`）、`NO_COLOR=1` 关闭 ANSI 颜色。
+> **环境变量覆盖**：`SHIBEI_REPO`（默认仓库）、`SHIBEI_BRANCH`（默认 `main`）、`SHIBEI_DIR`（默认 `~/ShiBei`）、`NO_COLOR=1` 关闭 ANSI 颜色。
 
 ### 已经克隆过仓库？直接运行向导
 
 ```bash
-cd /opt/ShellPick   # 或你的工作目录
+cd /opt/ShiBei   # 或你的工作目录
 bash scripts/init.sh
 ```
 
 ### 不想用向导？走传统流程
 
 ```bash
-git clone https://github.com/125639/ShellPick.git
-cd ShellPick
+git clone https://github.com/125639/ShiBei.git
+cd ShiBei
 cp .env.example .env
 # 编辑 .env：AUTH_SECRET / ENCRYPTION_KEY / ADMIN_PASSWORD / NEXT_PUBLIC_SITE_URL
 # 两个密钥建议各自 `openssl rand -hex 32`
@@ -199,8 +199,8 @@ docker compose logs -f app worker
 1. **A 服务器（backend）—— 一条命令搞定 .env**
 
    ```bash
-   curl -fsSL https://raw.githubusercontent.com/125639/ShellPick/main/scripts/bootstrap.sh | bash
-   # 或在已克隆目录: cd /opt/ShellPick && bash scripts/init.sh
+   curl -fsSL https://raw.githubusercontent.com/125639/ShiBei/main/scripts/bootstrap.sh | bash
+   # 或在已克隆目录: cd /opt/ShiBei && bash scripts/init.sh
    #
    # 在向导里：
    #   [1/6] 部署模式 → 2 (backend)
@@ -222,7 +222,7 @@ docker compose logs -f app worker
 2. **B 服务器（frontend）—— 同样一条命令**
 
    ```bash
-   curl -fsSL https://raw.githubusercontent.com/125639/ShellPick/main/scripts/bootstrap.sh | bash
+   curl -fsSL https://raw.githubusercontent.com/125639/ShiBei/main/scripts/bootstrap.sh | bash
 
    # 在向导里：
    #   [1/6] 部署模式 → 3 (frontend)
@@ -352,7 +352,7 @@ npx prisma migrate dev --name describe_change
 ## 架构与目录
 
 ```text
-ShellPick/
+ShiBei/
 ├── prisma/
 │   ├── schema.prisma                # 数据模型（Post / Video / Music / Source / SourceModule / NewsTopic …）
 │   ├── seed.ts                      # 初始管理员、默认风格、默认主题/模块；读 INIT_AI_* 写入默认模型
@@ -547,7 +547,7 @@ bash scripts/init.sh
 ## 升级到新版本
 
 ```bash
-cd /opt/ShellPick
+cd /opt/ShiBei
 git pull
 docker compose pull          # 拉最新预构建镜像；或 docker compose build
 docker compose up -d         # 滚动重启；start-app.sh 会自动 migrate deploy + seed
