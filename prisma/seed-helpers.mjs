@@ -46,3 +46,26 @@ export function shouldSeedAiModel(env, existingModelCount) {
   if (existingModelCount > 0) return null;
   return input;
 }
+
+/**
+ * Build the prisma.adminUser.upsert(...) args. The key design choice is that
+ * the `update` branch carries `passwordHash` — i.e., on every seed the admin
+ * password is re-synced from `ADMIN_PASSWORD`. This makes .env the authoritative
+ * source: changing it (e.g., re-running scripts/init.sh) takes effect on next
+ * container restart.
+ *
+ * Trade-off the user must understand: if you change the password via /admin
+ * UI, .env is stale, and the next container restart will revert. Keep .env in
+ * lock-step with whatever you set in the UI, or rely solely on .env.
+ *
+ * @param {Record<string, string | undefined>} env
+ * @param {string} passwordHash bcrypt hash of env.ADMIN_PASSWORD
+ */
+export function buildAdminUpsertArgs(env, passwordHash) {
+  const username = env.ADMIN_USERNAME?.trim() || "admin";
+  return {
+    where: { username },
+    update: { passwordHash },
+    create: { username, passwordHash }
+  };
+}

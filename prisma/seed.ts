@@ -3,7 +3,7 @@ import { PrismaClient } from "@prisma/client";
 import { encryptSecret } from "../src/lib/crypto";
 import { seedDefaultTopics } from "../src/lib/topics";
 import { seedDefaultModules } from "../src/lib/source-modules";
-import { shouldSeedAiModel } from "./seed-helpers.mjs";
+import { buildAdminUpsertArgs, shouldSeedAiModel } from "./seed-helpers.mjs";
 
 const prisma = new PrismaClient();
 
@@ -23,14 +23,15 @@ async function main() {
     }
   });
 
-  await prisma.adminUser.upsert({
-    where: { username },
-    update: {},
-    create: {
-      username,
-      passwordHash: await bcrypt.hash(password, 12)
-    }
-  });
+  // 关键：buildAdminUpsertArgs 把 passwordHash 写进 update 分支，所以每次
+  // db:seed（即每次容器启动）都会用 .env 的 ADMIN_PASSWORD 覆盖数据库里的
+  // admin 密码。这意味着 .env 是密码的权威来源——重跑向导改密码立刻生效。
+  // 配套语义：UI 上改密码不持久，重启会被 .env 覆盖；如需 UI 持久化，需要
+  // 同步把新密码写回 .env。
+  const passwordHash = await bcrypt.hash(password, 12);
+  await prisma.adminUser.upsert(
+    buildAdminUpsertArgs(process.env as Record<string, string | undefined>, passwordHash)
+  );
 
   await prisma.summaryStyle.upsert({
     where: { id: "default-style" },
