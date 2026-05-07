@@ -35,6 +35,7 @@ run_suite "bash e2e tests"       bash "$SCRIPT_DIR/test-init-e2e.sh"
 run_suite "bootstrap.sh syntax"  bash -n "$PROJECT_DIR/scripts/bootstrap.sh"
 run_suite "init.sh syntax"       bash -n "$PROJECT_DIR/scripts/init.sh"
 run_suite "node seed-helpers"    bash -c "cd '$PROJECT_DIR' && node --test tests/test-seed.mjs"
+run_suite "node seed integration" bash -c "cd '$PROJECT_DIR' && [ -d node_modules/bcryptjs ] && node --test tests/test-seed-integration.mjs || echo '  (skipped: bcryptjs not installed; run npm i bcryptjs)'"
 
 echo
 echo "============================================="
