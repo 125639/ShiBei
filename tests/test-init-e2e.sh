@@ -216,6 +216,41 @@ test_unknown_mode_choice_falls_back_to_full() {
   rm -rf "$sandbox"
 }
 
+test_falls_back_to_tty_when_stdin_closed() {
+  # 模拟 `curl ... | bash` 的场景：stdin 是已关闭的管道（EOF），但用户的
+  # 真实终端可读。这种情况下向导必须从 /dev/tty 读取答案，否则 read 全
+  # 失败、所有提示走默认值——也就是用户报告的"我都没选脚本就跑完了"。
+  local sandbox tty_fifo
+  sandbox=$(setup_sandbox)
+  tty_fifo=$(mktemp -u)
+  mkfifo "$tty_fifo"
+
+  # 在后台往 fifo 写预设答案（写完就关闭，模拟用户键入完毕）。
+  # 注意：写端必须在读端开启之前或同时打开，否则会阻塞。这里用后台进程
+  # 解决，主进程随后启动向导，二者通过 fifo 同步。
+  ( printf '2\n\n\n\n3\nsk-tty-test\ny\n' > "$tty_fifo" ) &
+  local writer_pid=$!
+
+  # stdin 重定向到 /dev/null（模拟 curl 管道关闭）；SHIBEI_TTY_DEV 注入
+  # fifo 充当 /dev/tty。
+  SHIBEI_TTY_DEV="$tty_fifo" NO_COLOR=1 \
+    bash "$sandbox/scripts/init.sh" </dev/null >/dev/null 2>&1
+
+  wait "$writer_pid" 2>/dev/null || true
+  rm -f "$tty_fifo"
+
+  # 如果回退路径生效，会写出 backend 模式 + DeepSeek 模型；否则 stdin 全
+  # EOF 会走 full + 跳过 AI（默认值），断言会失败。
+  assert_grep "$sandbox/.env" '^APP_MODE="backend"$' "tty fallback should pick backend mode" || {
+    rm -rf "$sandbox"; return 1; }
+  assert_grep "$sandbox/.env" '^INIT_AI_PROVIDER="deepseek"$' "tty fallback should pick DeepSeek" || {
+    rm -rf "$sandbox"; return 1; }
+  assert_grep "$sandbox/.env" '^INIT_AI_API_KEY="sk-tty-test"$' "tty fallback should capture API key" || {
+    rm -rf "$sandbox"; return 1; }
+
+  rm -rf "$sandbox"
+}
+
 test_keys_differ_between_runs() {
   # Sanity: two independent runs must produce different AUTH_SECRET / ENCRYPTION_KEY.
   local s1 s2
