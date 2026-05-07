@@ -27,6 +27,9 @@ setup_sandbox() {
   echo "$sandbox"
 }
 
+# 默认在所有 e2e 用例里关掉自动启动；想测启动逻辑的用例显式 unset。
+export SHIBEI_AUTO_START=n
+
 assert_grep() {
   local file="$1" pattern="$2" msg="${3:-pattern not found in file}"
   if ! grep -E -- "$pattern" "$file" >/dev/null; then
@@ -266,6 +269,79 @@ test_keys_differ_between_runs() {
     return 1
   fi
   rm -rf "$s1" "$s2"
+}
+
+test_auto_start_invokes_docker_compose_with_correct_args() {
+  # 用 stub docker 拦截调用，验证向导对每种模式拼出的 compose 参数都对。
+  # 同时确认 SHIBEI_AUTO_START=y 时不需要交互——这是 curl|bash 流程的关键。
+  local sandbox stub_dir
+  sandbox=$(setup_sandbox)
+  stub_dir=$(mktemp -d)
+  cat > "$stub_dir/docker" <<STUB
+#!/usr/bin/env bash
+echo "PWD=\$PWD" >> "\$DOCKER_LOG"
+echo "ARGS=\$*" >> "\$DOCKER_LOG"
+exit 0
+STUB
+  chmod +x "$stub_dir/docker"
+
+  local log="$sandbox/docker.log"
+  PATH="$stub_dir:$PATH" DOCKER_LOG="$log" SHIBEI_AUTO_START=y \
+    NO_COLOR=1 bash -c "printf '2\n\n\n\n3\nsk-x\ny\n' | bash '$sandbox/scripts/init.sh'" >/dev/null 2>&1
+
+  if [ ! -f "$log" ]; then
+    echo "    FAIL: docker stub never invoked (auto-start did not fire)"
+    rm -rf "$sandbox" "$stub_dir"; return 1
+  fi
+  grep -F "PWD=$sandbox" "$log" >/dev/null || {
+    echo "    FAIL: docker invoked from wrong dir (expected $sandbox)"; cat "$log"
+    rm -rf "$sandbox" "$stub_dir"; return 1; }
+  grep -F "ARGS=compose -f docker-compose.backend.yml up -d" "$log" >/dev/null || {
+    echo "    FAIL: wrong compose args"; cat "$log"
+    rm -rf "$sandbox" "$stub_dir"; return 1; }
+
+  rm -rf "$sandbox" "$stub_dir"
+}
+
+test_auto_start_skipped_when_user_declines() {
+  # SHIBEI_AUTO_START=n 时绝对不应触碰 docker。stub 是个"被调就 panic"的陷阱。
+  local sandbox stub_dir
+  sandbox=$(setup_sandbox)
+  stub_dir=$(mktemp -d)
+  cat > "$stub_dir/docker" <<'STUB'
+#!/usr/bin/env bash
+touch "$DOCKER_PANIC"
+exit 1
+STUB
+  chmod +x "$stub_dir/docker"
+
+  local panic="$sandbox/docker.panic"
+  PATH="$stub_dir:$PATH" DOCKER_PANIC="$panic" SHIBEI_AUTO_START=n \
+    NO_COLOR=1 bash -c "printf '1\n\n\n\ns\ny\n' | bash '$sandbox/scripts/init.sh'" >/dev/null 2>&1
+
+  if [ -f "$panic" ]; then
+    echo "    FAIL: docker invoked even though SHIBEI_AUTO_START=n"
+    rm -rf "$sandbox" "$stub_dir"; return 1
+  fi
+  assert_grep "$sandbox/.env" '^APP_MODE="full"$' || { rm -rf "$sandbox" "$stub_dir"; return 1; }
+
+  rm -rf "$sandbox" "$stub_dir"
+}
+
+test_auto_start_recovers_when_docker_missing() {
+  # docker 不在 PATH 时，向导必须 warn 但不 crash，.env 仍要写好。
+  local sandbox empty_path
+  sandbox=$(setup_sandbox)
+  empty_path=$(mktemp -d)
+  PATH="$empty_path:/usr/bin:/bin" SHIBEI_AUTO_START=y \
+    NO_COLOR=1 bash -c "printf '1\n\n\n\ns\ny\n' | bash '$sandbox/scripts/init.sh'" >/dev/null 2>&1
+  local rc=$?
+  if [ "$rc" -ne 0 ]; then
+    echo "    FAIL: 缺 docker 时向导以非零退出 (rc=$rc)"
+    rm -rf "$sandbox" "$empty_path"; return 1
+  fi
+  assert_grep "$sandbox/.env" '^APP_MODE="full"$' || { rm -rf "$sandbox" "$empty_path"; return 1; }
+  rm -rf "$sandbox" "$empty_path"
 }
 
 # ---------- runner -----------------------------------------------------------

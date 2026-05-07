@@ -371,16 +371,60 @@ fi
 chmod 600 "$ENV_FILE" 2>/dev/null || true
 ui_success ".env 已写入：$ENV_FILE"
 
+# ---------- 启动 docker compose（可跳过）-------------------------------------
+# 选择对应模式的 compose 参数。后续 ui_section "Next steps" 也复用。
+case "$APP_MODE" in
+  full)     COMPOSE_ARGS=() ;;
+  backend)  COMPOSE_ARGS=(-f docker-compose.backend.yml) ;;
+  frontend) COMPOSE_ARGS=(-f docker-compose.frontend.yml) ;;
+esac
+COMPOSE_CMD_DISPLAY="docker compose"
+if [ "${#COMPOSE_ARGS[@]}" -gt 0 ]; then
+  COMPOSE_CMD_DISPLAY="docker compose ${COMPOSE_ARGS[*]}"
+fi
+
+# SHIBEI_AUTO_START=y/n 用于非交互场景与单元测试；空值走交互提问。
+AUTO_START="${SHIBEI_AUTO_START:-}"
+if [ -z "$AUTO_START" ]; then
+  echo
+  ask_default AUTO_START "现在用 ${COMPOSE_CMD_DISPLAY} up -d 启动？(Y/n)" "y"
+fi
+
+case "$AUTO_START" in
+  n|N|no|NO|0|false)
+    AUTO_STARTED=0
+    ;;
+  *)
+    if ! command -v docker >/dev/null 2>&1; then
+      ui_warn "未检测到 docker；请先安装后手动运行启动命令（见下方）。"
+      AUTO_STARTED=0
+    else
+      echo
+      ui_info "切到 $PROJECT_DIR 并运行 ${COMPOSE_CMD_DISPLAY} up -d ..."
+      if (cd "$PROJECT_DIR" && docker compose "${COMPOSE_ARGS[@]}" up -d); then
+        AUTO_STARTED=1
+        echo
+        ui_success "容器已启动；用 ${COMPOSE_CMD_DISPLAY} ps 看状态、logs -f 看日志。"
+      else
+        AUTO_STARTED=0
+        echo
+        ui_error "${COMPOSE_CMD_DISPLAY} up -d 退出非零；请按上方报错排查后手动重试。"
+      fi
+    fi
+    ;;
+esac
+
 # ---------- 庆祝 + 后续命令 ---------------------------------------------------
 echo
 ui_celebrate "🎉 Setup complete!"
 echo
 ui_section "Next steps"
-case "$APP_MODE" in
-  full)     printf "  ${BOLD}启动：${NC}    docker compose up -d\n" ;;
-  backend)  printf "  ${BOLD}启动：${NC}    docker compose -f docker-compose.backend.yml up -d\n" ;;
-  frontend) printf "  ${BOLD}启动：${NC}    docker compose -f docker-compose.frontend.yml up -d\n" ;;
-esac
+if [ "${AUTO_STARTED:-0}" = "1" ]; then
+  printf "  ${BOLD}已启动${NC}（${MUTED}%s up -d 已自动执行${NC}）\n" "$COMPOSE_CMD_DISPLAY"
+else
+  # 没自动起：完整把 cd + 启动一行写出来，避免用户在错误目录里跑 docker compose。
+  printf "  ${BOLD}启动：${NC}cd %s && %s up -d\n" "$PROJECT_DIR" "$COMPOSE_CMD_DISPLAY"
+fi
 printf "  ${BOLD}健康检查：${NC}curl ${SITE_URL%/}/api/health\n"
 printf "  ${BOLD}管理后台：${NC}${ACCENT_BRIGHT}${SITE_URL%/}/admin${NC}\n"
 printf "  ${BOLD}登录账号：${NC}${ADMIN_USERNAME} / ${BOLD}${ADMIN_PASSWORD}${NC}\n"
