@@ -99,8 +99,8 @@
 ### 1) 拉代码 + 准备环境变量
 
 ```bash
-git clone https://github.com/125639/ShellPick.git
-cd ShellPick
+git clone https://github.com/125639/shibei.git
+cd shibei
 cp .env.example .env
 # 修改 AUTH_SECRET / ENCRYPTION_KEY / ADMIN_PASSWORD / NEXT_PUBLIC_SITE_URL
 ```
@@ -169,7 +169,7 @@ docker compose logs -f app worker
 1. **A 服务器（backend）**
 
    ```bash
-   cd /opt/ShellPick && cp .env.example .env
+   cd /opt/shibei && cp .env.example .env
    # 编辑 .env：APP_MODE=backend, AUTH_SECRET, ENCRYPTION_KEY, ADMIN_PASSWORD, NEXT_PUBLIC_SITE_URL=https://api.example.com
    docker compose -f docker-compose.backend.yml up -d
 
@@ -183,7 +183,7 @@ docker compose logs -f app worker
 2. **B 服务器（frontend）**
 
    ```bash
-   cd /opt/ShellPick && cp .env.example .env
+   cd /opt/shibei && cp .env.example .env
    # 编辑 .env：APP_MODE=frontend, AUTH_SECRET, ENCRYPTION_KEY, ADMIN_PASSWORD, NEXT_PUBLIC_SITE_URL=https://shibei.example.com
    docker compose -f docker-compose.frontend.yml up -d
 
@@ -304,7 +304,7 @@ npx prisma migrate dev --name describe_change
 ## 架构与目录
 
 ```text
-ShellPick/
+shibei/
 ├── prisma/
 │   ├── schema.prisma                # 数据模型（Post / Video / Music / Source / SourceModule / NewsTopic …）
 │   ├── seed.ts                      # 初始管理员、默认风格、默认主题/模块
@@ -483,7 +483,7 @@ curl -O -J http://backend.example.com:3000/api/admin/sync/export \
 ## 升级到新版本
 
 ```bash
-cd /opt/ShellPick
+cd /opt/shibei
 git pull
 docker compose pull          # 拉最新预构建镜像；或 docker compose build
 docker compose up -d         # 滚动重启；start-app.sh 会自动 migrate deploy + seed
