@@ -77,7 +77,10 @@ ask_default() {
   else
     printf "  %s: " "$prompt"
   fi
-  read -r reply || reply=""
+  if ! read -r reply; then
+    _attach_tty_or_fail
+    read -r reply || reply=""
+  fi
   [ -z "$reply" ] && reply="$default"
   printf -v "$__var" '%s' "$reply"
 }
@@ -86,10 +89,25 @@ ask_secret() {
   local __var="$1" prompt="$2" reply
   printf "  %s ${MUTED}(不回显，回车跳过)${NC}: " "$prompt"
   stty -echo 2>/dev/null || true
-  read -r reply || reply=""
+  if ! read -r reply; then
+    _attach_tty_or_fail
+    read -r reply || reply=""
+  fi
   stty echo 2>/dev/null || true
   echo
   printf -v "$__var" '%s' "$reply"
+}
+
+# 当 stdin 提早 EOF（典型场景: curl ... | bash 启动子进程，子进程继承的
+# stdin 是已关闭的 curl 管道）时，把整条进程的 fd 0 一次性接到真实终端，
+# 之后所有 read 都从 /dev/tty 读。SHIBEI_TTY_DEV 留给单元测试覆盖。
+_attach_tty_or_fail() {
+  if [ "${_TTY_ATTACHED:-0}" = "1" ]; then return 0; fi
+  local tty_dev="${SHIBEI_TTY_DEV:-/dev/tty}"
+  if [ -r "$tty_dev" ]; then
+    exec <"$tty_dev"
+    _TTY_ATTACHED=1
+  fi
 }
 
 # ---------- Random / detection ------------------------------------------------
