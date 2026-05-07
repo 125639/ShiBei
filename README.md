@@ -96,18 +96,48 @@
 >
 > 推荐 Linux 服务器 + Docker 27+ + Docker Compose v2。
 
-### 1) 拉代码 + 准备环境变量
+### 🚀 一键安装（推荐）
 
 ```bash
-git clone https://github.com/125639/shibei.git
-cd shibei
-cp .env.example .env
-# 修改 AUTH_SECRET / ENCRYPTION_KEY / ADMIN_PASSWORD / NEXT_PUBLIC_SITE_URL
+curl -fsSL https://raw.githubusercontent.com/125639/ShellPick/main/scripts/bootstrap.sh | bash
 ```
 
-`AUTH_SECRET` 和 `ENCRYPTION_KEY` 建议 `openssl rand -hex 32` 各生成一份，**改了 ENCRYPTION_KEY 后已加密的 AI Key 会全部失效，需要在后台重填**。
+`bootstrap.sh` 会做三件事：
 
-### 2) 启动
+1. 检查 `git` / `openssl` / `docker` 是否就绪
+2. `git clone` 仓库到 `~/ShellPick`（已存在则 `git pull`）
+3. 自动运行 `scripts/init.sh` 进入交互式向导
+
+向导会自动：
+
+- 检测本机 IP，给 `NEXT_PUBLIC_SITE_URL` 一个合理默认值
+- 用 `openssl rand -hex 32` 生成 `AUTH_SECRET` / `ENCRYPTION_KEY` / `SYNC_TOKEN`
+- 留空管理员密码时自动生成 16 位强密码
+- 让你选 `full` / `backend` / `frontend` 三种部署形态
+- 可选地预设 AI 模型（CanopyWave / OpenAI / DeepSeek / Moonshot / Qwen / SiliconFlow / OpenRouter / 自定义），首次 `db:seed` 落库
+
+向导结束会打印对应模式的 `docker compose ... up -d` 命令、健康检查 URL 和登录账号。
+
+> **环境变量覆盖**：`SHIBEI_REPO`（默认仓库）、`SHIBEI_BRANCH`（默认 `main`）、`SHIBEI_DIR`（默认 `~/ShellPick`）、`NO_COLOR=1` 关闭 ANSI 颜色。
+
+### 已经克隆过仓库？直接运行向导
+
+```bash
+cd /opt/ShellPick   # 或你的工作目录
+bash scripts/init.sh
+```
+
+### 不想用向导？走传统流程
+
+```bash
+git clone https://github.com/125639/ShellPick.git
+cd ShellPick
+cp .env.example .env
+# 编辑 .env：AUTH_SECRET / ENCRYPTION_KEY / ADMIN_PASSWORD / NEXT_PUBLIC_SITE_URL
+# 两个密钥建议各自 `openssl rand -hex 32`
+```
+
+### 启动
 
 | 形态 | 启动命令 |
 | --- | --- |
@@ -120,12 +150,12 @@ cp .env.example .env
 > - 默认 `up -d` 会拉 Docker Hub 上的镜像，**几分钟**就能起来。
 > - 加 `--build` 会强制本地构建：低内存机器上 Playwright/Chromium 下载 + `next build` 容易 OOM，建议在 4 GB+ 的机器上构建并推到 Docker Hub。
 
-### 3) 访问
+### 访问
 
 ```text
 http://服务器IP             # 公开站（前端/完整版）
 http://服务器IP:3000        # 同上
-http://服务器IP:3000/admin  # 管理后台（默认 admin / 你在 .env 里设的密码）
+http://服务器IP:3000/admin  # 管理后台（默认 admin / 你在向导里设的密码）
 http://服务器IP:3000/api/health  # 健康检查（compose 已用它做 healthcheck）
 ```
 
@@ -133,7 +163,7 @@ http://服务器IP:3000/api/health  # 健康检查（compose 已用它做 health
 >
 > 后端 compose **只暴露 3000**——拆分部署时建议给它套一层 Caddy/Nginx 做 HTTPS。
 
-### 4) 验证
+### 验证
 
 ```bash
 # 服务状态
@@ -166,33 +196,46 @@ docker compose logs -f app worker
 
 ### 步骤
 
-1. **A 服务器（backend）**
+1. **A 服务器（backend）—— 一条命令搞定 .env**
 
    ```bash
-   cd /opt/shibei && cp .env.example .env
-   # 编辑 .env：APP_MODE=backend, AUTH_SECRET, ENCRYPTION_KEY, ADMIN_PASSWORD, NEXT_PUBLIC_SITE_URL=https://api.example.com
+   curl -fsSL https://raw.githubusercontent.com/125639/ShellPick/main/scripts/bootstrap.sh | bash
+   # 或在已克隆目录: cd /opt/ShellPick && bash scripts/init.sh
+   #
+   # 在向导里：
+   #   [1/6] 部署模式 → 2 (backend)
+   #   [2/6] 站点 URL → https://api.example.com（覆盖默认 IP）
+   #   [3/6] 管理员密码 → 留空自动生成
+   #   [4/6] 安全密钥 → 自动生成（含 SYNC_TOKEN，向导结束会单独打印）
+   #   [5/6] AI 模型 → 选一个并填 API Key（也可跳过到 /admin/settings 配）
+   #   [6/6] 确认写入
+
    docker compose -f docker-compose.backend.yml up -d
-
-   # 浏览器访问 https://api.example.com/admin 登录，进入 /admin/sync：
-   #   1. 生成共享密钥：openssl rand -hex 32 → 填入「共享密钥」并保存
-   #   2. /admin/settings 配置 AI 模型（CanopyWave / OpenAI / DeepSeek …）
-   #   3. /admin/sources 添加 RSS / 网页源
-   #   4. /admin/auto-curation 设置主题与定时调度
    ```
 
-2. **B 服务器（frontend）**
+   随后浏览器访问 `https://api.example.com/admin` 登录：
+
+   - `/admin/sources` 添加 RSS / 网页源
+   - `/admin/auto-curation` 设置主题与定时调度
+   - `/admin/sync` 仅在你想换 SYNC_TOKEN 时再来；向导已经把它写进 `.env` 了
+
+2. **B 服务器（frontend）—— 同样一条命令**
 
    ```bash
-   cd /opt/shibei && cp .env.example .env
-   # 编辑 .env：APP_MODE=frontend, AUTH_SECRET, ENCRYPTION_KEY, ADMIN_PASSWORD, NEXT_PUBLIC_SITE_URL=https://shibei.example.com
-   docker compose -f docker-compose.frontend.yml up -d
+   curl -fsSL https://raw.githubusercontent.com/125639/ShellPick/main/scripts/bootstrap.sh | bash
 
-   # 浏览器访问 https://shibei.example.com/admin 登录，进入 /admin/sync：
-   #   - Backend 入口：https://api.example.com
-   #   - 共享密钥：粘贴 backend 上同一串
-   #   - 同步模式：自动（默认 15 分钟拉一次）
-   #   - 保存。容器内的 sync-worker 会立即开始拉。
+   # 在向导里：
+   #   [1/6] 部署模式 → 3 (frontend)
+   #   [2/6] 站点 URL → https://shibei.example.com
+   #   [5/6] 同步参数：
+   #         Backend 入口 URL → https://api.example.com
+   #         同步模式 → auto（默认 15 分钟）
+   #   [6/6] 确认写入
+
+   docker compose -f docker-compose.frontend.yml up -d
    ```
+
+   **关键步骤**：把 A 服务器向导生成的 `SYNC_TOKEN` 复制到 B 服务器的 `.env`（直接编辑覆盖即可），或登录 `https://shibei.example.com/admin/sync` 网页端填入并保存。两端 token 必须完全一致。
 
 3. **HTTPS 与反向代理（强烈建议）**
 
@@ -235,6 +278,8 @@ docker compose logs -f app worker
 | OpenRouter | `https://openrouter.ai/api/v1` | `openai/gpt-4o-mini` |
 | 自定义 | 任意 baseUrl | 任意 model 名 |
 
+> `scripts/init.sh` 第 5 步可以预选其中之一并填 API Key，首次 `db:seed` 时会自动写入 `ModelConfig`（API Key 用 `ENCRYPTION_KEY` 加密入库）。也可以先跳过、启动后再到 `/admin/settings` 配置。
+
 API Key 会用 `ENCRYPTION_KEY` 派生的 AES-256-GCM 加密后入库；后台仅显示「已配置」，不会回显明文。
 
 ### Reasoning 模型（Kimi-k2.6 / DeepSeek-R1 / OpenAI o*）
@@ -265,7 +310,10 @@ npm install
 docker run -d --name dev-pg -e POSTGRES_USER=shibei -e POSTGRES_PASSWORD=shibei -e POSTGRES_DB=shibei_blog -p 5432:5432 postgres:16-alpine
 docker run -d --name dev-redis -p 6379:6379 redis:7-alpine
 
-# 3) 准备 .env（指向 127.0.0.1:5432 / 6379）
+# 3) 准备 .env（两种方式任选）
+#    a) 推荐：跑一遍向导，会自动生成密钥
+bash scripts/init.sh
+#    b) 手动：cp .env.example .env 并把 DATABASE_URL 改为 postgresql://shibei:shibei@127.0.0.1:5432/...
 
 # 4) 迁移 + 种子
 npx prisma migrate deploy
@@ -304,10 +352,10 @@ npx prisma migrate dev --name describe_change
 ## 架构与目录
 
 ```text
-shibei/
+ShellPick/
 ├── prisma/
 │   ├── schema.prisma                # 数据模型（Post / Video / Music / Source / SourceModule / NewsTopic …）
-│   ├── seed.ts                      # 初始管理员、默认风格、默认主题/模块
+│   ├── seed.ts                      # 初始管理员、默认风格、默认主题/模块；读 INIT_AI_* 写入默认模型
 │   └── migrations/                  # 9 份 idempotent SQL 迁移
 ├── src/
 │   ├── middleware.ts                # APP_MODE 路由守卫；frontend 屏蔽抓取相关路径，backend 把公开页重定向到 /admin
@@ -331,6 +379,8 @@ shibei/
 │   ├── worker/index.ts              # BullMQ worker：fetch / research / digest / audience / schedule（仅 backend / full）
 │   └── sync-worker/index.ts         # frontend 专用轻量 sync-worker（仅 frontend）
 ├── scripts/
+│   ├── bootstrap.sh                 # 远程一键安装（curl … | bash）：装依赖检查 → git clone → init.sh
+│   ├── init.sh                      # 交互式 .env 向导（自动检测 IP、生成密钥、选模式与 AI 模型）
 │   ├── start-app.sh                 # APP_MODE 调度的容器入口（迁移 + seed + 启动）
 │   └── apply-migration.mjs          # 手工应用 SQL 的辅助脚本
 ├── Dockerfile                       # 完整版镜像（Playwright + yt-dlp + ffmpeg）
@@ -340,7 +390,7 @@ shibei/
 ├── docker-compose.backend.yml       # 后端（postgres + redis + app + worker，APP_MODE=backend）
 ├── docker-compose.frontend.yml      # 前端（postgres + app，sync-worker 在容器内并发跑）
 ├── docker-compose.frontdemo.yml     # 演示前端接入既有 backend 的 docker 网络
-├── .env.example                     # 必填环境变量样板
+├── .env.example                     # 必填环境变量样板（手动模式参考）
 ├── README.md                        # 本文件
 ├── SYNC.md                          # 同步协议详细规格
 └── DEPLOY_NOTES.md                  # 部署历史记录与变更说明
@@ -383,6 +433,9 @@ ensureBackendCallerAllowed → 校验 Authorization
 ## 常用运维命令
 
 ```bash
+# 重新跑向导（会先备份现有 .env）
+bash scripts/init.sh
+
 # 实时日志（按 Ctrl+C 退出）
 docker compose logs -f app
 docker compose logs -f worker
@@ -421,7 +474,7 @@ curl -O -J http://backend.example.com:3000/api/admin/sync/export \
 
 1. **端口映射写错**：镜像内监听 3000，所以 `-p 80:3000`、不是 `80:80`。
 2. **容器其实退了**：`docker compose ps` 看 `app` 是不是 `Exited`；`docker compose logs app` 看错误。
-   - 最常见报错：`Validation Error Count: 1 [Context: getConfig]` → `.env` 漏填 `DATABASE_URL` / `AUTH_SECRET` / `ENCRYPTION_KEY`。
+   - 最常见报错：`Validation Error Count: 1 [Context: getConfig]` → `.env` 漏填 `DATABASE_URL` / `AUTH_SECRET` / `ENCRYPTION_KEY`。重跑 `bash scripts/init.sh` 即可一次性补齐。
 3. **防火墙 / 安全组**：阿里云、腾讯云、DigitalOcean 控制台放行 80 / 3000 入站。
 4. **前端的 backend 入口写成了 localhost**：跨服务器时必须填 backend 的公网 IP / 域名，frontend 容器内的 localhost 是它自己。
 
@@ -467,12 +520,23 @@ curl -O -J http://backend.example.com:3000/api/admin/sync/export \
 
 编辑对应 compose，删掉 `"80:3000"` 一行，前置 Caddy/Nginx 反代做端口转发与 TLS。
 
+### ❾ 想换密钥 / 换部署形态
+
+直接重跑向导：
+
+```bash
+bash scripts/init.sh
+# 检测到旧 .env 时会先备份成 .env.bak.YYYYMMDD-HHMMSS 再覆盖
+```
+
+> ⚠️ 改 `ENCRYPTION_KEY` 会让数据库里已加密的 AI Key 全部失效，需要在 `/admin/settings` 重填一次。
+
 ---
 
 ## 安全建议
 
-- **改默认密码**：`.env.example` 里的 `change-me-now` 仅适合首次启动，登录后立刻去 `/admin/settings/admin` 改成强密码。
-- **AUTH_SECRET / ENCRYPTION_KEY**：每个部署独立，长度 ≥ 32 byte 随机串。
+- **改默认密码**：向导留空时会自动生成 16 位强密码，登录后仍建议到 `/admin/settings/admin` 改成自己记得住的强密码。
+- **AUTH_SECRET / ENCRYPTION_KEY**：每个部署独立，长度 ≥ 32 byte 随机串（向导默认 64 hex）。
 - **SYNC_TOKEN**：跨服务器场景务必 HTTPS，定期轮换；轮换时先在两端同步保存新值再删旧值。
 - **公开 backend**：`backend` 模式下 `/api/public/*` 已要求 SYNC_TOKEN；但建议再加一层 Caddy/Nginx 限速，避开未授权扫描的恶意请求。
 - **API Key**：所有外部 API Key（OpenAI / DeepSeek / Exa）都用 `ENCRYPTION_KEY` 加密入库；备份数据库等同备份这些密钥，注意 ACL。
@@ -483,7 +547,7 @@ curl -O -J http://backend.example.com:3000/api/admin/sync/export \
 ## 升级到新版本
 
 ```bash
-cd /opt/shibei
+cd /opt/ShellPick
 git pull
 docker compose pull          # 拉最新预构建镜像；或 docker compose build
 docker compose up -d         # 滚动重启；start-app.sh 会自动 migrate deploy + seed
