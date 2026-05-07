@@ -3,7 +3,8 @@ import { describe, test } from "node:test";
 import assert from "node:assert/strict";
 import {
   buildModelConfigInput,
-  shouldSeedAiModel
+  shouldSeedAiModel,
+  buildAdminUpsertArgs
 } from "../prisma/seed-helpers.mjs";
 
 describe("buildModelConfigInput", () => {
@@ -110,5 +111,45 @@ describe("shouldSeedAiModel", () => {
     // because we don't want init.sh to silently add a second default model
     // after the user already configured something via /admin/settings.
     assert.equal(shouldSeedAiModel({ INIT_AI_PROVIDER: "openai" }, 1), null);
+  });
+});
+
+describe("buildAdminUpsertArgs", () => {
+  const HASH = "bcrypt$fakehash$payload";
+
+  test("uses env.ADMIN_USERNAME when set", () => {
+    const args = buildAdminUpsertArgs({ ADMIN_USERNAME: "rooty" }, HASH);
+    assert.equal(args.where.username, "rooty");
+    assert.equal(args.create.username, "rooty");
+  });
+
+  test("falls back to 'admin' when ADMIN_USERNAME unset", () => {
+    const args = buildAdminUpsertArgs({}, HASH);
+    assert.equal(args.where.username, "admin");
+  });
+
+  test("trims whitespace from ADMIN_USERNAME", () => {
+    const args = buildAdminUpsertArgs({ ADMIN_USERNAME: "  ops  " }, HASH);
+    assert.equal(args.where.username, "ops");
+  });
+
+  test("create branch carries passwordHash", () => {
+    const args = buildAdminUpsertArgs({}, HASH);
+    assert.equal(args.create.passwordHash, HASH);
+  });
+
+  test("update branch carries passwordHash — this is the key fix for "
+       + "the bug where re-running init.sh would silently keep the old DB password", () => {
+    // BEFORE FIX: update was {} which made env.ADMIN_PASSWORD only effective
+    // on the FIRST seed against an empty DB. After fix, every seed reconciles
+    // the DB password to whatever .env says, so re-running the wizard to
+    // change credentials actually takes effect on next container restart.
+    const args = buildAdminUpsertArgs({}, HASH);
+    assert.deepEqual(args.update, { passwordHash: HASH });
+  });
+
+  test("create and update share the same hash (no drift)", () => {
+    const args = buildAdminUpsertArgs({ ADMIN_USERNAME: "x" }, HASH);
+    assert.equal(args.create.passwordHash, args.update.passwordHash);
   });
 });
