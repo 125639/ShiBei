@@ -4,6 +4,7 @@ import { getModelConfigForUse } from "@/lib/model-selection";
 import { prisma } from "@/lib/prisma";
 import { isFrontend } from "@/lib/app-mode";
 import { proxyToBackend } from "@/lib/sync/proxy";
+import { ensureBackendCallerAllowed } from "@/lib/sync/backend-auth";
 
 export const dynamic = "force-dynamic";
 
@@ -23,6 +24,10 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
     }
     return proxyToBackend(request, `/api/public/posts/${encodeURIComponent(id)}/translate`);
   }
+
+  // backend 模式暴露在公网时，必须验证共享密钥，否则任何人都能消耗你的模型 Key。
+  const denied = await ensureBackendCallerAllowed(request);
+  if (denied) return denied;
 
   const post = await prisma.post.findUnique({ where: { id } });
   if (!post || post.status !== "PUBLISHED") {

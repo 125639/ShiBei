@@ -1,0 +1,20 @@
+# 前端模式专用的 /data 挂载覆盖
+# ============================================================================
+#
+# 前端 compose 只有 postgres + app，没有 redis / worker。Compose 在 override
+# 中提到不存在的服务时会报错，所以前端单独用这份精简版。
+#
+# 启动：
+#     docker compose -f docker-compose.frontend.yml -f docker-compose.data-disk.frontend.yml up -d
+#
+# 前置准备见 docker-compose.data-disk.yml 顶部注释。
+# ============================================================================
+
+services:
+  postgres:
+    volumes:
+      - /data/postgres:/var/lib/postgresql/data
+
+  app:
+    volumes:
+      - /data/uploads:/app/public/uploads

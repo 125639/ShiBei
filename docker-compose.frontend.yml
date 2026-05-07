@@ -31,6 +31,9 @@ services:
 
   app:
     image: safg/shibei:frontend
+    build:
+      context: .
+      dockerfile: Dockerfile.frontend
     depends_on:
       postgres:
         condition: service_healthy
@@ -46,6 +49,12 @@ services:
     volumes:
       # 持久化用户上传的视频/音乐(导入的 ZIP 也会落到这里)
       - app-uploads:/app/public/uploads
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 10s
+      start_period: 90s
+      retries: 5
     mem_limit: 320m
     restart: unless-stopped
 

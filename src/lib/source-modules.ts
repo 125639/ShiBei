@@ -165,28 +165,42 @@ export const DEFAULT_MODULES: DefaultModule[] = [
 ];
 
 type SourceModuleClient = {
-  upsert: (args: {
-    where: { slug: string };
-    update: Record<string, unknown>;
-    create: { slug: string; name: string; description: string; color: string; sortOrder: number };
+  findFirst: (args: {
+    where: { OR: Array<{ slug: string } | { name: string }> };
+    select: { id: true; slug: true };
+  }) => Promise<{ id: string; slug: string } | null>;
+  create: (args: {
+    data: { slug: string; name: string; description: string; color: string; sortOrder: number };
   }) => Promise<{ id: string; slug: string }>;
 };
+
+function isUniqueConflict(error: unknown) {
+  return typeof error === "object" && error !== null && "code" in error && (error as { code?: string }).code === "P2002";
+}
 
 export async function seedDefaultModules(prisma: PrismaClient) {
   const sourceModule = (prisma as unknown as { sourceModule: SourceModuleClient }).sourceModule;
 
   for (const m of DEFAULT_MODULES) {
-    const moduleRow = await sourceModule.upsert({
-      where: { slug: m.slug },
-      update: {},
-      create: {
-        slug: m.slug,
-        name: m.name,
-        description: m.description,
-        color: m.color,
-        sortOrder: m.sortOrder
+    const where = { OR: [{ slug: m.slug }, { name: m.name }] };
+    let moduleRow = await sourceModule.findFirst({ where, select: { id: true, slug: true } });
+    if (!moduleRow) {
+      try {
+        moduleRow = await sourceModule.create({
+          data: {
+            slug: m.slug,
+            name: m.name,
+            description: m.description,
+            color: m.color,
+            sortOrder: m.sortOrder
+          }
+        });
+      } catch (error) {
+        if (!isUniqueConflict(error)) throw error;
+        moduleRow = await sourceModule.findFirst({ where, select: { id: true, slug: true } });
+        if (!moduleRow) throw error;
       }
-    });
+    }
 
     const existing = await prisma.source.findFirst({
       where: { modules: { some: { id: moduleRow.id } } },

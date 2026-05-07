@@ -55,9 +55,10 @@ export function middleware(request: NextRequest) {
   return NextResponse.next();
 }
 
-// 不拦截静态资源、内置路径。注意:正则需要排除 /_next/*, /uploads/*, 静态文件等。
+// 不拦截静态资源、内置路径。注意:正则需要排除 /_next/*, /uploads/*, 静态文件、
+// 健康检查与同步路由。健康检查必须始终可访问，否则反代/容器运行时无法判断状态。
 export const config = {
   matcher: [
-    "/((?!_next/static|_next/image|favicon.ico|uploads/|api/public/sync|api/admin/sync).*)",
+    "/((?!_next/static|_next/image|favicon.ico|uploads/|api/health|api/admin/sync).*)",
   ],
 };

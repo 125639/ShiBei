@@ -1,0 +1,61 @@
+# 把所有持久化数据从 Docker 默认命名卷迁到 /data 挂载点
+# ============================================================================
+#
+# 用途：当 VPS 系统盘很小，但数据盘单独挂在 /data 时，把 postgres / redis /
+#       上传文件都落到 /data 下。这样升级镜像、重建容器、重新挂载数据盘都
+#       不会丢数据。
+#
+# 前置：宿主机上必须已经把数据盘挂到了 /data，建议步骤：
+#
+#     1) 在云厂商控制台给 VPS 加一块新数据盘（200GB / 500GB / 1TB...）
+#     2) 登录服务器，识别新盘：
+#          lsblk
+#          # 假设新盘是 /dev/vdb
+#     3) 创建文件系统并挂载：
+#          sudo mkfs.ext4 /dev/vdb
+#          sudo mkdir -p /data
+#          sudo mount /dev/vdb /data
+#     4) 写入 /etc/fstab 让重启后自动挂回：
+#          echo '/dev/vdb /data ext4 defaults,nofail 0 2' | sudo tee -a /etc/fstab
+#     5) 提前建好子目录，让对应容器的 uid/gid 能写入：
+#          sudo mkdir -p /data/postgres /data/redis /data/uploads
+#          sudo chown 999:999 /data/postgres        # postgres:postgres uid in alpine
+#          sudo chown 999:999 /data/redis           # redis:redis uid in alpine
+#          # uploads 由 app/worker 容器以 root 跑，无需 chown
+#
+# 启动方式（与原 compose 文件叠加，先后顺序很重要）：
+#
+#     # 完整版（postgres + redis + app + worker）
+#     docker compose -f docker-compose.yml -f docker-compose.data-disk.yml up -d
+#
+#     # 后端（postgres + redis + app + worker）
+#     docker compose -f docker-compose.backend.yml -f docker-compose.data-disk.yml up -d
+#
+#     # 前端（只有 postgres + app；redis/worker 部分会被 compose 自动忽略）
+#     docker compose -f docker-compose.frontend.yml -f docker-compose.data-disk.frontend.yml up -d
+#
+# 校验：
+#     docker compose ps
+#     ls -la /data/postgres /data/redis /data/uploads
+#     # 数据应该都落在 /data/ 下
+#
+# 回滚到默认命名卷：去掉本文件后 docker compose down && up -d 即可。原数据
+# 仍在 /data 下，命名卷会重新创建为空 — 切换前请确认你想用哪一边的数据。
+# ============================================================================
+
+services:
+  postgres:
+    volumes:
+      - /data/postgres:/var/lib/postgresql/data
+
+  redis:
+    volumes:
+      - /data/redis:/data
+
+  app:
+    volumes:
+      - /data/uploads:/app/public/uploads
+
+  worker:
+    volumes:
+      - /data/uploads:/app/public/uploads

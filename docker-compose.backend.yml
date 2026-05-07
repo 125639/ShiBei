@@ -41,6 +41,9 @@ services:
 
   app:
     image: safg/shibei:backend
+    build:
+      context: .
+      dockerfile: Dockerfile.backend
     depends_on:
       postgres:
         condition: service_healthy
@@ -56,11 +59,20 @@ services:
     command: ["sh", "scripts/start-app.sh"]
     volumes:
       - app-uploads:/app/public/uploads
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 10s
+      start_period: 90s
+      retries: 5
     mem_limit: 768m
     restart: unless-stopped
 
   worker:
     image: safg/shibei:backend
+    build:
+      context: .
+      dockerfile: Dockerfile.backend
     depends_on:
       postgres:
         condition: service_healthy

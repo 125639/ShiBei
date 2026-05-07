@@ -109,22 +109,34 @@ export const DEFAULT_TOPICS: DefaultTopic[] = [
   }
 ];
 
+function isUniqueConflict(error: unknown) {
+  return typeof error === "object" && error !== null && "code" in error && (error as { code?: string }).code === "P2002";
+}
+
 export async function seedDefaultTopics(prisma: PrismaClient) {
   for (const topic of DEFAULT_TOPICS) {
-    await prisma.newsTopic.upsert({
-      where: { slug: topic.slug },
-      update: {},
-      create: {
-        slug: topic.slug,
-        name: topic.name,
-        description: topic.description,
-        scope: topic.scope,
-        keywords: topic.keywords.join("\n"),
-        compileKind: topic.compileKind,
-        articleCount: 1,
-        depth: "long",
-        isEnabled: false
-      }
-    });
+    const where = { OR: [{ slug: topic.slug }, { name: topic.name }] };
+    const existing = await prisma.newsTopic.findFirst({ where, select: { id: true } });
+    if (existing) continue;
+
+    try {
+      await prisma.newsTopic.create({
+        data: {
+          slug: topic.slug,
+          name: topic.name,
+          description: topic.description,
+          scope: topic.scope,
+          keywords: topic.keywords.join("\n"),
+          compileKind: topic.compileKind,
+          articleCount: 1,
+          depth: "long",
+          isEnabled: false
+        }
+      });
+    } catch (error) {
+      if (!isUniqueConflict(error)) throw error;
+      const createdByAnotherProcess = await prisma.newsTopic.findFirst({ where, select: { id: true } });
+      if (!createdByAnotherProcess) throw error;
+    }
   }
 }
