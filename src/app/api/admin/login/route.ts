@@ -7,9 +7,23 @@ export async function POST(request: Request) {
   const form = await request.formData();
   const username = String(form.get("username") || "");
   const password = String(form.get("password") || "");
-  const user = await prisma.adminUser.findUnique({ where: { username } });
 
-  if (!user || !(await bcrypt.compare(password, user.passwordHash))) {
+  let user;
+  try {
+    user = await prisma.adminUser.findUnique({ where: { username } });
+  } catch (err) {
+    console.error("[login] 数据库查询失败:", err);
+    return redirectTo("/admin/login?error=db", request);
+  }
+
+  if (!user) {
+    console.warn(`[login] 用户不存在: "${username}"`);
+    return redirectTo("/admin/login?error=1", request);
+  }
+
+  const passwordOk = await bcrypt.compare(password, user.passwordHash);
+  if (!passwordOk) {
+    console.warn(`[login] 密码错误: username="${username}"`);
     return redirectTo("/admin/login?error=1", request);
   }
 

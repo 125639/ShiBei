@@ -803,6 +803,16 @@ textarea {
   gap: 14px;
 }
 
+.form-error {
+  color: #dc2626;
+  font-size: 14px;
+  margin: 0;
+  padding: 10px 12px;
+  background: #fef2f2;
+  border: 1px solid #fecaca;
+  border-radius: 4px;
+}
+
 .field {
   display: grid;
   gap: 7px;
