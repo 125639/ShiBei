@@ -19,6 +19,19 @@ async function loadGlobalPromptPrefix(): Promise<string> {
   }
 }
 
+function isReasoningModel(model: string): boolean {
+  const m = (model || "").toLowerCase();
+  return (
+    m.includes("kimi-k2") ||
+    m.includes("deepseek-r1") ||
+    m.includes("deepseek-reasoner") ||
+    m.includes("/o1") ||
+    m.includes("/o3") ||
+    m.includes("/o4") ||
+    m.includes("reasoning")
+  );
+}
+
 /**
  * Pick a per-request HTTP timeout for the model call. Reasoning models
  * (Kimi-k2.6, DeepSeek-R1, OpenAI o*) often spend several minutes on
@@ -31,16 +44,26 @@ async function loadGlobalPromptPrefix(): Promise<string> {
 function pickTimeoutMs(modelConfig: { model: string }): number {
   const envOverride = Number(process.env.AI_REQUEST_TIMEOUT_MS);
   if (Number.isFinite(envOverride) && envOverride > 0) return envOverride;
-  const m = (modelConfig.model || "").toLowerCase();
-  const isReasoning =
-    m.includes("kimi-k2") ||
-    m.includes("deepseek-r1") ||
-    m.includes("deepseek-reasoner") ||
-    m.includes("/o1") ||
-    m.includes("/o3") ||
-    m.includes("/o4") ||
-    m.includes("reasoning");
-  return isReasoning ? 600_000 : 240_000; // 10min vs 4min
+  return isReasoningModel(modelConfig.model) ? 600_000 : 240_000; // 10min vs 4min
+}
+
+/**
+ * Reasoning 模型(Kimi-K2.6 / DeepSeek-R1 / o1/o3/o4 ...)在产出最终 content
+ * 之前会先把多条思考链塞进 reasoning_content,而思考链同样计入 max_tokens
+ * 配额。如果 admin 在后台把 maxTokens 设得偏保守(例如 2000),思考阶段就把
+ * 预算耗光,响应里 content 为 null 且 finish_reason=length,worker 拿不到正
+ * 文,只能落 fallback 草稿——这正是 ai.ts 早期 reasoning_content 兜底逻辑
+ * 出现的根本诱因(见 requestChatCompletionWithKey 内的注释)。
+ *
+ * 这里给 reasoning 模型抬一个下限,默认 8000(够覆盖思考+一篇长报道);admin
+ * 可通过 AI_REASONING_MIN_TOKENS env 调整。普通模型保持 admin 配的原值。
+ */
+function computeMaxTokens(modelConfig: { model: string; maxTokens: number }): number {
+  const configured = modelConfig.maxTokens;
+  if (!isReasoningModel(modelConfig.model)) return configured;
+  const envFloor = Number(process.env.AI_REASONING_MIN_TOKENS);
+  const floor = Number.isFinite(envFloor) && envFloor > 0 ? envFloor : 8000;
+  return Math.max(configured, floor);
 }
 
 type GenerateSummaryInput = {
@@ -306,7 +329,7 @@ async function requestChatCompletionWithKey(
     body: JSON.stringify({
       model: modelConfig.model,
       temperature: modelConfig.temperature,
-      max_tokens: modelConfig.maxTokens,
+      max_tokens: computeMaxTokens(modelConfig),
       messages: [
         { role: "system", content: finalSystem },
         { role: "user", content: prompt }
@@ -321,21 +344,17 @@ async function requestChatCompletionWithKey(
   }
 
   const data = await response.json();
-  // Reasoning 模型(Kimi-k2.6 / DeepSeek-R1 / o1 / o3 / o4)在某些场景下会把
-  // 思考与最终回复都放到 reasoning_content,而 content 为 null。如果只读
-  // content,worker 会得到 "Model returned empty content" 失败,失败后留下
-  // 一个仅含资料线索的草稿。这里按 content → reasoning_content → 空兜底。
+  // 严格只取 choices[0].message.content。Reasoning 模型(Kimi-k2.6 /
+  // DeepSeek-R1 / o1 / o3 / o4) 会把思考链放进 reasoning_content；之前为
+  // 了避免空内容失败而兜底到 reasoning_content,结果当模型把 prompt 复述
+  // 进思考流(例如"用户要求我...让我先分析...要求：1. 选题关键词：")时,
+  // 这段思考流被原样落库到 Post.content,再被详情页直接渲染给读者。content
+  // 为空时让上层 worker 走 buildResearchFallbackDraft / buildDigestFallback,
+  // 不要冒险拿 reasoning_content 当正文。
   const choice = data.choices?.[0]?.message;
-  const rawContent = (
-    choice?.content ??
-    choice?.reasoning_content ??
-    choice?.reasoning ??
-    null
-  ) as string | null;
+  const rawContent = choice?.content;
   const content = typeof rawContent === "string" ? rawContent.trim() : "";
   if (!content) {
-    // 避免把 finish_reason=length 这种"还有更多 token"的截断误认为内容缺失,
-    // 但当前实现下 content 仍为字符串(可能很短),抛错前打印 finish_reason 帮助排查。
     const finishReason = data.choices?.[0]?.finish_reason || "unknown";
     throw new Error(`Model returned empty content (finish_reason=${finishReason})`);
   }
