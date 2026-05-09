@@ -393,29 +393,57 @@ fi
 case "$AUTO_START" in
   n|N|no|NO|0|false)
     AUTO_STARTED=0
+    DOCKER_FAILED=0
     ;;
   *)
     if ! command -v docker >/dev/null 2>&1; then
       ui_warn "未检测到 docker；请先安装后手动运行启动命令（见下方）。"
       AUTO_STARTED=0
+      DOCKER_FAILED=0
     else
       echo
       ui_info "切到 $PROJECT_DIR 并运行 ${COMPOSE_CMD_DISPLAY} up -d ..."
       if (cd "$PROJECT_DIR" && docker compose "${COMPOSE_ARGS[@]}" up -d); then
         AUTO_STARTED=1
+        DOCKER_FAILED=0
         echo
         ui_success "容器已启动；用 ${COMPOSE_CMD_DISPLAY} ps 看状态、logs -f 看日志。"
       else
         AUTO_STARTED=0
+        DOCKER_FAILED=1
         echo
-        ui_error "${COMPOSE_CMD_DISPLAY} up -d 退出非零；请按上方报错排查后手动重试。"
+        ui_error "${COMPOSE_CMD_DISPLAY} up -d 退出非零；常见原因：镜像未拉到 / build 失败 / 端口占用 / .env 缺项。"
       fi
     fi
     ;;
 esac
 
-# ---------- 庆祝 + 后续命令 ---------------------------------------------------
+# ---------- 庆祝 / 排查指引 --------------------------------------------------
+# docker compose up -d 失败时不再打 "Setup complete!"——之前的版本即便 up -d
+# 退出非零仍然打印"启动 / 健康检查 / 管理后台 / 登录账号"，让用户以为成功，但
+# 容器其实没起来，访问 /admin 直接是 connection refused。这里区分三种状态:
+#   1) AUTO_STARTED=1               — 真的成功,正常打 Setup complete
+#   2) AUTO_STARTED=0 DOCKER_FAILED=0 — 用户主动跳过 / 没装 docker,给手动启动指引
+#   3) AUTO_STARTED=0 DOCKER_FAILED=1 — 启动失败,改打"未完成"+ 排查步骤,exit 1
 echo
+if [ "${DOCKER_FAILED:-0}" = "1" ]; then
+  printf "${WARN}${BOLD}Setup 未完成${NC} — .env 已生成,但 ${COMPOSE_CMD_DISPLAY} up -d 失败,容器没起来。\n"
+  echo
+  ui_section "排查步骤"
+  printf "  ${BOLD}1. 看错误：${NC}cd %s && %s logs --tail=100\n" "$PROJECT_DIR" "$COMPOSE_CMD_DISPLAY"
+  printf "  ${BOLD}2. 检查镜像：${NC}docker images | grep shibei\n"
+  printf "       ${MUTED}没列出 safg/shibei → 镜像没拉到/build 失败,手动重试:${NC}\n"
+  printf "       ${MUTED}cd %s && %s pull${NC}\n" "$PROJECT_DIR" "$COMPOSE_CMD_DISPLAY"
+  printf "       ${MUTED}# 或本地 build: cd %s && %s build${NC}\n" "$PROJECT_DIR" "$COMPOSE_CMD_DISPLAY"
+  printf "  ${BOLD}3. 检查端口：${NC}sudo lsof -i :3000 -i :80   ${MUTED}(被占用就改 compose 的 ports 映射)${NC}\n"
+  printf "  ${BOLD}4. 重新启动：${NC}cd %s && %s up -d\n" "$PROJECT_DIR" "$COMPOSE_CMD_DISPLAY"
+  echo
+  ui_info "排查后容器跑起来,登录信息:${ACCENT_BRIGHT}${SITE_URL%/}/admin${NC}  账号:${BOLD}${ADMIN_USERNAME} / ${ADMIN_PASSWORD}${NC}"
+  echo
+  ui_panel "Need help? FAQ → README.md#常见问题排查清单"
+  exit 1
+fi
+
 ui_celebrate "🎉 Setup complete!"
 echo
 ui_section "Next steps"

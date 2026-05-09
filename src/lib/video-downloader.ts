@@ -5,6 +5,7 @@ import path from "node:path";
 import { ensureUploadDirs, VIDEO_DIR } from "./storage";
 
 const DOMESTIC_HOSTS = [
+  // 视频平台
   "bilibili.com",
   "b23.tv",
   "weibo.com",
@@ -14,7 +15,21 @@ const DOMESTIC_HOSTS = [
   "douyin.com",
   "ixigua.com",
   "weishi.qq.com",
-  "miaopai.com"
+  "miaopai.com",
+  // 主流新闻 / 门户的自播视频
+  "cctv.com",
+  "cctv.cn",
+  "xinhuanet.com",
+  "news.cn",
+  "people.cn",
+  "people.com.cn",
+  "thepaper.cn",
+  "huanqiu.com",
+  "cnr.cn",
+  "sohu.com",
+  "163.com",
+  "sina.com.cn",
+  "ifeng.com"
 ];
 
 export function isDomesticVideoUrl(url: string): boolean {
