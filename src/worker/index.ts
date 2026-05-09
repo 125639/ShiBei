@@ -330,7 +330,8 @@ async function processKeywordResearch(fetchJobId: string, keyword: string, scope
       generated = buildResearchFallbackDraft(keyword, scopeLabel, rotateEvidence(evidence, index - 1), error, index, count, depth);
     }
 
-    await createDraftFromResearch(fetchJob.id, keyword, scopeLabel, evidence, generated, index);
+    const post = await createDraftFromResearch(fetchJob.id, keyword, scopeLabel, evidence, generated, index);
+    await attachVideosFromEvidence(post.id, evidence, `关键词「${keyword}」`);
   }
 }
 
@@ -583,6 +584,88 @@ function normalizeEmbedUrl(url: string) {
   return url;
 }
 
+/**
+ * 从任意自由文本(标题/摘要/链接)里抽出指向视频平台或直链 mp4/m3u8 的 URL。
+ * 不做网络请求,纯 regex。结果按出现先后去重(忽略 query/hash 部分),让上层
+ * 调用方决定如何创建 Video 行。
+ *
+ * 用途:keyword research / digest 这两条流程没有 DOM 可解析,evidence 都是
+ * RSS / Google News / Exa 给的纯文本摘要;它们里面经常出现 youtube/bilibili
+ * 等 URL,但之前流程完全不抽取,导致这两类 Post 永远没有 Video 行。
+ */
+function extractVideoUrlsFromText(text: string): string[] {
+  if (!text) return [];
+  const URL_RE = /https?:\/\/[^\s<>"'，。；【】()]+/g;
+  const VIDEO_HOST_RE = /(youtube\.com\/watch|youtu\.be\/|bilibili\.com\/video\/|b23\.tv\/|player\.bilibili\.com|v\.qq\.com\/x|v\.youku\.com|iqiyi\.com\/v_|douyin\.com\/video|vimeo\.com\/\d|dailymotion\.com\/video|\.mp4(?:[?#]|$)|\.m3u8(?:[?#]|$))/i;
+  const out: string[] = [];
+  const seenKey = new Set<string>();
+  let match: RegExpExecArray | null;
+  while ((match = URL_RE.exec(text)) !== null) {
+    const trimmed = match[0].replace(/[.,;:!?。，；！？)]+$/, "");
+    if (!VIDEO_HOST_RE.test(trimmed)) continue;
+    const key = trimmed.replace(/[?#].*$/, "");
+    if (seenKey.has(key)) continue;
+    seenKey.add(key);
+    out.push(trimmed);
+  }
+  return out;
+}
+
+/**
+ * 给 keyword research / digest 生成的 Post 附挂 Video 行。从 evidence 的
+ * title/summary/url 文本中抽视频 URL,纯链接(不下载),写入 Video 表关联到
+ * postId。任何单条创建失败都吞掉(console.error),避免拖垮整个 worker job
+ * ——视频附挂只是锦上添花,不该让 Post 本身变成 FAILED。
+ */
+async function attachVideosFromEvidence(postId: string, evidence: EvidenceItem[], contextLabel: string) {
+  type Picked = { url: string; title: string; sourceName: string; sourcePageUrl: string };
+  const seen = new Set<string>();
+  const picks: Picked[] = [];
+
+  for (const item of evidence) {
+    const text = `${item.title || ""}\n${item.summary || ""}\n${item.url || ""}`;
+    for (const url of extractVideoUrlsFromText(text)) {
+      const key = url.replace(/[?#].*$/, "");
+      if (seen.has(key)) continue;
+      seen.add(key);
+      picks.push({
+        url,
+        title: (item.title || "相关视频资源").slice(0, 200),
+        sourceName: item.sourceName,
+        sourcePageUrl: item.url
+      });
+      if (picks.length >= 6) break;
+    }
+    if (picks.length >= 6) break;
+  }
+
+  if (!picks.length) return;
+
+  for (const v of picks) {
+    const region = isDomesticVideoUrl(v.url) ? "DOMESTIC" : "INTERNATIONAL";
+    const type = detectVideoType(v.url);
+    try {
+      await (prisma as unknown as {
+        video: { create: (args: unknown) => Promise<unknown> };
+      }).video.create({
+        data: {
+          title: v.title,
+          type,
+          url: normalizeEmbedUrl(v.url),
+          summary: `从${v.sourceName}的报道中识别到的视频资源：${v.url}`,
+          postId,
+          region,
+          sourcePageUrl: v.sourcePageUrl,
+          sourcePlatform: hostFromUrl(v.url),
+          attribution: `来源页：${v.sourcePageUrl}\n原视频：${v.url}\n（基于${contextLabel}的研究资料自动提取，未实际下载文件）`
+        }
+      });
+    } catch (error) {
+      console.error(`[video-attach] failed for ${v.url}:`, error);
+    }
+  }
+}
+
 async function processAudienceEstimate(fetchJobId: string, sourceId: string) {
   const source = await prisma.source.findUniqueOrThrow({ where: { id: sourceId } });
   const modelConfig = await getModelConfigForUse("news");
@@ -682,7 +765,8 @@ async function processDigest(fetchJobId: string, topicId: string, digestKind: "D
     generated = buildDigestFallback(topic.name, formatLabel, windowLabel, scopeLabel, allEvidence, new Error("未配置模型或总结风格"));
   }
 
-  await createDraftFromDigest(fetchJob.id, topic.id, digestKind, fallbackTitle, allEvidence, generated, windowLabel, scopeLabel);
+  const post = await createDraftFromDigest(fetchJob.id, topic.id, digestKind, fallbackTitle, allEvidence, generated, windowLabel, scopeLabel);
+  await attachVideosFromEvidence(post.id, allEvidence, `${topic.name} ${windowLabel}`);
 }
 
 async function createDraftFromDigest(
