@@ -133,5 +133,11 @@ export type LocaleKey = keyof typeof t.zh;
 
 export function useTranslation(lang: string) {
   const dictionary = lang === 'en' ? t.en : t.zh;
-  return (key: LocaleKey) => dictionary[key] || key;
+  // 接受 LocaleKey 已知字面量(保持 IDE 自动补全),同时允许调用方传入运行时拼出来的
+  // key(如 `theme.${theme.key}.label`)。`string & {}` 是 TS 里在保持字面量补全
+  // 的前提下"再扩到任意 string"的标准技巧;否则一旦写成 `LocaleKey | string` 就会
+  // 把 LocaleKey 完全淹没,补全失效。运行时原本就有 `|| key` 兜底,未命中的 key
+  // 直接返回 key 自身,跟 as any 时的行为一致——只是不再把类型擦掉。
+  return (key: LocaleKey | (string & {})) =>
+    (dictionary as Record<string, string>)[key] || key;
 }

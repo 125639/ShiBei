@@ -113,10 +113,10 @@ export function UserSettingsClient({
               onClick={() => update({ language: opt.value })}
             >
               <span className="option-label">
-                {t(`lang.${opt.value}.label` as any) || opt.label}
+                {t(`lang.${opt.value}.label`) || opt.label}
                 {opt.value === defaultLanguage ? `（${t("sysDefault")}）` : ""}
               </span>
-              <span className="option-meta">{t(`lang.${opt.value}.desc` as any) || opt.description}</span>
+              <span className="option-meta">{t(`lang.${opt.value}.desc`) || opt.description}</span>
             </button>
           ))}
         </div>
@@ -144,10 +144,10 @@ export function UserSettingsClient({
                 ))}
               </div>
               <span className="option-label">
-                {t(`theme.${theme.key}.label` as any) || theme.label}
+                {t(`theme.${theme.key}.label`) || theme.label}
                 {theme.key === defaultTheme ? `（${t("sysDefault")}）` : ""}
               </span>
-              <span className="option-meta">{t(`theme.${theme.key}.desc` as any) || theme.desc}</span>
+              <span className="option-meta">{t(`theme.${theme.key}.desc`) || theme.desc}</span>
             </button>
           ))}
         </div>
@@ -173,10 +173,10 @@ export function UserSettingsClient({
                 <small>ShiBei Blog</small>
               </span>
               <span className="option-label">
-                {t(`font.${font.key}.label` as any) || font.label}
+                {t(`font.${font.key}.label`) || font.label}
                 {font.key === defaultFont ? `（${t("sysDefault")}）` : ""}
               </span>
-              <span className="option-meta">{t(`font.${font.key}.desc` as any) || font.desc}</span>
+              <span className="option-meta">{t(`font.${font.key}.desc`) || font.desc}</span>
             </button>
           ))}
         </div>
@@ -198,8 +198,8 @@ export function UserSettingsClient({
               className={`option-card${prefs.density === density.key ? " active" : ""}`}
               onClick={() => update({ density: density.key })}
             >
-              <span className="option-label">{t(`density.${density.key}.label` as any) || density.label}</span>
-              <span className="option-meta">{t(`density.${density.key}.desc` as any) || density.desc}</span>
+              <span className="option-label">{t(`density.${density.key}.label`) || density.label}</span>
+              <span className="option-meta">{t(`density.${density.key}.desc`) || density.desc}</span>
             </button>
           ))}
         </div>

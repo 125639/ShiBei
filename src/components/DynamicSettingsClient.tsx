@@ -134,8 +134,8 @@ export function DynamicSettingsClient({
               className={`dynamic-card${prefs.language === opt.value ? " active" : ""}`}
               onClick={() => update({ language: opt.value })}
             >
-              <span className="dynamic-card-label">{t(`lang.${opt.value}.label` as any) || opt.label}</span>
-              <span className="dynamic-card-meta">{t(`lang.${opt.value}.desc` as any) || opt.description}</span>
+              <span className="dynamic-card-label">{t(`lang.${opt.value}.label`) || opt.label}</span>
+              <span className="dynamic-card-meta">{t(`lang.${opt.value}.desc`) || opt.description}</span>
             </button>
           ))}
         </div>
@@ -157,8 +157,8 @@ export function DynamicSettingsClient({
                   <span key={i} style={{ background: color }} />
                 ))}
               </div>
-              <span className="dynamic-card-label">{t(`theme.${theme.key}.label` as any) || theme.label}</span>
-              <span className="dynamic-card-meta">{t(`theme.${theme.key}.desc` as any) || theme.desc}</span>
+              <span className="dynamic-card-label">{t(`theme.${theme.key}.label`) || theme.label}</span>
+              <span className="dynamic-card-meta">{t(`theme.${theme.key}.desc`) || theme.desc}</span>
             </button>
           ))}
         </div>
@@ -178,8 +178,8 @@ export function DynamicSettingsClient({
               <span className="dynamic-font-preview" style={{ fontFamily: font.family }}>
                 {font.preview}
               </span>
-              <span className="dynamic-card-label">{t(`font.${font.key}.label` as any) || font.label}</span>
-              <span className="dynamic-card-meta">{t(`font.${font.key}.desc` as any) || font.desc}</span>
+              <span className="dynamic-card-label">{t(`font.${font.key}.label`) || font.label}</span>
+              <span className="dynamic-card-meta">{t(`font.${font.key}.desc`) || font.desc}</span>
             </button>
           ))}
         </div>
@@ -196,8 +196,8 @@ export function DynamicSettingsClient({
               className={`dynamic-card${prefs.density === density.key ? " active" : ""}`}
               onClick={() => update({ density: density.key })}
             >
-              <span className="dynamic-card-label">{t(`density.${density.key}.label` as any) || density.label}</span>
-              <span className="dynamic-card-meta">{t(`density.${density.key}.desc` as any) || density.desc}</span>
+              <span className="dynamic-card-label">{t(`density.${density.key}.label`) || density.label}</span>
+              <span className="dynamic-card-meta">{t(`density.${density.key}.desc`) || density.desc}</span>
             </button>
           ))}
         </div>
