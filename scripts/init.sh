@@ -394,12 +394,14 @@ case "$AUTO_START" in
   n|N|no|NO|0|false)
     AUTO_STARTED=0
     DOCKER_FAILED=0
+    DOCKER_MISSING=0
     ;;
   *)
     if ! command -v docker >/dev/null 2>&1; then
       ui_warn "未检测到 docker；请先安装后手动运行启动命令（见下方）。"
       AUTO_STARTED=0
       DOCKER_FAILED=0
+      DOCKER_MISSING=1
     else
       echo
       ui_info "切到 $PROJECT_DIR 并运行 ${COMPOSE_CMD_DISPLAY} up -d --build ..."
@@ -407,11 +409,13 @@ case "$AUTO_START" in
       if (cd "$PROJECT_DIR" && docker compose "${COMPOSE_ARGS[@]}" up -d --build); then
         AUTO_STARTED=1
         DOCKER_FAILED=0
+        DOCKER_MISSING=0
         echo
         ui_success "容器已启动；用 ${COMPOSE_CMD_DISPLAY} ps 看状态、logs -f 看日志。"
       else
         AUTO_STARTED=0
         DOCKER_FAILED=1
+        DOCKER_MISSING=0
         echo
         ui_error "${COMPOSE_CMD_DISPLAY} up -d --build 退出非零；常见原因：build 失败 / 端口占用 / .env 缺项。"
       fi
@@ -422,10 +426,14 @@ esac
 # ---------- 庆祝 / 排查指引 --------------------------------------------------
 # docker compose up -d 失败时不再打 "Setup complete!"——之前的版本即便 up -d
 # 退出非零仍然打印"启动 / 健康检查 / 管理后台 / 登录账号"，让用户以为成功，但
-# 容器其实没起来，访问 /admin 直接是 connection refused。这里区分三种状态:
-#   1) AUTO_STARTED=1               — 真的成功,正常打 Setup complete
-#   2) AUTO_STARTED=0 DOCKER_FAILED=0 — 用户主动跳过 / 没装 docker,给手动启动指引
-#   3) AUTO_STARTED=0 DOCKER_FAILED=1 — 启动失败,改打"未完成"+ 排查步骤,exit 1
+# 容器其实没起来，访问 /admin 直接是 connection refused。这里区分四种状态:
+#   1) AUTO_STARTED=1                          — 真的成功,正常打 Setup complete
+#   2) AUTO_STARTED=0 DOCKER_FAILED=0 DOCKER_MISSING=0 — 用户主动跳过,给手动启动指引
+#   3) AUTO_STARTED=0 DOCKER_FAILED=0 DOCKER_MISSING=1 — 用户想启动但 docker 没装,
+#                                                       不能打"Setup complete"——配置
+#                                                       是完成了,但部署没法继续;给
+#                                                       Docker 安装指引 + 手动启动命令
+#   4) AUTO_STARTED=0 DOCKER_FAILED=1                  — 启动失败,改打"未完成"+ 排查步骤,exit 1
 echo
 if [ "${DOCKER_FAILED:-0}" = "1" ]; then
   printf "${WARN}${BOLD}Setup 未完成${NC} — .env 已生成,但 ${COMPOSE_CMD_DISPLAY} up -d --build 失败,容器没起来。\n"
@@ -442,6 +450,40 @@ if [ "${DOCKER_FAILED:-0}" = "1" ]; then
   echo
   ui_panel "Need help? FAQ → README.md#常见问题排查清单"
   exit 1
+fi
+
+if [ "${DOCKER_MISSING:-0}" = "1" ]; then
+  # 用户回 Y 想自动启动,但环境里没 docker。配置文件 OK,但部署被卡住——
+  # 不该再打"Setup complete!"，会让用户以为可以直接访问 /admin。
+  printf "${WARN}${BOLD}配置已写入,但 Docker 未安装${NC} — 装上 Docker 后再启动。\n"
+  echo
+  ui_section "下一步"
+  case "$OS" in
+    linux)
+      printf "  ${BOLD}1. 安装 Docker：${NC}curl -fsSL https://get.docker.com | sudo sh\n"
+      printf "       ${MUTED}（包含 docker engine + compose 插件;装完可能要 newgrp docker 或重新登录）${NC}\n"
+      ;;
+    macos)
+      printf "  ${BOLD}1. 安装 Docker Desktop：${NC}https://www.docker.com/products/docker-desktop/\n"
+      printf "       ${MUTED}（或 brew install --cask docker;装完启动 Docker.app 等图标变绿）${NC}\n"
+      ;;
+    *)
+      printf "  ${BOLD}1. 安装 Docker：${NC}见 https://docs.docker.com/engine/install/\n"
+      ;;
+  esac
+  printf "  ${BOLD}2. 验证：${NC}docker --version && docker compose version\n"
+  printf "  ${BOLD}3. 启动：${NC}cd %s && %s up -d --build\n" "$PROJECT_DIR" "$COMPOSE_CMD_DISPLAY"
+  printf "  ${BOLD}4. 健康检查：${NC}curl ${SITE_URL%/}/api/health\n"
+  echo
+  ui_info "启动后管理后台:${ACCENT_BRIGHT}${SITE_URL%/}/admin${NC}  账号:${BOLD}${ADMIN_USERNAME} / ${ADMIN_PASSWORD}${NC}"
+  if [ "$APP_MODE" = "backend" ]; then
+    echo
+    ui_warn "另一台 frontend 服务器的 SYNC_TOKEN 必须填同一串："
+    printf "    ${MUTED}%s${NC}\n" "$SYNC_TOKEN"
+  fi
+  echo
+  ui_panel "Need help? FAQ → README.md#常见问题排查清单"
+  exit 0
 fi
 
 ui_celebrate "🎉 Setup complete!"
