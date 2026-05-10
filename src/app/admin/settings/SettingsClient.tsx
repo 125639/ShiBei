@@ -355,13 +355,13 @@ export function SettingsClient({
                 <label htmlFor="tone"><I18nText zh="输出风格" en="Output Tone" /></label>
                 <select id="tone" name="tone" defaultValue="客观新闻">
                   <option>客观新闻</option>
-                  <option>简洁 bullet</option>
                   <option>深度分析</option>
+                  <option>科普解读</option>
                   <option>个人评论</option>
                 </select>
               </div>
               <div className="field">
-                <label htmlFor="length"><I18nText zh="总结长度" en="Summary Length" /></label>
+                <label htmlFor="length"><I18nText zh="篇幅偏好" en="Article Length" /></label>
                 <select id="length" name="length" defaultValue="中">
                   <option>短</option>
                   <option>中</option>
@@ -371,15 +371,15 @@ export function SettingsClient({
             </div>
             <div className="field">
               <label htmlFor="focus"><I18nText zh="关注重点" en="Focus" /></label>
-              <input id="focus" name="focus" defaultValue="事实, 影响, 争议, 技术细节, 商业价值" />
+              <input id="focus" name="focus" defaultValue="核心事实, 行业影响, 背景脉络, 多方观点" />
             </div>
             <div className="field">
               <label htmlFor="outputStructure"><I18nText zh="输出结构" en="Output Structure" /></label>
-              <input id="outputStructure" name="outputStructure" defaultValue="标题, 摘要, 关键点, 背景, 来源, 相关视频" />
+              <input id="outputStructure" name="outputStructure" defaultValue="标题 → 导语 → 正文分章节叙述 → 背景分析 → 参考来源" />
             </div>
             <div className="field">
               <label htmlFor="promptTemplate"><I18nText zh="自定义提示词模板" en="Custom Prompt Template" /></label>
-              <textarea id="promptTemplate" name="promptTemplate" defaultValue="请将输入材料整理为中文新闻总结。保持事实清晰，不编造未出现的信息。输出 Markdown。" />
+              <textarea id="promptTemplate" name="promptTemplate" defaultValue="写一篇有深度的中文博客文章，要求正式标题、导语段落、分章节连贯叙述，禁止写成摘要或要点列表。" />
             </div>
             <label><input type="checkbox" name="isDefault" value="true" /> <I18nText zh="设为默认风格" en="Set as Default Style" /></label>
             <button className="button" type="submit"><I18nText zh="保存总结风格" en="Save Summary Style" /></button>

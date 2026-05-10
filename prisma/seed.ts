@@ -38,12 +38,12 @@ async function main() {
     update: {},
     create: {
       id: "default-style",
-      name: "默认新闻总结",
+      name: "默认博客文章",
       tone: "客观新闻",
       length: "中",
-      focus: "事实, 影响, 技术细节, 商业价值",
-      outputStructure: "标题, 摘要, 关键点, 背景, 来源, 相关视频",
-      promptTemplate: "请将输入材料整理为中文新闻总结。保持事实清晰，不编造未出现的信息。输出 Markdown，包含：标题、摘要、关键点、背景、影响、来源链接。",
+      focus: "核心事实, 行业影响, 背景脉络, 多方观点",
+      outputStructure: "标题 → 导语 → 正文分章节叙述 → 背景分析 → 参考来源",
+      promptTemplate: "写一篇有深度的中文博客文章，要求正式标题、导语段落、分章节连贯叙述，禁止写成摘要或要点列表。",
       isDefault: true
     }
   });

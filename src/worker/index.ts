@@ -1,6 +1,12 @@
 import { Worker } from "bullmq";
 import { CompilationKind, Source, VideoType } from "@prisma/client";
-import { generateDigest, generateNewsArticle, generateSummary } from "../lib/ai";
+import {
+  generateDigest,
+  generateNewsArticle,
+  generateSummary,
+  estimateAudience,
+  type EvidenceItem
+} from "../lib/ai";
 import {
   audienceQueueName,
   createRedisConnection,
@@ -12,6 +18,7 @@ import { fetchRss } from "../lib/rss";
 import {
   digestWindowLabel,
   digestWindowMs,
+  isResearchScope,
   parseDigestUrl,
   parseKeywordResearchUrl,
   researchScopeLabel,
@@ -21,7 +28,6 @@ import {
 import { parseAudienceEstimateUrl } from "../lib/audience";
 import { scrapeWebPage } from "../lib/scrape";
 import { scrapeAudienceData } from "../lib/scrape-audience";
-import { estimateAudience } from "../lib/ai";
 import { getModelConfigForUse } from "../lib/model-selection";
 import { slugify } from "../lib/slug";
 import { prisma } from "../lib/prisma";
@@ -45,16 +51,29 @@ type ScheduleJobData = {
   topicId: string;
 };
 
-type EvidenceItem = {
-  title: string;
-  url: string;
-  sourceName: string;
-  summary: string;
-  publishedAt?: Date | null;
-};
+// ── 共享辅助 ──────────────────────────────────────────────
 
-function isResearchScope(value: string): value is ResearchScope {
-  return value === "all" || value === "domestic" || value === "international";
+/**
+ * 从 fetchJob 的关联配置或全局默认加载 model + style。
+ * 三条流程(summarize / keyword-research / digest)都执行相同的查询逻辑。
+ */
+async function loadModelAndStyle(fetchJob: { modelConfigId: string | null; summaryStyleId: string | null }) {
+  const [modelConfig, style] = await Promise.all([
+    fetchJob.modelConfigId
+      ? prisma.modelConfig.findUnique({ where: { id: fetchJob.modelConfigId } })
+      : getModelConfigForUse("news"),
+    fetchJob.summaryStyleId
+      ? prisma.summaryStyle.findUnique({ where: { id: fetchJob.summaryStyleId } })
+      : prisma.summaryStyle.findFirst({ where: { isDefault: true } })
+  ]);
+  return { modelConfig, style };
+}
+
+/** 封装 prisma.video.create 的类型断言，避免在多处重复 `as unknown as ...` 体操 */
+async function createVideoRecord(data: Record<string, unknown>) {
+  return (prisma as unknown as {
+    video: { create: (args: { data: Record<string, unknown> }) => Promise<unknown> };
+  }).video.create({ data });
 }
 
 function extractTitleAndSummary(markdown: string, fallbackTitle: string) {
@@ -209,7 +228,10 @@ async function processWeb(fetchJobId: string) {
     let attribution = `来源页：${fetchJob.sourceUrl}\n原视频：${url}`;
 
     if (!downloadedForThisPost && allowDownload && region === "DOMESTIC") {
-      const dl = await downloadDomesticVideo(url, { maxDurationSec: videoMaxSec }).catch((err) => {
+      const dl = await downloadDomesticVideo(url, {
+        maxDurationSec: videoMaxSec,
+        referer: fetchJob.sourceUrl
+      }).catch((err) => {
         console.error(`[video-download] failed ${url}:`, err);
         return null;
       });
@@ -226,9 +248,7 @@ async function processWeb(fetchJobId: string) {
 
     baseData.attribution = attribution;
 
-    await (prisma as unknown as {
-      video: { create: (args: unknown) => Promise<unknown> };
-    }).video.create({ data: baseData });
+    await createVideoRecord(baseData);
   }
 }
 
@@ -279,12 +299,7 @@ async function processVideo(fetchJobId: string) {
 
 async function processKeywordResearch(fetchJobId: string, keyword: string, scope: ResearchScope, count = 1, depth: ResearchDepth = "long") {
   const fetchJob = await prisma.fetchJob.findUniqueOrThrow({ where: { id: fetchJobId } });
-  const modelConfig = fetchJob.modelConfigId
-    ? await prisma.modelConfig.findUnique({ where: { id: fetchJob.modelConfigId } })
-    : await getModelConfigForUse("news");
-  const style = fetchJob.summaryStyleId
-    ? await prisma.summaryStyle.findUnique({ where: { id: fetchJob.summaryStyleId } })
-    : await prisma.summaryStyle.findFirst({ where: { isDefault: true } });
+  const { modelConfig, style } = await loadModelAndStyle(fetchJob);
   const scopeLabel = researchScopeLabel(scope);
   const evidence = await collectKeywordEvidence(keyword, scope, { topicId: fetchJob.newsTopicId });
 
@@ -543,15 +558,11 @@ function clampPopularity(value: number) {
 }
 
 async function summarizeRawItem(rawItemId: string, fetchJobId: string) {
-  const fetchJob = await prisma.fetchJob.findUniqueOrThrow({ where: { id: fetchJobId } });
-  const rawItem = await prisma.rawItem.findUniqueOrThrow({ where: { id: rawItemId } });
-
-  const modelConfig = fetchJob.modelConfigId
-    ? await prisma.modelConfig.findUnique({ where: { id: fetchJob.modelConfigId } })
-    : await getModelConfigForUse("news");
-  const style = fetchJob.summaryStyleId
-    ? await prisma.summaryStyle.findUnique({ where: { id: fetchJob.summaryStyleId } })
-    : await prisma.summaryStyle.findFirst({ where: { isDefault: true } });
+  const [fetchJob, rawItem] = await Promise.all([
+    prisma.fetchJob.findUniqueOrThrow({ where: { id: fetchJobId } }),
+    prisma.rawItem.findUniqueOrThrow({ where: { id: rawItemId } })
+  ]);
+  const { modelConfig, style } = await loadModelAndStyle(fetchJob);
 
   if (!modelConfig || !style) {
     return createDraftFromRawItem(rawItem.id, `# ${rawItem.title}\n\n${rawItem.markdown}\n\n> 未配置模型或总结风格，已保留原始内容作为草稿。`);
@@ -645,10 +656,7 @@ async function attachVideosFromEvidence(postId: string, evidence: EvidenceItem[]
     const region = isDomesticVideoUrl(v.url) ? "DOMESTIC" : "INTERNATIONAL";
     const type = detectVideoType(v.url);
     try {
-      await (prisma as unknown as {
-        video: { create: (args: unknown) => Promise<unknown> };
-      }).video.create({
-        data: {
+      await createVideoRecord({
           title: v.title,
           type,
           url: normalizeEmbedUrl(v.url),
@@ -658,7 +666,6 @@ async function attachVideosFromEvidence(postId: string, evidence: EvidenceItem[]
           sourcePageUrl: v.sourcePageUrl,
           sourcePlatform: hostFromUrl(v.url),
           attribution: `来源页：${v.sourcePageUrl}\n原视频：${v.url}\n（基于${contextLabel}的研究资料自动提取，未实际下载文件）`
-        }
       });
     } catch (error) {
       console.error(`[video-attach] failed for ${v.url}:`, error);
@@ -704,14 +711,11 @@ async function processAudienceEstimate(fetchJobId: string, sourceId: string) {
 }
 
 async function processDigest(fetchJobId: string, topicId: string, digestKind: "DAILY_DIGEST" | "WEEKLY_ROUNDUP") {
-  const fetchJob = await prisma.fetchJob.findUniqueOrThrow({ where: { id: fetchJobId } });
-  const topic = await prisma.newsTopic.findUniqueOrThrow({ where: { id: topicId } });
-  const modelConfig = fetchJob.modelConfigId
-    ? await prisma.modelConfig.findUnique({ where: { id: fetchJob.modelConfigId } })
-    : await getModelConfigForUse("news");
-  const style = fetchJob.summaryStyleId
-    ? await prisma.summaryStyle.findUnique({ where: { id: fetchJob.summaryStyleId } })
-    : await prisma.summaryStyle.findFirst({ where: { isDefault: true } });
+  const [fetchJob, topic] = await Promise.all([
+    prisma.fetchJob.findUniqueOrThrow({ where: { id: fetchJobId } }),
+    prisma.newsTopic.findUniqueOrThrow({ where: { id: topicId } })
+  ]);
+  const { modelConfig, style } = await loadModelAndStyle(fetchJob);
 
   const scope = isResearchScope(topic.scope) ? topic.scope : "all";
   const scopeLabel = researchScopeLabel(scope);
@@ -990,6 +994,8 @@ async function shutdown(signal: string) {
   if (shuttingDown) return;
   shuttingDown = true;
   console.log(`[worker] received ${signal}, draining workers...`);
+  clearTimeout(cleanupBootTimer);
+  clearInterval(cleanupInterval);
   await Promise.allSettled([
     fetchWorker.close(),
     researchWorker.close(),
@@ -1021,7 +1027,9 @@ async function tickCleanup() {
   }
 }
 // Kick off once on boot (delayed so DB is reachable), then every 6h.
-setTimeout(() => { void tickCleanup(); }, 60 * 1000);
-setInterval(() => { void tickCleanup(); }, CLEANUP_INTERVAL_MS);
+// 句柄保留下来给 shutdown 用：否则 SIGTERM 时 timer 仍在 event loop 里挂着，
+// 进程要等下一个 tick（最长 6h）才会退出。
+const cleanupBootTimer = setTimeout(() => { void tickCleanup(); }, 60 * 1000);
+const cleanupInterval = setInterval(() => { void tickCleanup(); }, CLEANUP_INTERVAL_MS);
 
 console.log(`ShiBei worker started: ${fetchQueueName}, ${researchQueueName}, ${audienceQueueName}, ${scheduleQueueName}`);

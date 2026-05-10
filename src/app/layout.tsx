@@ -4,6 +4,7 @@ import { UserPreferencesScript } from "@/components/UserPreferencesScript";
 import { DEFAULT_LANGUAGE } from "@/lib/language";
 import { prisma } from "@/lib/prisma";
 import { DEFAULT_DENSITY, DEFAULT_FONT, DEFAULT_THEME } from "@/lib/themes";
+import { CustomCursor } from "@/components/CustomCursor";
 
 export const metadata: Metadata = {
   title: "拾贝 信息博客",
@@ -48,7 +49,10 @@ export default async function RootLayout({ children }: { children: React.ReactNo
           defaultSettingsUI={defaultSettingsUI}
         />
       </head>
-      <body>{children}</body>
+      <body>
+        {children}
+        <CustomCursor />
+      </body>
     </html>
   );
 }

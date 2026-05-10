@@ -37,7 +37,11 @@ function buildRedirectUrl(request: NextRequest, path: string): URL {
   const host = xfHost || request.headers.get("host");
 
   if (host && !host.startsWith("localhost") && !host.startsWith("127.")) {
-    const proto = xfProto || (host.endsWith(":443") ? "https" : "http");
+    // 生产环境基本都跑在 HTTPS 后面，反代如果配了 X-Forwarded-Proto 优先用它；
+    // 没配时默认 https，避免把 HTTPS 用户重定向到 HTTP（Secure cookie 不会被携带，
+    // 登录会循环到 /admin/login）。原来的 host.endsWith(":443") 启发式实际上几乎
+    // 永不为真——HTTPS 标准请求的 Host 头不带 :443。
+    const proto = xfProto || "https";
     return new URL(`${proto}://${host}${path}`);
   }
 

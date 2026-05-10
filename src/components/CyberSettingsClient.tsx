@@ -5,6 +5,7 @@ import { Fragment, useState, useEffect } from "react";
 import { motion, Variants } from "framer-motion";
 import { useUserPrefs } from "./useUserPrefs";
 import { LANGUAGE_OPTIONS, languageLabel } from "@/lib/language";
+import { useTranslation } from "@/lib/i18n";
 import { FONTS, THEMES, DENSITIES } from "@/lib/themes";
 
 const containerVars: Variants = {
@@ -34,6 +35,7 @@ export function CyberSettingsClient({
 }) {
   const { prefs, update, reset, hydrated } = useUserPrefs();
   const [tracks, setTracks] = useState<Array<Record<string, string>>>([]);
+  const t = useTranslation(prefs.language || "zh");
 
   useEffect(() => {
     fetch("/api/public/music")
@@ -55,7 +57,7 @@ export function CyberSettingsClient({
   }, [prefs.ui, siteDefaults.ui]);
 
   if (!hydrated) {
-    return <p className="cyber-muted">INITIALIZING SYSTEM...</p>;
+    return <p className="cyber-muted">{t("loading")}</p>;
   }
 
   const defaultLanguage = siteDefaults.language || "zh";
@@ -68,10 +70,10 @@ export function CyberSettingsClient({
       animate="visible"
     >
       <motion.section variants={itemVars} className="cyber-panel">
-        <p className="cyber-eyebrow">SYS.INTERFACE</p>
-        <h2 className="cyber-title">INTERFACE.STYLE</h2>
+        <p className="cyber-eyebrow">SYS.{t("interface").toUpperCase()}</p>
+        <h2 className="cyber-title">{t("uiStyle")}</h2>
         <p className="cyber-desc">
-          SYSTEM_DEFAULT: <span className="cyber-highlight">{siteDefaults.ui === 'cyber' ? 'CYBERPUNK' : 'CLASSIC'}</span>
+          {t("sysDefault")}: <span className="cyber-highlight">{siteDefaults.ui === 'cyber' ? t("cyber") : siteDefaults.ui === 'dynamic' ? t("dynamic") : t("classic")}</span>
         </p>
         <div className="cyber-grid" role="radiogroup">
           <button
@@ -80,8 +82,8 @@ export function CyberSettingsClient({
             onClick={() => update({ ui: "classic" })}
           >
             <div className="cyber-glow"></div>
-            <span className="cyber-card-label">CLASSIC</span>
-            <span className="cyber-card-meta">Soft & Calm</span>
+            <span className="cyber-card-label">{t("classic")}</span>
+            <span className="cyber-card-meta">{t("classicDesc")}</span>
           </button>
           <button
             type="button"
@@ -89,17 +91,39 @@ export function CyberSettingsClient({
             onClick={() => update({ ui: "cyber" })}
           >
             <div className="cyber-glow"></div>
-            <span className="cyber-card-label">CYBERPUNK</span>
-            <span className="cyber-card-meta">Dark grids, neon edges</span>
+            <span className="cyber-card-label">{t("cyber")}</span>
+            <span className="cyber-card-meta">{t("cyberDesc")}</span>
           </button>
+          <button
+            type="button"
+            className={`cyber-card${(prefs.ui === "system" ? siteDefaults.ui : prefs.ui) === "dynamic" ? " active" : ""}`}
+            onClick={() => update({ ui: "dynamic" })}
+          >
+            <div className="cyber-glow"></div>
+            <span className="cyber-card-label">{t("dynamic")}</span>
+            <span className="cyber-card-meta">{t("dynamicDesc")}</span>
+          </button>
+        </div>
+        <div style={{ marginTop: 24 }}>
+          <label className="cyber-checkbox-row">
+            <input
+              type="checkbox"
+              checked={prefs.customCursor}
+              onChange={(e) => update({ customCursor: e.target.checked })}
+            />
+            <span className="cyber-check-label">{t("customCursor")}</span>
+          </label>
+          <p className="cyber-desc" style={{ marginTop: 6, marginLeft: 28 }}>
+            {t("customCursorDesc")}
+          </p>
         </div>
       </motion.section>
 
       <motion.section variants={itemVars} className="cyber-panel">
-        <p className="cyber-eyebrow">SYS.LANGUAGE</p>
-        <h2 className="cyber-title">LOCALE.MODE</h2>
+        <p className="cyber-eyebrow">SYS.{t("language").toUpperCase()}</p>
+        <h2 className="cyber-title">{t("localeMode")}</h2>
         <p className="cyber-desc">
-          SYSTEM_DEFAULT: <span className="cyber-highlight">{languageLabel(defaultLanguage)}</span>
+          {t("sysDefault")}: <span className="cyber-highlight">{languageLabel(defaultLanguage)}</span>
         </p>
         <div className="cyber-grid" role="radiogroup">
           {LANGUAGE_OPTIONS.map((opt) => (
@@ -110,16 +134,16 @@ export function CyberSettingsClient({
               onClick={() => update({ language: opt.value })}
             >
               <div className="cyber-glow"></div>
-              <span className="cyber-card-label">{opt.label}</span>
-              <span className="cyber-card-meta">{opt.description}</span>
+              <span className="cyber-card-label">{t(`lang.${opt.value}.label` as any) || opt.label}</span>
+              <span className="cyber-card-meta">{t(`lang.${opt.value}.desc` as any) || opt.description}</span>
             </button>
           ))}
         </div>
       </motion.section>
 
       <motion.section variants={itemVars} className="cyber-panel">
-        <p className="cyber-eyebrow">SYS.VISUALS</p>
-        <h2 className="cyber-title">THEME.PALETTE</h2>
+        <p className="cyber-eyebrow">SYS.{t("appearance").toUpperCase()}</p>
+        <h2 className="cyber-title">{t("colorPalette")}</h2>
         <div className="cyber-grid" role="radiogroup">
           {THEMES.map((theme) => (
             <button
@@ -134,15 +158,15 @@ export function CyberSettingsClient({
                   <span key={i} style={{ background: color }} />
                 ))}
               </div>
-              <span className="cyber-card-label">{theme.label}</span>
-              <span className="cyber-card-meta">{theme.desc}</span>
+              <span className="cyber-card-label">{t(`theme.${theme.key}.label` as any) || theme.label}</span>
+              <span className="cyber-card-meta">{t(`theme.${theme.key}.desc` as any) || theme.desc}</span>
             </button>
           ))}
         </div>
       </motion.section>
 
       <motion.section variants={itemVars} className="cyber-panel">
-        <h2 className="cyber-title">FONT.MATRIX</h2>
+        <h2 className="cyber-title">{t("fontMatrix")}</h2>
         <div className="cyber-grid" role="radiogroup">
           {FONTS.map((font) => (
             <button
@@ -155,14 +179,14 @@ export function CyberSettingsClient({
               <span className="cyber-font-preview" style={{ fontFamily: font.family }}>
                 {font.preview}
               </span>
-              <span className="cyber-card-label">{font.label}</span>
+              <span className="cyber-card-label">{t(`font.${font.key}.label` as any) || font.label}</span>
             </button>
           ))}
         </div>
       </motion.section>
 
       <motion.section variants={itemVars} className="cyber-panel">
-        <h2 className="cyber-title">DENSITY.CONFIG</h2>
+        <h2 className="cyber-title">{t("densityConfig")}</h2>
         <div className="cyber-grid" role="radiogroup">
           {DENSITIES.map((density) => (
             <button
@@ -172,18 +196,18 @@ export function CyberSettingsClient({
               onClick={() => update({ density: density.key })}
             >
               <div className="cyber-glow"></div>
-              <span className="cyber-card-label">{density.label}</span>
-              <span className="cyber-card-meta">{density.desc}</span>
+              <span className="cyber-card-label">{t(`density.${density.key}.label` as any) || density.label}</span>
+              <span className="cyber-card-meta">{t(`density.${density.key}.desc` as any) || density.desc}</span>
             </button>
           ))}
         </div>
       </motion.section>
 
       <motion.section variants={itemVars} className="cyber-panel">
-        <p className="cyber-eyebrow">SYS.AUDIO</p>
-        <h2 className="cyber-title">BACKGROUND.MUSIC</h2>
+        <p className="cyber-eyebrow">SYS.{t("audio").toUpperCase()}</p>
+        <h2 className="cyber-title">{t("bgm")}</h2>
         {tracks.length === 0 ? (
-          <p className="cyber-desc">NO TRACKS UPLOADED BY ROOT.</p>
+          <p className="cyber-desc">{t("noTracks")}</p>
         ) : (
           <Fragment>
             <label className="cyber-checkbox-row">
@@ -192,7 +216,7 @@ export function CyberSettingsClient({
                 checked={prefs.musicEnabled}
                 onChange={(e) => update({ musicEnabled: e.target.checked })}
               />
-              <span className="cyber-check-label">ENABLE.AUDIO_STREAM</span>
+              <span className="cyber-check-label">{t("enableAudio")}</span>
             </label>
             <div className="cyber-grid">
               {tracks.map((track) => (
@@ -204,12 +228,12 @@ export function CyberSettingsClient({
                 >
                   <div className="cyber-glow"></div>
                   <span className="cyber-card-label">{track.title}</span>
-                  <span className="cyber-card-meta">{track.artist || "UNKNOWN"}</span>
+                  <span className="cyber-card-meta">{track.artist || t("unknownArtist")}</span>
                 </button>
               ))}
             </div>
             <div className="cyber-range-row">
-              <span className="cyber-muted">VOL</span>
+              <span className="cyber-muted">{t("vol")}</span>
               <input
                 type="range"
                 min={0}
@@ -227,10 +251,10 @@ export function CyberSettingsClient({
 
       <motion.div variants={itemVars} className="cyber-footer">
         <Link className="cyber-link" href="/">
-          {"< RETURN TO INDEX"}
+          {t("returnHome")}
         </Link>
         <button type="button" className="cyber-btn-ghost" onClick={reset}>
-          {"[ FACTORY_RESET ]"}
+          {t("restoreDefault")}
         </button>
       </motion.div>
     </motion.div>

@@ -1,10 +1,45 @@
 import { chromium } from "playwright";
 import TurndownService from "turndown";
+import { assertSafeFetchUrl } from "./url-safety";
+
+const MEDIA_URL_RE = /\.(mp4|m3u8|m4s|flv|webm|mov)(?:[?#]|$)/i;
+const MEDIA_CONTENT_TYPE_RE = /^(video\/|application\/(vnd\.apple\.mpegurl|x-mpegurl|dash\+xml|octet-stream))/i;
+
+type SniffedMedia = { href: string; bytes: number; contentType: string };
 
 export async function scrapeWebPage(url: string) {
+  // 拒绝 file://、loopback、私网、云 metadata 等，避免 SSRF 通过 Playwright 触达内部服务。
+  assertSafeFetchUrl(url);
   const browser = await chromium.launch({ headless: true });
+  const sniffed = new Map<string, SniffedMedia>();
   try {
     const page = await browser.newPage({ viewport: { width: 1440, height: 1200 } });
+
+    // 被动嗅探网络响应：现代新闻站把视频 URL 放在 JS-注入的播放器配置里,DOM 扫不到。
+    // 这里在页面加载过程中收集所有 content-type 是 video/* 或 URL 命中 .mp4/.m3u8 的请求,
+    // 真正下载视频的环节(video-downloader)再决定要不要拉。Content-Length < 100KB 的过滤掉,
+    // 防止把封面/海报/poster.mp4 之类的 placeholder 误认为正片。
+    page.on("response", (resp) => {
+      try {
+        const respUrl = resp.url();
+        if (sniffed.has(respUrl)) return;
+        if (!/^https?:/i.test(respUrl)) return;
+        const ct = (resp.headers()["content-type"] || "").toLowerCase();
+        const matchesUrl = MEDIA_URL_RE.test(respUrl);
+        const matchesCt = MEDIA_CONTENT_TYPE_RE.test(ct);
+        if (!matchesUrl && !matchesCt) return;
+        const lenStr = resp.headers()["content-length"];
+        const bytes = lenStr ? Number(lenStr) : 0;
+        // m3u8 / 分段 m4s 自身体积小,但是是合法的视频清单 → 不要按大小过滤。
+        // 单文件 mp4/flv/webm:小于 100KB 几乎肯定不是正片。
+        const isManifest = /\.(m3u8|m4s|mpd)(?:[?#]|$)/i.test(respUrl) || /mpegurl|dash/i.test(ct);
+        if (!isManifest && bytes > 0 && bytes < 100_000) return;
+        sniffed.set(respUrl, { href: respUrl, bytes, contentType: ct });
+      } catch {
+        /* response listener must not throw */
+      }
+    });
+
     await page.goto(url, { waitUntil: "networkidle", timeout: 60000 });
 
     const result = await page.evaluate(() => {
@@ -71,12 +106,28 @@ export async function scrapeWebPage(url: string) {
       };
     });
 
+    // 把网络嗅探到的真实视频 URL 合并进 videos[],排在 DOM-扫到的源前面
+    // (DOM 扫到的常常是 iframe 容器/播放器壳,真要下载还得拿到底层流;嗅探到的
+    // 多半就是底层流本身)。按 Content-Length 降序——最大的那条最可能是正片。
+    const sniffedSorted = Array.from(sniffed.values())
+      .sort((a, b) => b.bytes - a.bytes)
+      .map((m) => ({ text: "页面播放器加载的视频流", href: m.href }));
+
+    const seen = new Set<string>();
+    const merged: Array<{ text: string; href: string }> = [];
+    for (const item of [...sniffedSorted, ...result.videos]) {
+      if (!item.href || seen.has(item.href)) continue;
+      seen.add(item.href);
+      merged.push(item);
+      if (merged.length >= 12) break;
+    }
+
     const turndown = new TurndownService({ headingStyle: "atx" });
     return {
       title: result.title.trim(),
       content: result.text,
       markdown: turndown.turndown(result.html),
-      videos: result.videos
+      videos: merged
     };
   } finally {
     await browser.close();

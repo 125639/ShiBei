@@ -11,19 +11,22 @@ export async function POST(request: Request) {
 
   if (ids.length) {
     const queue = getAudienceQueue();
-    for (const sourceId of ids) {
-      const source = await prisma.source.findUnique({ where: { id: sourceId } });
-      if (!source) continue;
-      const job = await prisma.fetchJob.create({
-        data: {
-          sourceId: source.id,
-          sourceUrl: buildAudienceEstimateUrl(source.id),
-          sourceType: source.type
-        }
-      });
-      await queue.add("fetch", { fetchJobId: job.id });
+    try {
+      for (const sourceId of ids) {
+        const source = await prisma.source.findUnique({ where: { id: sourceId } });
+        if (!source) continue;
+        const job = await prisma.fetchJob.create({
+          data: {
+            sourceId: source.id,
+            sourceUrl: buildAudienceEstimateUrl(source.id),
+            sourceType: source.type
+          }
+        });
+        await queue.add("fetch", { fetchJobId: job.id });
+      }
+    } finally {
+      await queue.close().catch(() => undefined);
     }
-    await queue.close();
   }
 
   return redirectTo("/admin/sources");

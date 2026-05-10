@@ -4,6 +4,7 @@ import Link from "next/link";
 import { Fragment, useState, useEffect } from "react";
 import { useUserPrefs } from "./useUserPrefs";
 import { LANGUAGE_OPTIONS, languageLabel } from "@/lib/language";
+import { useTranslation } from "@/lib/i18n";
 import { FONTS, THEMES, DENSITIES, DEFAULT_THEME, DEFAULT_FONT, DEFAULT_DENSITY } from "@/lib/themes";
 
 export function UserSettingsClient({
@@ -20,6 +21,7 @@ export function UserSettingsClient({
 }) {
   const { prefs, update, reset, hydrated } = useUserPrefs();
   const [tracks, setTracks] = useState<Array<Record<string, string>>>([]);
+  const t = useTranslation(prefs.language || "zh");
 
   useEffect(() => {
     fetch("/api/public/music")
@@ -31,7 +33,7 @@ export function UserSettingsClient({
   }, []);
 
   if (!hydrated) {
-    return <p className="muted">读取偏好…</p>;
+    return <p className="muted">{t("loading")}</p>;
   }
 
   const defaultTheme = siteDefaults.theme || DEFAULT_THEME;
@@ -42,10 +44,10 @@ export function UserSettingsClient({
   return (
     <div className="settings-shell">
       <section>
-        <p className="eyebrow">Interface</p>
-        <h2>界面风格 (UI Style)</h2>
+        <p className="eyebrow">{t("interface")}</p>
+        <h2>{t("uiStyle")}</h2>
         <p className="muted-block">
-          管理员默认：<strong>{siteDefaults.ui === 'cyber' ? '科技纪元' : '经典风格'}</strong>
+          {t("sysDefault")}：<strong>{siteDefaults.ui === 'cyber' ? t("cyber") : siteDefaults.ui === 'dynamic' ? t("dynamic") : t("classic")}</strong>
         </p>
         <div className="option-grid" role="radiogroup" aria-label="界面风格">
           <button
@@ -55,8 +57,8 @@ export function UserSettingsClient({
             className={`option-card${(prefs.ui === "system" ? siteDefaults.ui : prefs.ui) === "classic" ? " active" : ""}`}
             onClick={() => update({ ui: "classic" })}
           >
-            <span className="option-label">经典风格 (Classic)</span>
-            <span className="option-meta">温和、沉静的默认体验</span>
+            <span className="option-label">{t("classic")}</span>
+            <span className="option-meta">{t("classicDesc")}</span>
           </button>
           <button
             type="button"
@@ -65,17 +67,40 @@ export function UserSettingsClient({
             className={`option-card${(prefs.ui === "system" ? siteDefaults.ui : prefs.ui) === "cyber" ? " active" : ""}`}
             onClick={() => update({ ui: "cyber" })}
           >
-            <span className="option-label">科技纪元 (Cyberpunk)</span>
-            <span className="option-meta">暗网格、高光边缘与动态反馈</span>
+            <span className="option-label">{t("cyber")}</span>
+            <span className="option-meta">{t("cyberDesc")}</span>
           </button>
+          <button
+            type="button"
+            role="radio"
+            aria-checked={(prefs.ui === "system" ? siteDefaults.ui : prefs.ui) === "dynamic"}
+            className={`option-card${(prefs.ui === "system" ? siteDefaults.ui : prefs.ui) === "dynamic" ? " active" : ""}`}
+            onClick={() => update({ ui: "dynamic" })}
+          >
+            <span className="option-label">{t("dynamic")}</span>
+            <span className="option-meta">{t("dynamicDesc")}</span>
+          </button>
+        </div>
+        <div style={{ marginTop: 24 }}>
+          <label className="row">
+            <input
+              type="checkbox"
+              checked={prefs.customCursor}
+              onChange={(e) => update({ customCursor: e.target.checked })}
+            />
+            <span>{t("customCursor")}</span>
+          </label>
+          <p className="muted-block" style={{ marginTop: 6, marginLeft: 28 }}>
+            {t("customCursorDesc")}
+          </p>
         </div>
       </section>
 
       <section>
-        <p className="eyebrow">Language</p>
-        <h2>语言模式</h2>
+        <p className="eyebrow">{t("language")}</p>
+        <h2>{t("localeMode")}</h2>
         <p className="muted-block">
-          管理员当前默认语种为 <strong>{languageLabel(defaultLanguage)}</strong>。 切换为 English 后，打开新闻正文时会按需生成英文版本。
+          {t("sysDefault")}：<strong>{languageLabel(defaultLanguage)}</strong>
         </p>
         <div className="option-grid" role="radiogroup" aria-label="语言模式">
           {LANGUAGE_OPTIONS.map((opt) => (
@@ -88,20 +113,20 @@ export function UserSettingsClient({
               onClick={() => update({ language: opt.value })}
             >
               <span className="option-label">
-                {opt.label}
-                {opt.value === defaultLanguage ? "（管理员默认）" : ""}
+                {t(`lang.${opt.value}.label` as any) || opt.label}
+                {opt.value === defaultLanguage ? `（${t("sysDefault")}）` : ""}
               </span>
-              <span className="option-meta">{opt.description}</span>
+              <span className="option-meta">{t(`lang.${opt.value}.desc` as any) || opt.description}</span>
             </button>
           ))}
         </div>
       </section>
 
       <section>
-        <p className="eyebrow">外观</p>
-        <h2>主题</h2>
+        <p className="eyebrow">{t("appearance")}</p>
+        <h2>{t("colorPalette")}</h2>
         <p className="muted-block">
-          管理员当前的默认主题为 <strong>{THEMES.find((t) => t.key === defaultTheme)?.label || defaultTheme}</strong>。 你的选择会保存在浏览器，下次访问自动生效。
+          {t("sysDefault")}：<strong>{THEMES.find((thm) => thm.key === defaultTheme)?.label || defaultTheme}</strong>。
         </p>
         <div className="option-grid" role="radiogroup" aria-label="主题">
           {THEMES.map((theme) => (
@@ -119,20 +144,19 @@ export function UserSettingsClient({
                 ))}
               </div>
               <span className="option-label">
-                {theme.label}
-                {theme.key === defaultTheme ? "（管理员默认）" : ""}
+                {t(`theme.${theme.key}.label` as any) || theme.label}
+                {theme.key === defaultTheme ? `（${t("sysDefault")}）` : ""}
               </span>
-              <span className="option-meta">{theme.desc}</span>
+              <span className="option-meta">{t(`theme.${theme.key}.desc` as any) || theme.desc}</span>
             </button>
           ))}
         </div>
       </section>
 
       <section>
-        <h2>字体</h2>
+        <h2>{t("typography")}</h2>
         <p className="muted-block">
-          全部为免费字体（系统内置或开源）。当前管理员默认：
-          <strong>{FONTS.find((f) => f.key === defaultFont)?.label || defaultFont}</strong>。
+          {t("sysDefault")}：<strong>{FONTS.find((f) => f.key === defaultFont)?.label || defaultFont}</strong>。
         </p>
         <div className="option-grid" role="radiogroup" aria-label="字体">
           {FONTS.map((font) => (
@@ -149,22 +173,22 @@ export function UserSettingsClient({
                 <small>ShiBei Blog</small>
               </span>
               <span className="option-label">
-                {font.label}
-                {font.key === defaultFont ? "（管理员默认）" : ""}
+                {t(`font.${font.key}.label` as any) || font.label}
+                {font.key === defaultFont ? `（${t("sysDefault")}）` : ""}
               </span>
-              <span className="option-meta">{font.desc}</span>
+              <span className="option-meta">{t(`font.${font.key}.desc` as any) || font.desc}</span>
             </button>
           ))}
         </div>
       </section>
 
       <section>
-        <h2>密度</h2>
+        <p className="eyebrow">{t("layout")}</p>
+        <h2>{t("densityConfig")}</h2>
         <p className="muted-block">
-          调整全站间距。当前管理员默认：
-          <strong>{DENSITIES.find((d) => d.key === defaultDensity)?.label || defaultDensity}</strong>。
+          {t("sysDefault")}：<strong>{DENSITIES.find((d) => d.key === defaultDensity)?.label || defaultDensity}</strong>。
         </p>
-        <div className="option-grid" role="radiogroup" aria-label="密度">
+        <div className="option-grid" role="radiogroup" aria-label={t("densityConfig")}>
           {DENSITIES.map((density) => (
             <button
               key={density.key}
@@ -174,18 +198,18 @@ export function UserSettingsClient({
               className={`option-card${prefs.density === density.key ? " active" : ""}`}
               onClick={() => update({ density: density.key })}
             >
-              <span className="option-label">{density.label}</span>
-              <span className="option-meta">{density.desc}</span>
+              <span className="option-label">{t(`density.${density.key}.label` as any) || density.label}</span>
+              <span className="option-meta">{t(`density.${density.key}.desc` as any) || density.desc}</span>
             </button>
           ))}
         </div>
       </section>
 
       <section>
-        <p className="eyebrow">背景音乐</p>
-        <h2>背景音乐</h2>
+        <p className="eyebrow">{t("audio")}</p>
+        <h2>{t("bgm")}</h2>
         {tracks.length === 0 ? (
-          <p className="muted-block">管理员尚未上传任何音乐。</p>
+          <p className="muted-block">{t("noTracks")}</p>
         ) : (
           <Fragment>
             <label className="row" style={{ marginBottom: 14 }}>
@@ -194,7 +218,7 @@ export function UserSettingsClient({
                 checked={prefs.musicEnabled}
                 onChange={(e) => update({ musicEnabled: e.target.checked })}
               />
-              <span>启用浏览时的背景音乐</span>
+              <span>{t("enableAudio")}</span>
             </label>
             <p className="muted-block">
               共 {tracks.length} 首可选。浏览器策略要求播放需要至少一次用户交互（点击 / 滚动）。
@@ -208,12 +232,12 @@ export function UserSettingsClient({
                   onClick={() => update({ musicTrackId: track.id, musicEnabled: true })}
                 >
                   <span className="option-label">{track.title}</span>
-                  <span className="option-meta">{track.artist || "未知"}</span>
+                  <span className="option-meta">{track.artist || t("unknownArtist")}</span>
                 </button>
               ))}
             </div>
             <div className="row" style={{ marginTop: 14, alignItems: "center" }}>
-              <span className="muted">音量</span>
+              <span className="muted">{t("vol")}</span>
               <input
                 type="range"
                 min={0}
@@ -232,10 +256,10 @@ export function UserSettingsClient({
       <hr className="divider" />
       <div className="row between">
         <Link className="text-link" href="/">
-          回到首页
+          {t("returnHome")}
         </Link>
         <button type="button" className="button ghost" onClick={reset}>
-          恢复默认
+          {t("restoreDefault")}
         </button>
       </div>
     </div>

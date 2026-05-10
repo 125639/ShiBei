@@ -66,7 +66,7 @@ export function researchScopeLabel(scope: ResearchScope) {
   return "国内+国外";
 }
 
-function isResearchScope(value: string): value is ResearchScope {
+export function isResearchScope(value: string): value is ResearchScope {
   return value === "all" || value === "domestic" || value === "international";
 }
 

@@ -88,9 +88,18 @@ export default async function AdminPostEditPage({ params }: { params: Promise<{ 
                   </div>
                 </div>
                 <code style={{ fontSize: 12, marginRight: 12 }}>[[video:{video.id}]]</code>
-                <a className="text-link" href={`/api/admin/videos/delete?id=${encodeURIComponent(video.id)}&redirect=${encodeURIComponent(`/admin/posts/${post.id}`)}`} style={{ color: "var(--color-danger, #c44)" }}>
-                  删除
-                </a>
+                <form
+                  action={`/api/admin/videos/delete?id=${encodeURIComponent(video.id)}&redirect=${encodeURIComponent(`/admin/posts/${post.id}`)}`}
+                  method="post"
+                >
+                  <button
+                    type="submit"
+                    className="text-link"
+                    style={{ color: "var(--color-danger, #c44)", background: "none", border: 0, padding: 0, cursor: "pointer" }}
+                  >
+                    删除
+                  </button>
+                </form>
               </li>
             ))}
           </ul>

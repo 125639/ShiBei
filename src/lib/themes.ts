@@ -146,6 +146,7 @@ export const PREF_KEYS = {
   density: "shibei.density",
   language: "shibei.language",
   ui: "shibei.ui",
+  customCursor: "shibei.customCursor",
   musicEnabled: "shibei.music.enabled",
   musicTrackId: "shibei.music.trackId",
   musicVolume: "shibei.music.volume"

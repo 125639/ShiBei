@@ -5,7 +5,14 @@ import { SignJWT, jwtVerify } from "jose";
 const cookieName = "shibei_admin_session";
 
 function getSecret() {
-  return new TextEncoder().encode(process.env.AUTH_SECRET || "dev-auth-secret-change-me");
+  const secret = process.env.AUTH_SECRET;
+  if (!secret) {
+    if (process.env.NODE_ENV === "production") {
+      throw new Error("AUTH_SECRET 未配置：拒绝在生产环境使用兜底密钥（任何人都能伪造 admin session）。");
+    }
+    return new TextEncoder().encode("dev-auth-secret-change-me");
+  }
+  return new TextEncoder().encode(secret);
 }
 
 function shouldUseSecureCookies() {
