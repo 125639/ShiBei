@@ -1,7 +1,10 @@
 import { chromium } from "playwright";
 import type { SourceType } from "@prisma/client";
+import { assertSafeFetchUrl } from "./url-safety";
 
 export async function scrapeAudienceData(url: string, type: SourceType) {
+  // 同 scrape.ts：拒绝 SSRF 候选目标。
+  assertSafeFetchUrl(url);
   const browser = await chromium.launch({ headless: true });
   try {
     const page = await browser.newPage({ viewport: { width: 1440, height: 1200 } });

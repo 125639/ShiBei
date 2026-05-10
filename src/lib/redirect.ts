@@ -30,7 +30,8 @@ function resolveOrigin(req: Request): string | null {
   const host = xfHost || req.headers.get("host");
   if (!host) return null;
   if (host.startsWith("localhost") || host.startsWith("127.")) return null;
-  const proto = xfProto || (host.endsWith(":443") ? "https" : "http");
+  // 见 middleware.ts 同款修复：默认 https，避免把 HTTPS 用户重定向到 HTTP。
+  const proto = xfProto || "https";
   return `${proto}://${host}`;
 }
 

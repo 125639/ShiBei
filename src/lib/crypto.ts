@@ -1,7 +1,13 @@
 import crypto from "node:crypto";
 
 function getKey() {
-  const secret = process.env.ENCRYPTION_KEY || process.env.AUTH_SECRET || "dev-secret-change-me";
+  const secret = process.env.ENCRYPTION_KEY || process.env.AUTH_SECRET;
+  if (!secret) {
+    if (process.env.NODE_ENV === "production") {
+      throw new Error("ENCRYPTION_KEY/AUTH_SECRET 未配置：拒绝在生产环境用兜底密钥加密敏感字段（一旦密钥公开，所有已加密 secret 都可被解出）。");
+    }
+    return crypto.createHash("sha256").update("dev-secret-change-me").digest();
+  }
   return crypto.createHash("sha256").update(secret).digest();
 }
 

@@ -20,7 +20,8 @@ export type UserPrefs = {
   font: FontKey;
   density: DensityKey;
   language: LanguageKey;
-  ui: "system" | "classic" | "cyber";
+  ui: "system" | "classic" | "cyber" | "dynamic";
+  customCursor: boolean;
   musicEnabled: boolean;
   musicTrackId: string | null;
   musicVolume: number;
@@ -32,6 +33,7 @@ const DEFAULT_PREFS: UserPrefs = {
   density: DEFAULT_DENSITY,
   language: DEFAULT_LANGUAGE,
   ui: "system",
+  customCursor: false,
   musicEnabled: false,
   musicTrackId: null,
   musicVolume: 0.4
@@ -48,6 +50,7 @@ function readPrefs(siteDefaults?: Partial<UserPrefs>): UserPrefs {
     const density = localStorage.getItem(PREF_KEYS.density);
     const language = localStorage.getItem(PREF_KEYS.language);
     const ui = localStorage.getItem(PREF_KEYS.ui);
+    const customCursor = localStorage.getItem(PREF_KEYS.customCursor);
     const musicEnabled = localStorage.getItem(PREF_KEYS.musicEnabled);
     const musicTrackId = localStorage.getItem(PREF_KEYS.musicTrackId);
     const musicVolume = localStorage.getItem(PREF_KEYS.musicVolume);
@@ -56,7 +59,8 @@ function readPrefs(siteDefaults?: Partial<UserPrefs>): UserPrefs {
       font: isFontKey(font) ? font : fallback.font,
       density: isDensityKey(density) ? density : fallback.density,
       language: isLanguageKey(language) ? language : fallback.language,
-      ui: (ui === "classic" || ui === "cyber") ? ui : fallback.ui,
+      ui: (ui === "classic" || ui === "cyber" || ui === "dynamic") ? ui : fallback.ui,
+      customCursor: customCursor === null ? fallback.customCursor : customCursor === "true",
       musicEnabled: musicEnabled === null ? fallback.musicEnabled : musicEnabled === "true",
       musicTrackId: musicTrackId || fallback.musicTrackId,
       musicVolume: musicVolume ? clampVolume(parseFloat(musicVolume)) : fallback.musicVolume
@@ -74,7 +78,7 @@ function clampVolume(value: number) {
 const PREF_EVENT = "shibei:prefs-change";
 
 export function useUserPrefs(siteDefaults?: Partial<UserPrefs>) {
-  const [prefs, setPrefsState] = useState<UserPrefs>(() => readPrefs(siteDefaults));
+  const [prefs, setPrefsState] = useState<UserPrefs>(() => ({ ...DEFAULT_PREFS, ...(siteDefaults || {}) }));
   const [hydrated, setHydrated] = useState(false);
 
   useEffect(() => {
@@ -87,7 +91,7 @@ export function useUserPrefs(siteDefaults?: Partial<UserPrefs>) {
       window.removeEventListener(PREF_EVENT, handler);
       window.removeEventListener("storage", handler);
     };
-  }, [siteDefaults]);
+  }, [siteDefaults ? JSON.stringify(siteDefaults) : null]);
 
   const update = useCallback((partial: Partial<UserPrefs>) => {
     setPrefsState((prev) => {
@@ -98,6 +102,8 @@ export function useUserPrefs(siteDefaults?: Partial<UserPrefs>) {
         if (partial.density !== undefined) localStorage.setItem(PREF_KEYS.density, next.density);
         if (partial.language !== undefined) localStorage.setItem(PREF_KEYS.language, next.language);
         if (partial.ui !== undefined) localStorage.setItem(PREF_KEYS.ui, next.ui);
+        if (partial.customCursor !== undefined)
+          localStorage.setItem(PREF_KEYS.customCursor, String(next.customCursor));
         if (partial.musicEnabled !== undefined)
           localStorage.setItem(PREF_KEYS.musicEnabled, String(next.musicEnabled));
         if (partial.musicTrackId !== undefined)
@@ -108,6 +114,11 @@ export function useUserPrefs(siteDefaults?: Partial<UserPrefs>) {
         document.documentElement.setAttribute("data-font", next.font);
         document.documentElement.setAttribute("data-density", next.density);
         document.documentElement.setAttribute("data-language", next.language);
+        if (next.customCursor) {
+          document.documentElement.setAttribute("data-cursor", "custom");
+        } else {
+          document.documentElement.removeAttribute("data-cursor");
+        }
         document.documentElement.lang = next.language === "en" ? "en" : "zh-CN";
         window.dispatchEvent(new CustomEvent(PREF_EVENT));
       } catch {
@@ -125,7 +136,7 @@ export function useUserPrefs(siteDefaults?: Partial<UserPrefs>) {
       /* ignore */
     }
     setPrefsState({ ...DEFAULT_PREFS, ...(siteDefaults || {}) });
-  }, [siteDefaults]);
+  }, [siteDefaults ? JSON.stringify(siteDefaults) : null]);
 
   return { prefs, update, reset, hydrated };
 }

@@ -151,13 +151,19 @@ export default async function VideosAdminPage() {
                     </select>
                     <button className="button-secondary" type="submit">更新挂载</button>
                   </form>
-                  <a
-                    className="text-link"
-                    href={`/api/admin/videos/delete?id=${encodeURIComponent(video.id)}&redirect=/admin/videos`}
-                    style={{ color: "var(--color-danger, #c44)", marginLeft: "auto" }}
+                  <form
+                    action={`/api/admin/videos/delete?id=${encodeURIComponent(video.id)}&redirect=/admin/videos`}
+                    method="post"
+                    style={{ marginLeft: "auto" }}
                   >
-                    删除视频
-                  </a>
+                    <button
+                      type="submit"
+                      className="text-link"
+                      style={{ color: "var(--color-danger, #c44)", background: "none", border: 0, padding: 0, cursor: "pointer" }}
+                    >
+                      删除视频
+                    </button>
+                  </form>
                 </div>
               </div>
             ))}

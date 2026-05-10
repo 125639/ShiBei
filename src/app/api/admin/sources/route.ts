@@ -33,15 +33,18 @@ export async function POST(request: Request) {
 
   if (!form.get("popularity")) {
     const queue = getAudienceQueue();
-    const job = await prisma.fetchJob.create({
-      data: {
-        sourceId: source.id,
-        sourceUrl: buildAudienceEstimateUrl(source.id),
-        sourceType: source.type === "EXA" ? "WEB" : source.type
-      }
-    });
-    await queue.add("fetch", { fetchJobId: job.id });
-    await queue.close();
+    try {
+      const job = await prisma.fetchJob.create({
+        data: {
+          sourceId: source.id,
+          sourceUrl: buildAudienceEstimateUrl(source.id),
+          sourceType: source.type === "EXA" ? "WEB" : source.type
+        }
+      });
+      await queue.add("fetch", { fetchJobId: job.id });
+    } finally {
+      await queue.close().catch(() => undefined);
+    }
   }
 
   return redirectTo("/admin/sources");
