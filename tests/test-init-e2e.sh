@@ -344,6 +344,35 @@ test_auto_start_recovers_when_docker_missing() {
   rm -rf "$sandbox" "$empty_path"
 }
 
+test_auto_start_does_not_celebrate_when_docker_missing() {
+  # 回归: 用户回 Y 想自动启动,但 PATH 里没 docker,旧版本仍打 "🎉 Setup complete!"
+  # 让用户以为可以直接访问 /admin。修复后必须改成"配置已写入,但 Docker 未安装"
+  # 路径,并提供 Docker 安装指引。
+  local sandbox empty_path output
+  sandbox=$(setup_sandbox)
+  empty_path=$(mktemp -d)
+  output=$(PATH="$empty_path:/usr/bin:/bin" SHIBEI_AUTO_START=y \
+    NO_COLOR=1 bash -c "printf '1\n\n\n\ns\ny\n' | bash '$sandbox/scripts/init.sh'" 2>&1)
+  local rc=$?
+  if [ "$rc" -ne 0 ]; then
+    echo "    FAIL: 缺 docker 时向导以非零退出 (rc=$rc)"
+    rm -rf "$sandbox" "$empty_path"; return 1
+  fi
+  if printf '%s' "$output" | grep -qF '🎉 Setup complete!'; then
+    echo "    FAIL: 缺 docker 时不应打 '🎉 Setup complete!'（误导用户以为可以直接访问 /admin）"
+    rm -rf "$sandbox" "$empty_path"; return 1
+  fi
+  if ! printf '%s' "$output" | grep -qE '配置已写入.*Docker (未|没)安装|Docker 未安装'; then
+    echo "    FAIL: 缺 docker 时输出缺少 'Docker 未安装' 提示"
+    rm -rf "$sandbox" "$empty_path"; return 1
+  fi
+  if ! printf '%s' "$output" | grep -qF 'get.docker.com'; then
+    echo "    FAIL: 缺 docker 时应给出 Docker 安装指引（含 get.docker.com）"
+    rm -rf "$sandbox" "$empty_path"; return 1
+  fi
+  rm -rf "$sandbox" "$empty_path"
+}
+
 # ---------- runner -----------------------------------------------------------
 echo
 echo "Running end-to-end tests for scripts/init.sh"
