@@ -134,8 +134,8 @@ export function CyberSettingsClient({
               onClick={() => update({ language: opt.value })}
             >
               <div className="cyber-glow"></div>
-              <span className="cyber-card-label">{t(`lang.${opt.value}.label` as any) || opt.label}</span>
-              <span className="cyber-card-meta">{t(`lang.${opt.value}.desc` as any) || opt.description}</span>
+              <span className="cyber-card-label">{t(`lang.${opt.value}.label`) || opt.label}</span>
+              <span className="cyber-card-meta">{t(`lang.${opt.value}.desc`) || opt.description}</span>
             </button>
           ))}
         </div>
@@ -158,8 +158,8 @@ export function CyberSettingsClient({
                   <span key={i} style={{ background: color }} />
                 ))}
               </div>
-              <span className="cyber-card-label">{t(`theme.${theme.key}.label` as any) || theme.label}</span>
-              <span className="cyber-card-meta">{t(`theme.${theme.key}.desc` as any) || theme.desc}</span>
+              <span className="cyber-card-label">{t(`theme.${theme.key}.label`) || theme.label}</span>
+              <span className="cyber-card-meta">{t(`theme.${theme.key}.desc`) || theme.desc}</span>
             </button>
           ))}
         </div>
@@ -179,7 +179,7 @@ export function CyberSettingsClient({
               <span className="cyber-font-preview" style={{ fontFamily: font.family }}>
                 {font.preview}
               </span>
-              <span className="cyber-card-label">{t(`font.${font.key}.label` as any) || font.label}</span>
+              <span className="cyber-card-label">{t(`font.${font.key}.label`) || font.label}</span>
             </button>
           ))}
         </div>
@@ -196,8 +196,8 @@ export function CyberSettingsClient({
               onClick={() => update({ density: density.key })}
             >
               <div className="cyber-glow"></div>
-              <span className="cyber-card-label">{t(`density.${density.key}.label` as any) || density.label}</span>
-              <span className="cyber-card-meta">{t(`density.${density.key}.desc` as any) || density.desc}</span>
+              <span className="cyber-card-label">{t(`density.${density.key}.label`) || density.label}</span>
+              <span className="cyber-card-meta">{t(`density.${density.key}.desc`) || density.desc}</span>
             </button>
           ))}
         </div>
