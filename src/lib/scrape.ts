@@ -1,8 +1,8 @@
 import { chromium } from "playwright";
 import TurndownService from "turndown";
 import { assertSafeFetchUrl } from "./url-safety";
+import { VIDEO_MEDIA_URL_RE } from "./video-policy";
 
-const MEDIA_URL_RE = /\.(mp4|m3u8|m4s|flv|webm|mov)(?:[?#]|$)/i;
 const MEDIA_CONTENT_TYPE_RE = /^(video\/|application\/(vnd\.apple\.mpegurl|x-mpegurl|dash\+xml|octet-stream))/i;
 
 type SniffedMedia = { href: string; bytes: number; contentType: string };
@@ -25,7 +25,7 @@ export async function scrapeWebPage(url: string) {
         if (sniffed.has(respUrl)) return;
         if (!/^https?:/i.test(respUrl)) return;
         const ct = (resp.headers()["content-type"] || "").toLowerCase();
-        const matchesUrl = MEDIA_URL_RE.test(respUrl);
+        const matchesUrl = VIDEO_MEDIA_URL_RE.test(respUrl);
         const matchesCt = MEDIA_CONTENT_TYPE_RE.test(ct);
         if (!matchesUrl && !matchesCt) return;
         const lenStr = resp.headers()["content-length"];

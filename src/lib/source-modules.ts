@@ -202,18 +202,20 @@ export async function seedDefaultModules(prisma: PrismaClient) {
       }
     }
 
-    const existing = await prisma.source.findFirst({
-      where: { modules: { some: { id: moduleRow.id } } },
-      select: { id: true }
-    });
-    if (existing) continue;
-
     for (const src of m.sources) {
-      const found = await prisma.source.findFirst({ where: { url: src.url } });
+      const found = await prisma.source.findFirst({
+        where: { url: src.url },
+        include: { modules: { select: { id: true } } }
+      });
       if (found) {
+        const alreadyConnected = found.modules.some((module) => module.id === moduleRow.id);
         await prisma.source.update({
           where: { id: found.id },
-          data: { modules: { connect: { id: moduleRow.id } } }
+          data: {
+            isDefault: true,
+            region: src.region,
+            ...(alreadyConnected ? {} : { modules: { connect: { id: moduleRow.id } } })
+          }
         });
       } else {
         await prisma.source.create({
@@ -222,6 +224,7 @@ export async function seedDefaultModules(prisma: PrismaClient) {
             url: src.url,
             type: src.type,
             region: src.region,
+            isDefault: true,
             modules: { connect: { id: moduleRow.id } }
           }
         });

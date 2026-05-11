@@ -1,21 +1,16 @@
 "use client";
 
-import { useUserPrefs } from "./useUserPrefs";
+import { useUserPrefs, type UserPrefs } from "./useUserPrefs";
 import { UserSettingsClient } from "./UserSettingsClient";
 import { CyberSettingsClient } from "./CyberSettingsClient";
 import { DynamicSettingsClient } from "./DynamicSettingsClient";
 
+type SettingsDefaults = Pick<UserPrefs, "theme" | "font" | "density" | "language" | "ui" | "musicEnabled">;
+
 export function SettingsPageSwitcher({
   siteDefaults,
 }: {
-  siteDefaults: {
-    theme: string;
-    font: string;
-    density: string;
-    language: string;
-    ui: string;
-    musicEnabled: boolean;
-  };
+  siteDefaults: SettingsDefaults;
 }) {
   const { prefs } = useUserPrefs(siteDefaults);
 

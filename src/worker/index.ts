@@ -34,7 +34,13 @@ import { prisma } from "../lib/prisma";
 import { enqueueTopicRun, parseTopicKeywords } from "../lib/auto-curation";
 import { bootstrapAllSchedules } from "../lib/scheduler";
 import { searchWithExa } from "../lib/exa";
-import { downloadDomesticVideo, isDomesticVideoUrl } from "../lib/video-downloader";
+import {
+  downloadDomesticVideo,
+  isDomesticVideoCandidate,
+  isDomesticVideoUrl,
+  isVideoMediaUrl,
+  shouldAttemptLocalVideoDownload
+} from "../lib/video-downloader";
 import { runStorageCleanup } from "../lib/storage";
 
 function workerConcurrency(envName: string, fallback = 1) {
@@ -70,9 +76,9 @@ async function loadModelAndStyle(fetchJob: { modelConfigId: string | null; summa
 }
 
 /** 封装 prisma.video.create 的类型断言，避免在多处重复 `as unknown as ...` 体操 */
-async function createVideoRecord(data: Record<string, unknown>) {
+async function createVideoRecord(data: Record<string, unknown>): Promise<{ id: string }> {
   return (prisma as unknown as {
-    video: { create: (args: { data: Record<string, unknown> }) => Promise<unknown> };
+    video: { create: (args: { data: Record<string, unknown> }) => Promise<{ id: string }> };
   }).video.create({ data });
 }
 
@@ -212,7 +218,7 @@ async function processWeb(fetchJobId: string) {
 
   for (const link of result.videos.slice(0, 4)) {
     const url = link.href;
-    const region = isDomesticVideoUrl(url) ? "DOMESTIC" : "INTERNATIONAL";
+    const region = isDomesticVideoCandidate(url, fetchJob.sourceUrl) ? "DOMESTIC" : "INTERNATIONAL";
     const type = detectVideoType(url);
     const baseData: Record<string, unknown> = {
       title: link.text || "相关视频资源",
@@ -222,12 +228,16 @@ async function processWeb(fetchJobId: string) {
       postId: post.id,
       region,
       sourcePageUrl: fetchJob.sourceUrl,
-      sourcePlatform: hostFromUrl(url)
+      sourcePlatform: sourcePlatformForVideo(url, fetchJob.sourceUrl)
     };
 
     let attribution = `来源页：${fetchJob.sourceUrl}\n原视频：${url}`;
 
-    if (!downloadedForThisPost && allowDownload && region === "DOMESTIC") {
+    const shouldDownload =
+      !downloadedForThisPost &&
+      shouldAttemptLocalVideoDownload(url, fetchJob.sourceUrl, allowDownload);
+
+    if (shouldDownload) {
       const dl = await downloadDomesticVideo(url, {
         maxDurationSec: videoMaxSec,
         referer: fetchJob.sourceUrl
@@ -243,6 +253,8 @@ async function processWeb(fetchJobId: string) {
         baseData.durationSec = dl.durationSec;
         attribution = `本地下载视频，原始来源：\n - 来源页：${fetchJob.sourceUrl}\n - 原视频链接：${url}\n - 平台：${baseData.sourcePlatform || "未知"}\n仅用于内部存档与方便国内访问，所有版权归原作者所有。`;
         downloadedForThisPost = true;
+      } else if (type === "LOCAL") {
+        baseData.type = "LINK";
       }
     }
 
@@ -263,6 +275,13 @@ function hostFromUrl(url: string): string | null {
   } catch {
     return null;
   }
+}
+
+function sourcePlatformForVideo(videoUrl: string, sourcePageUrl?: string | null): string | null {
+  if (sourcePageUrl && isVideoMediaUrl(videoUrl) && isDomesticVideoUrl(sourcePageUrl)) {
+    return hostFromUrl(sourcePageUrl) || hostFromUrl(videoUrl);
+  }
+  return hostFromUrl(videoUrl);
 }
 
 async function processRss(fetchJobId: string) {
@@ -286,13 +305,87 @@ async function processRss(fetchJobId: string) {
 }
 
 async function processVideo(fetchJobId: string) {
-  const fetchJob = await prisma.fetchJob.findUniqueOrThrow({ where: { id: fetchJobId } });
-  await prisma.video.create({
+  const fetchJob = await prisma.fetchJob.findUniqueOrThrow({
+    where: { id: fetchJobId },
+    include: { source: true }
+  });
+  const settings = await prisma.siteSettings.findUnique({ where: { id: "site" } });
+  const textOnly = (settings as { textOnlyMode?: boolean } | null)?.textOnlyMode === true;
+  const videoMaxSec = clampVideoDuration((settings as { videoMaxDurationSec?: number } | null)?.videoMaxDurationSec);
+  const allowDownload =
+    !textOnly && (settings as { videoDownloadDomestic?: boolean } | null)?.videoDownloadDomestic !== false;
+  const title = fetchJob.source?.name || "视频资源";
+  const originalUrl = fetchJob.sourceUrl;
+  const summary = "管理员添加的视频资源。";
+  const rawItem = await prisma.rawItem.create({
     data: {
-      title: "视频资源",
-      type: detectVideoType(fetchJob.sourceUrl),
-      url: normalizeEmbedUrl(fetchJob.sourceUrl),
-      summary: "管理员添加的视频资源。"
+      title,
+      url: originalUrl,
+      content: `${title}\n${originalUrl}`,
+      markdown: `# ${title}\n\n视频来源：${originalUrl}`,
+      sourceId: fetchJob.sourceId,
+      fetchJobId: fetchJob.id
+    }
+  });
+
+  const publication = await getPublicationData();
+  const topicLink = await resolveTopicLink(fetchJob.newsTopicId);
+  const slugBase = slugify(`${title}-${fetchJob.id}`);
+  const post = await prisma.post.create({
+    data: {
+      slug: `${slugBase}-${Date.now().toString(36)}`,
+      title,
+      summary,
+      content: `# ${title}\n\n${summary}\n\n视频来源：${originalUrl}`,
+      status: publication.status,
+      publishedAt: publication.publishedAt,
+      sourceUrl: originalUrl,
+      rawItemId: rawItem.id,
+      kind: topicLink.kind,
+      ...(topicLink.connect ? { topics: { connect: { id: topicLink.connect } } } : {})
+    }
+  });
+
+  const type = detectVideoType(originalUrl);
+  const region = isDomesticVideoCandidate(originalUrl, originalUrl) ? "DOMESTIC" : "INTERNATIONAL";
+  const baseData: Record<string, unknown> = {
+    title,
+    type,
+    url: normalizeEmbedUrl(originalUrl),
+    summary,
+    postId: post.id,
+    region,
+    sourcePageUrl: originalUrl,
+    sourcePlatform: sourcePlatformForVideo(originalUrl, originalUrl),
+    attribution: `来源页：${originalUrl}\n原视频：${originalUrl}`
+  };
+
+  if (shouldAttemptLocalVideoDownload(originalUrl, originalUrl, allowDownload)) {
+    const dl = await downloadDomesticVideo(originalUrl, {
+      maxDurationSec: videoMaxSec,
+      referer: originalUrl
+    }).catch((err) => {
+      console.error(`[video-download] failed ${originalUrl}:`, err);
+      return null;
+    });
+
+    if (dl?.localPath) {
+      baseData.type = "LOCAL";
+      baseData.url = dl.localPath;
+      baseData.localPath = dl.localPath;
+      baseData.fileSizeBytes = dl.fileSizeBytes;
+      baseData.durationSec = dl.durationSec;
+      baseData.attribution = `本地下载视频，原始来源：\n - 来源页：${originalUrl}\n - 原视频链接：${originalUrl}\n - 平台：${baseData.sourcePlatform || "未知"}\n仅用于内部存档与方便国内访问，所有版权归原作者所有。`;
+    } else if (type === "LOCAL") {
+      baseData.type = "LINK";
+    }
+  }
+
+  const video = await createVideoRecord(baseData);
+  await prisma.post.update({
+    where: { id: post.id },
+    data: {
+      content: `# ${title}\n\n${summary}\n\n[[video:${video.id}]]\n\n原始来源：${originalUrl}`
     }
   });
 }
