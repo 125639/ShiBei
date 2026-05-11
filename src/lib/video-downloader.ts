@@ -10,52 +10,20 @@ import { ensureUploadDirs, VIDEO_DIR } from "./storage";
 import { getModelConfigForUse } from "./model-selection";
 import { requestChatCompletion } from "./ai";
 import { assertSafeFetchUrl } from "./url-safety";
+import { isDomesticVideoCandidate, isVideoMediaUrl, VIDEO_MEDIA_URL_RE } from "./video-policy";
 
-const DOMESTIC_HOSTS = [
-  // 视频平台
-  "bilibili.com",
-  "b23.tv",
-  "weibo.com",
-  "iqiyi.com",
-  "youku.com",
-  "v.qq.com",
-  "douyin.com",
-  "ixigua.com",
-  "weishi.qq.com",
-  "miaopai.com",
-  "kuaishou.com",
-  "xiaohongshu.com",
-  "xhslink.com",
-  // 主流新闻 / 门户的自播视频
-  "cctv.com",
-  "cctv.cn",
-  "xinhuanet.com",
-  "news.cn",
-  "people.cn",
-  "people.com.cn",
-  "thepaper.cn",
-  "huanqiu.com",
-  "cnr.cn",
-  "sohu.com",
-  "163.com",
-  "sina.com.cn",
-  "ifeng.com"
-];
+export {
+  isDomesticVideoCandidate,
+  isDomesticVideoUrl,
+  isKnownInternationalVideoUrl,
+  isVideoMediaUrl,
+  shouldAttemptLocalVideoDownload
+} from "./video-policy";
 
 const BROWSER_UA =
   "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
 
-const MEDIA_URL_RE = /\.(mp4|m3u8|m4s|flv|webm|mov)(?:[?#]|$)/i;
 const HLS_RE = /\.m3u8(?:[?#]|$)/i;
-
-export function isDomesticVideoUrl(url: string): boolean {
-  try {
-    const host = new URL(url).hostname.toLowerCase();
-    return DOMESTIC_HOSTS.some((d) => host === d || host.endsWith("." + d));
-  } catch {
-    return false;
-  }
-}
 
 export type DownloadResult = {
   localPath: string;
@@ -87,7 +55,7 @@ export async function downloadDomesticVideo(
   url: string,
   opts?: DownloadOptions
 ): Promise<DownloadResult | null> {
-  if (!isDomesticVideoUrl(url)) return null;
+  if (!isDomesticVideoCandidate(url, opts?.referer)) return null;
   return downloadVideo(url, opts);
 }
 
@@ -153,7 +121,7 @@ export async function downloadVideo(
 // ── L1: 直链下载 ────────────────────────────────────────────
 
 function looksLikeMediaUrl(url: string): boolean {
-  return MEDIA_URL_RE.test(url);
+  return isVideoMediaUrl(url);
 }
 
 async function downloadMediaUrl(
@@ -324,7 +292,7 @@ async function sniffMediaWithBrowser(
         const u = resp.url();
         if (found.has(u) || !/^https?:/i.test(u)) return;
         const ct = (resp.headers()["content-type"] || "").toLowerCase();
-        const matchesUrl = MEDIA_URL_RE.test(u);
+        const matchesUrl = VIDEO_MEDIA_URL_RE.test(u);
         const matchesCt = /^(video\/|application\/(vnd\.apple\.mpegurl|x-mpegurl|dash\+xml))/i.test(ct);
         if (!matchesUrl && !matchesCt) return;
         const bytes = Number(resp.headers()["content-length"] || "0");

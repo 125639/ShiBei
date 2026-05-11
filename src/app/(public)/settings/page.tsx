@@ -1,17 +1,28 @@
 import { PublicShell } from "@/components/PublicShell";
 import { SettingsPageSwitcher } from "@/components/SettingsPageSwitcher";
-import { DEFAULT_LANGUAGE } from "@/lib/language";
+import { DEFAULT_LANGUAGE, isLanguageKey, type LanguageKey } from "@/lib/language";
 import { prisma } from "@/lib/prisma";
-import { DEFAULT_DENSITY, DEFAULT_FONT, DEFAULT_THEME } from "@/lib/themes";
+import {
+  DEFAULT_DENSITY,
+  DEFAULT_FONT,
+  DEFAULT_THEME,
+  isFontKey,
+  isThemeKey,
+  type DensityKey,
+  type FontKey,
+  type ThemeKey
+} from "@/lib/themes";
 
 export const dynamic = "force-dynamic";
 
+type SettingsUi = "system" | "classic" | "cyber" | "dynamic";
+
 export default async function SettingsPage() {
-  let theme: string = DEFAULT_THEME;
-  let font: string = DEFAULT_FONT;
-  const density: string = DEFAULT_DENSITY;
-  let language: string = DEFAULT_LANGUAGE;
-  let ui: string = "classic";
+  let theme: ThemeKey = DEFAULT_THEME;
+  let font: FontKey = DEFAULT_FONT;
+  const density: DensityKey = DEFAULT_DENSITY;
+  let language: LanguageKey = DEFAULT_LANGUAGE;
+  let ui: SettingsUi = "classic";
   let musicEnabled = false;
 
   try {
@@ -22,10 +33,10 @@ export default async function SettingsPage() {
       const dl = (settings as { defaultLanguage?: string }).defaultLanguage;
       const dui = (settings as { defaultSettingsUI?: string }).defaultSettingsUI;
       const me = (settings as { musicEnabledDefault?: boolean }).musicEnabledDefault;
-      if (dt) theme = dt;
-      if (df) font = df;
-      if (dl) language = dl;
-      if (dui) ui = dui;
+      if (isThemeKey(dt)) theme = dt;
+      if (isFontKey(df)) font = df;
+      if (isLanguageKey(dl)) language = dl;
+      if (isSettingsUi(dui)) ui = dui;
       if (typeof me === "boolean") musicEnabled = me;
     }
   } catch {
@@ -47,4 +58,8 @@ export default async function SettingsPage() {
       </main>
     </PublicShell>
   );
+}
+
+function isSettingsUi(value: string | null | undefined): value is SettingsUi {
+  return value === "system" || value === "classic" || value === "cyber" || value === "dynamic";
 }
