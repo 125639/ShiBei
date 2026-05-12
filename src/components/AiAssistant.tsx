@@ -9,6 +9,65 @@ type ChatMessage = {
   content: string;
 };
 
+function renderInlineMarkdown(text: string) {
+  const nodes: React.ReactNode[] = [];
+  const re = /(\*\*([^*]+)\*\*|`([^`]+)`|\[([^\]]+)\]\((https?:\/\/[^\s)]+)\))/g;
+  let lastIndex = 0;
+  let match: RegExpExecArray | null;
+
+  while ((match = re.exec(text))) {
+    if (match.index > lastIndex) nodes.push(text.slice(lastIndex, match.index));
+    if (match[2]) {
+      nodes.push(<strong key={`b-${match.index}`}>{match[2]}</strong>);
+    } else if (match[3]) {
+      nodes.push(<code key={`c-${match.index}`}>{match[3]}</code>);
+    } else if (match[4] && match[5]) {
+      nodes.push(
+        <a key={`a-${match.index}`} className="text-link" href={match[5]} target="_blank" rel="noreferrer">
+          {match[4]}
+        </a>
+      );
+    }
+    lastIndex = re.lastIndex;
+  }
+
+  if (lastIndex < text.length) nodes.push(text.slice(lastIndex));
+  return nodes;
+}
+
+function AssistantMessageContent({ content }: { content: string }) {
+  const blocks = content.trim().split(/\n{2,}/).filter(Boolean);
+  if (!blocks.length) return null;
+
+  return (
+    <div className="assistant-message-content">
+      {blocks.map((block, blockIndex) => {
+        const lines = block.split(/\n/).map((line) => line.trim()).filter(Boolean);
+        const isList = lines.length > 1 && lines.every((line) => /^[-*]\s+/.test(line));
+        if (isList) {
+          return (
+            <ul key={`block-${blockIndex}`}>
+              {lines.map((line, lineIndex) => (
+                <li key={`line-${lineIndex}`}>{renderInlineMarkdown(line.replace(/^[-*]\s+/, ""))}</li>
+              ))}
+            </ul>
+          );
+        }
+        return (
+          <p key={`block-${blockIndex}`}>
+            {lines.map((line, lineIndex) => (
+              <span key={`line-${lineIndex}`}>
+                {lineIndex > 0 ? <br /> : null}
+                {renderInlineMarkdown(line)}
+              </span>
+            ))}
+          </p>
+        );
+      })}
+    </div>
+  );
+}
+
 export function AiAssistant({ context, contextLabel = <I18nText zh="当前页面" en="Current Page" /> }: { context: string; contextLabel?: React.ReactNode }) {
   const { prefs, hydrated } = useUserPrefs();
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -59,7 +118,7 @@ export function AiAssistant({ context, contextLabel = <I18nText zh="当前页面
         ) : messages.map((message, index) => (
           <div className={`assistant-message ${message.role}`} key={`${message.role}-${index}`}>
             <strong>{message.role === "user" ? <I18nText zh="你" en="You" /> : "AI"}</strong>
-            <p>{message.content}</p>
+            <AssistantMessageContent content={message.content} />
           </div>
         ))}
         {loading ? <p className="muted-block"><I18nText zh="AI 正在思考…" en="AI is thinking..." /></p> : null}

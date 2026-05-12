@@ -5,20 +5,26 @@ import { createWriteStream } from "node:fs";
 import { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import path from "node:path";
-import { chromium } from "playwright";
+import { chromium, type Page } from "playwright";
 import { ensureUploadDirs, VIDEO_DIR } from "./storage";
 import { getModelConfigForUse } from "./model-selection";
 import { requestChatCompletion } from "./ai";
 import { assertSafeFetchUrl } from "./url-safety";
-import { isDomesticVideoCandidate, isVideoMediaUrl, VIDEO_MEDIA_URL_RE } from "./video-policy";
+import { isDomesticVideoCandidate, isVideoMediaUrl, shouldDownloadVideo, VIDEO_MEDIA_URL_RE, type VideoDownloadPolicy } from "./video-policy";
 
 export {
+  INTERNATIONAL_PLATFORM_HOSTS,
+  INTERNATIONAL_PLATFORM_KEYS,
   isDomesticVideoCandidate,
   isDomesticVideoUrl,
+  isEnabledInternationalCandidate,
   isKnownInternationalVideoUrl,
   isVideoMediaUrl,
-  shouldAttemptLocalVideoDownload
+  parseInternationalHostKeys,
+  shouldAttemptLocalVideoDownload,
+  shouldDownloadVideo
 } from "./video-policy";
+export type { VideoDownloadPolicy } from "./video-policy";
 
 const BROWSER_UA =
   "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
@@ -60,6 +66,19 @@ export async function downloadDomesticVideo(
 }
 
 /**
+ * 按完整下载策略（国内 + 用户勾选的国际平台）下载。命中策略才进入下载流程，
+ * 否则直接返回 null。给 worker 替代单纯的 downloadDomesticVideo 用。
+ */
+export async function downloadVideoByPolicy(
+  url: string,
+  policy: VideoDownloadPolicy,
+  opts?: DownloadOptions
+): Promise<DownloadResult | null> {
+  if (!shouldDownloadVideo(url, opts?.referer, policy)) return null;
+  return downloadVideo(url, opts);
+}
+
+/**
  * 不带"国内站点"前置 gate 的下载入口。希望按 caller 自己的策略决定要不要下时用这个。
  */
 export async function downloadVideo(
@@ -68,7 +87,9 @@ export async function downloadVideo(
 ): Promise<DownloadResult | null> {
   await ensureUploadDirs();
   const maxSec = opts?.maxDurationSec ?? 1200;
-  const referer = opts?.referer || originOf(url) || url;
+  const explicitReferer = opts?.referer;
+  const referer = explicitReferer || originOf(url) || url;
+  const sniffPageUrl = explicitReferer && shouldResniffReferer(url, explicitReferer) ? explicitReferer : url;
 
   // L1：URL 本身就是直链
   if (looksLikeMediaUrl(url)) {
@@ -80,8 +101,8 @@ export async function downloadVideo(
   }
 
   // L2：开 Playwright 嗅网络
-  const sniffed = await sniffMediaWithBrowser(url, maxSec).catch((err) => {
-    console.warn(`[video-download] L2 sniff failed for ${url}:`, err?.message || err);
+  const sniffed = await sniffMediaWithBrowser(sniffPageUrl, maxSec).catch((err) => {
+    console.warn(`[video-download] L2 sniff failed for ${sniffPageUrl}:`, err?.message || err);
     return null;
   });
   if (sniffed?.mediaUrl) {
@@ -95,19 +116,21 @@ export async function downloadVideo(
   }
 
   // L3：yt-dlp
-  const yt = await tryYtDlp(url, maxSec).catch((err) => {
+  const yt = await tryYtDlp(url, maxSec, referer).catch((err) => {
     console.warn(`[video-download] L3 yt-dlp threw for ${url}:`, err?.message || err);
     return null;
   });
   if (yt) return yt;
 
   // L4：LLM 识别视频 URL
-  const llm = await extractWithLLM(url, sniffed?.html ?? null).catch((err) => {
-    console.warn(`[video-download] L4 LLM extract failed for ${url}:`, err?.message || err);
+  const llm = await extractWithLLM(sniffPageUrl, sniffed?.html ?? null).catch((err) => {
+    console.warn(`[video-download] L4 LLM extract failed for ${sniffPageUrl}:`, err?.message || err);
     return null;
   });
   if (llm) {
-    const r = await downloadMediaUrl(llm, referer, maxSec).catch((err) => {
+    const r = await downloadMediaUrl(llm, referer, maxSec, {
+      cookieHeader: sniffed?.cookieHeader
+    }).catch((err) => {
       console.warn(`[video-download] L4 download failed for ${llm}:`, err?.message || err);
       return null;
     });
@@ -134,7 +157,7 @@ async function downloadMediaUrl(
   assertSafeFetchUrl(mediaUrl);
 
   if (HLS_RE.test(mediaUrl)) {
-    return downloadHlsWithFfmpeg(mediaUrl, referer, maxSec);
+    return downloadHlsWithFfmpeg(mediaUrl, referer, maxSec, extra);
   }
   return streamDownloadFile(mediaUrl, referer, maxSec, extra);
 }
@@ -218,7 +241,8 @@ async function streamDownloadFile(
 async function downloadHlsWithFfmpeg(
   mediaUrl: string,
   referer: string,
-  maxSec: number
+  maxSec: number,
+  extra?: { cookieHeader?: string }
 ): Promise<DownloadResult | null> {
   const ffmpeg = await resolveBin("ffmpeg");
   if (!ffmpeg) {
@@ -231,13 +255,19 @@ async function downloadHlsWithFfmpeg(
 
   // -t 限时长（秒），防止恶意长流把磁盘塞满
   // -bsf:a aac_adtstoasc 是 HLS→MP4 容器转换的常规所需 bitstream filter
+  const ffmpegHeaders = [
+    `User-Agent: ${BROWSER_UA}`,
+    `Referer: ${referer}`,
+    extra?.cookieHeader ? `Cookie: ${extra.cookieHeader}` : ""
+  ].filter(Boolean).join("\r\n") + "\r\n";
+
   const args = [
     "-hide_banner",
     "-loglevel",
     "error",
     "-y",
     "-headers",
-    `User-Agent: ${BROWSER_UA}\r\nReferer: ${referer}\r\n`,
+    ffmpegHeaders,
     "-i",
     mediaUrl,
     "-t",
@@ -304,7 +334,10 @@ async function sniffMediaWithBrowser(
       }
     });
 
-    await page.goto(pageUrl, { waitUntil: "networkidle", timeout: 60_000 });
+    await page.goto(pageUrl, { waitUntil: "domcontentloaded", timeout: 60_000 });
+    await page.waitForLoadState("load", { timeout: 10_000 }).catch(() => undefined);
+    await triggerHtml5VideoPlayback(page).catch(() => undefined);
+    await page.waitForLoadState("networkidle", { timeout: 5_000 }).catch(() => undefined);
     // 给播放器一点额外时间真正开始拉流（很多站点 networkidle 后 1-3s 才挂播放器）
     await page.waitForTimeout(Math.min(maxSec * 100, 5000));
 
@@ -334,7 +367,7 @@ async function sniffMediaWithBrowser(
 
 // ── L3: yt-dlp ──────────────────────────────────────────────
 
-async function tryYtDlp(url: string, maxSec: number): Promise<DownloadResult | null> {
+async function tryYtDlp(url: string, maxSec: number, referer: string): Promise<DownloadResult | null> {
   const ytdlp = await resolveBin("yt-dlp");
   if (!ytdlp) return null;
 
@@ -348,6 +381,8 @@ async function tryYtDlp(url: string, maxSec: number): Promise<DownloadResult | n
     "3",
     "--user-agent",
     BROWSER_UA,
+    "--referer",
+    referer,
     "--match-filter",
     `duration <= ${maxSec}`,
     "-f",
@@ -462,6 +497,22 @@ function originOf(url: string): string | null {
   } catch {
     return null;
   }
+}
+
+function shouldResniffReferer(url: string, referer: string): boolean {
+  if (!referer || referer === url) return false;
+  if (!/^https?:\/\//i.test(referer)) return false;
+  return looksLikeMediaUrl(url) || /\/videoplayback(?:[/?#]|$)|[?&]mime=video\//i.test(url);
+}
+
+async function triggerHtml5VideoPlayback(page: Page) {
+  await page.evaluate(() => {
+    for (const video of Array.from(document.querySelectorAll("video"))) {
+      video.muted = true;
+      video.playsInline = true;
+      void video.play().catch(() => undefined);
+    }
+  });
 }
 
 function guessExtFromUrl(url: string): string | null {

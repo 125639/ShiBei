@@ -35,12 +35,15 @@ import { enqueueTopicRun, parseTopicKeywords } from "../lib/auto-curation";
 import { bootstrapAllSchedules } from "../lib/scheduler";
 import { searchWithExa } from "../lib/exa";
 import {
-  downloadDomesticVideo,
+  downloadVideoByPolicy,
   isDomesticVideoCandidate,
   isDomesticVideoUrl,
   isVideoMediaUrl,
-  shouldAttemptLocalVideoDownload
+  parseInternationalHostKeys,
+  shouldDownloadVideo,
+  type VideoDownloadPolicy
 } from "../lib/video-downloader";
+import { selectVideoLinksForPost } from "../lib/video-candidates";
 import { runStorageCleanup } from "../lib/storage";
 
 function workerConcurrency(envName: string, fallback = 1) {
@@ -192,7 +195,8 @@ async function processWeb(fetchJobId: string) {
   const settings = await prisma.siteSettings.findUnique({ where: { id: "site" } });
   const textOnly = (settings as { textOnlyMode?: boolean } | null)?.textOnlyMode === true;
   const videoMaxSec = clampVideoDuration((settings as { videoMaxDurationSec?: number } | null)?.videoMaxDurationSec);
-  const allowDownload = (settings as { videoDownloadDomestic?: boolean } | null)?.videoDownloadDomestic !== false;
+  const policy = videoPolicyFromSettings(settings);
+  const maxPerPost = clampVideoMaxPerPost((settings as { videoMaxPerPost?: number } | null)?.videoMaxPerPost);
 
   const result = await scrapeWebPage(fetchJob.sourceUrl);
   const rawItem = await prisma.rawItem.create({
@@ -213,10 +217,10 @@ async function processWeb(fetchJobId: string) {
     return;
   }
 
-  // Cap to one downloaded video per article; remaining are stored as link/embed only.
-  let downloadedForThisPost = false;
+  let downloadedForThisPost = 0;
+  const createdVideoIds: string[] = [];
 
-  for (const link of result.videos.slice(0, 4)) {
+  for (const link of selectVideoLinksForPost(result.videos, 4)) {
     const url = link.href;
     const region = isDomesticVideoCandidate(url, fetchJob.sourceUrl) ? "DOMESTIC" : "INTERNATIONAL";
     const type = detectVideoType(url);
@@ -234,11 +238,11 @@ async function processWeb(fetchJobId: string) {
     let attribution = `来源页：${fetchJob.sourceUrl}\n原视频：${url}`;
 
     const shouldDownload =
-      !downloadedForThisPost &&
-      shouldAttemptLocalVideoDownload(url, fetchJob.sourceUrl, allowDownload);
+      downloadedForThisPost < maxPerPost &&
+      shouldDownloadVideo(url, fetchJob.sourceUrl, policy);
 
     if (shouldDownload) {
-      const dl = await downloadDomesticVideo(url, {
+      const dl = await downloadVideoByPolicy(url, policy, {
         maxDurationSec: videoMaxSec,
         referer: fetchJob.sourceUrl
       }).catch((err) => {
@@ -252,7 +256,7 @@ async function processWeb(fetchJobId: string) {
         baseData.fileSizeBytes = dl.fileSizeBytes;
         baseData.durationSec = dl.durationSec;
         attribution = `本地下载视频，原始来源：\n - 来源页：${fetchJob.sourceUrl}\n - 原视频链接：${url}\n - 平台：${baseData.sourcePlatform || "未知"}\n仅用于内部存档与方便国内访问，所有版权归原作者所有。`;
-        downloadedForThisPost = true;
+        downloadedForThisPost += 1;
       } else if (type === "LOCAL") {
         baseData.type = "LINK";
       }
@@ -260,13 +264,66 @@ async function processWeb(fetchJobId: string) {
 
     baseData.attribution = attribution;
 
-    await createVideoRecord(baseData);
+    const created = await createVideoRecord(baseData);
+    createdVideoIds.push(created.id);
+  }
+
+  if (createdVideoIds.length) {
+    await embedVideosInPostContent(post.id, createdVideoIds);
   }
 }
 
 function clampVideoDuration(value: number | undefined | null) {
   if (!value || !Number.isFinite(value)) return 1200;
   return Math.min(Math.max(Math.floor(value), 30), 1200);
+}
+
+function clampVideoMaxPerPost(value: number | undefined | null) {
+  if (!value || !Number.isFinite(value)) return 4;
+  return Math.min(Math.max(Math.floor(value), 0), 4);
+}
+
+function videoPolicyFromSettings(settings: unknown): VideoDownloadPolicy {
+  const s = (settings || {}) as {
+    videoDownloadDomestic?: boolean;
+    videoDownloadHosts?: string | null;
+  };
+  return {
+    domestic: s.videoDownloadDomestic !== false,
+    internationalHostKeys: parseInternationalHostKeys(s.videoDownloadHosts)
+  };
+}
+
+/**
+ * 把 [[video:ID]] 短代码追加到 post.content（以及英文翻译，如果已生成）末尾。
+ * 渲染层（news/[slug]/page.tsx + markdown.ts）会把短代码替换为播放器，并把
+ * 已内嵌的视频从文末"相关视频"列表里去重，因此追加不会造成重复展示。
+ */
+async function embedVideosInPostContent(postId: string, videoIds: string[]) {
+  if (!videoIds.length) return;
+  const post = await prisma.post
+    .findUnique({ where: { id: postId }, select: { content: true } })
+    .catch(() => null);
+  if (!post) return;
+  const block = videoIds.map((id) => `[[video:${id}]]`).join("\n\n");
+  const sep = post.content.endsWith("\n") ? "\n" : "\n\n";
+  const nextContent = `${post.content}${sep}${block}\n`;
+
+  const existingEn = await (prisma as unknown as {
+    post: { findUnique: (args: unknown) => Promise<{ contentEn: string | null } | null> };
+  }).post.findUnique({ where: { id: postId }, select: { contentEn: true } }).catch(() => null);
+  const nextContentEn = existingEn?.contentEn
+    ? `${existingEn.contentEn}${existingEn.contentEn.endsWith("\n") ? "\n" : "\n\n"}${block}\n`
+    : null;
+
+  await (prisma as unknown as {
+    post: { update: (args: unknown) => Promise<unknown> };
+  }).post.update({
+    where: { id: postId },
+    data: nextContentEn ? { content: nextContent, contentEn: nextContentEn } : { content: nextContent }
+  }).catch((err) => {
+    console.error(`[video-embed] failed to inline shortcodes for post ${postId}:`, err);
+  });
 }
 
 function hostFromUrl(url: string): string | null {
@@ -312,8 +369,9 @@ async function processVideo(fetchJobId: string) {
   const settings = await prisma.siteSettings.findUnique({ where: { id: "site" } });
   const textOnly = (settings as { textOnlyMode?: boolean } | null)?.textOnlyMode === true;
   const videoMaxSec = clampVideoDuration((settings as { videoMaxDurationSec?: number } | null)?.videoMaxDurationSec);
-  const allowDownload =
-    !textOnly && (settings as { videoDownloadDomestic?: boolean } | null)?.videoDownloadDomestic !== false;
+  const policy = textOnly
+    ? { domestic: false, internationalHostKeys: [] as string[] }
+    : videoPolicyFromSettings(settings);
   const title = fetchJob.source?.name || "视频资源";
   const originalUrl = fetchJob.sourceUrl;
   const summary = "管理员添加的视频资源。";
@@ -360,8 +418,8 @@ async function processVideo(fetchJobId: string) {
     attribution: `来源页：${originalUrl}\n原视频：${originalUrl}`
   };
 
-  if (shouldAttemptLocalVideoDownload(originalUrl, originalUrl, allowDownload)) {
-    const dl = await downloadDomesticVideo(originalUrl, {
+  if (shouldDownloadVideo(originalUrl, originalUrl, policy)) {
+    const dl = await downloadVideoByPolicy(originalUrl, policy, {
       maxDurationSec: videoMaxSec,
       referer: originalUrl
     }).catch((err) => {
@@ -722,47 +780,123 @@ function extractVideoUrlsFromText(text: string): string[] {
  * ——视频附挂只是锦上添花,不该让 Post 本身变成 FAILED。
  */
 async function attachVideosFromEvidence(postId: string, evidence: EvidenceItem[], contextLabel: string) {
-  type Picked = { url: string; title: string; sourceName: string; sourcePageUrl: string };
+  const settings = await prisma.siteSettings.findUnique({ where: { id: "site" } });
+  if ((settings as { textOnlyMode?: boolean } | null)?.textOnlyMode === true) return;
+  const videoMaxSec = clampVideoDuration((settings as { videoMaxDurationSec?: number } | null)?.videoMaxDurationSec);
+  const policy = videoPolicyFromSettings(settings);
+  const maxPerPost = clampVideoMaxPerPost((settings as { videoMaxPerPost?: number } | null)?.videoMaxPerPost);
+  const picks = await collectEvidenceVideoPicks(evidence, 6);
+  if (!picks.length) return;
+
+  const createdIds: string[] = [];
+  let downloadedForThisPost = 0;
+  for (const v of picks) {
+    const region = isDomesticVideoCandidate(v.url, v.sourcePageUrl) ? "DOMESTIC" : "INTERNATIONAL";
+    const type = detectVideoType(v.url);
+    const baseData: Record<string, unknown> = {
+      title: v.title,
+      type,
+      url: normalizeEmbedUrl(v.url),
+      summary: `从${v.sourceName}的报道中识别到的视频资源：${v.url}`,
+      postId,
+      region,
+      sourcePageUrl: v.sourcePageUrl,
+      sourcePlatform: sourcePlatformForVideo(v.url, v.sourcePageUrl)
+    };
+    let attribution = `来源页：${v.sourcePageUrl}\n原视频：${v.url}\n（基于${contextLabel}的研究资料自动提取）`;
+
+    if (downloadedForThisPost < maxPerPost && shouldDownloadVideo(v.url, v.sourcePageUrl, policy)) {
+      const dl = await downloadVideoByPolicy(v.url, policy, {
+        maxDurationSec: videoMaxSec,
+        referer: v.sourcePageUrl
+      }).catch((err) => {
+        console.error(`[video-download] failed ${v.url}:`, err);
+        return null;
+      });
+      if (dl?.localPath) {
+        baseData.type = "LOCAL";
+        baseData.url = dl.localPath;
+        baseData.localPath = dl.localPath;
+        baseData.fileSizeBytes = dl.fileSizeBytes;
+        baseData.durationSec = dl.durationSec;
+        downloadedForThisPost += 1;
+        attribution = `本地下载视频，原始来源：\n - 来源页：${v.sourcePageUrl}\n - 原视频链接：${v.url}\n - 平台：${baseData.sourcePlatform || "未知"}\n仅用于内部存档与方便国内访问，所有版权归原作者所有。`;
+      } else if (type === "LOCAL") {
+        baseData.type = "LINK";
+      }
+    } else if (type === "LOCAL") {
+      baseData.type = "LINK";
+    }
+
+    baseData.attribution = attribution;
+
+    try {
+      const created = await createVideoRecord(baseData);
+      createdIds.push(created.id);
+    } catch (error) {
+      console.error(`[video-attach] failed for ${v.url}:`, error);
+    }
+  }
+
+  if (createdIds.length) {
+    await embedVideosInPostContent(postId, createdIds);
+  }
+}
+
+type EvidenceVideoPick = { url: string; title: string; sourceName: string; sourcePageUrl: string };
+
+async function collectEvidenceVideoPicks(evidence: EvidenceItem[], limit: number): Promise<EvidenceVideoPick[]> {
   const seen = new Set<string>();
-  const picks: Picked[] = [];
+  const picks: EvidenceVideoPick[] = [];
+
+  const addPick = (item: EvidenceItem, url: string, title?: string | null) => {
+    const key = normalizeVideoPickKey(url);
+    if (!key || seen.has(key)) return;
+    seen.add(key);
+    picks.push({
+      url,
+      title: (title || item.title || "相关视频资源").slice(0, 200),
+      sourceName: item.sourceName,
+      sourcePageUrl: item.url
+    });
+  };
 
   for (const item of evidence) {
     const text = `${item.title || ""}\n${item.summary || ""}\n${item.url || ""}`;
     for (const url of extractVideoUrlsFromText(text)) {
-      const key = url.replace(/[?#].*$/, "");
-      if (seen.has(key)) continue;
-      seen.add(key);
-      picks.push({
-        url,
-        title: (item.title || "相关视频资源").slice(0, 200),
-        sourceName: item.sourceName,
-        sourcePageUrl: item.url
-      });
-      if (picks.length >= 6) break;
+      addPick(item, url, item.title);
+      if (picks.length >= limit) return picks;
     }
-    if (picks.length >= 6) break;
   }
 
-  if (!picks.length) return;
-
-  for (const v of picks) {
-    const region = isDomesticVideoUrl(v.url) ? "DOMESTIC" : "INTERNATIONAL";
-    const type = detectVideoType(v.url);
-    try {
-      await createVideoRecord({
-          title: v.title,
-          type,
-          url: normalizeEmbedUrl(v.url),
-          summary: `从${v.sourceName}的报道中识别到的视频资源：${v.url}`,
-          postId,
-          region,
-          sourcePageUrl: v.sourcePageUrl,
-          sourcePlatform: hostFromUrl(v.url),
-          attribution: `来源页：${v.sourcePageUrl}\n原视频：${v.url}\n（基于${contextLabel}的研究资料自动提取，未实际下载文件）`
-      });
-    } catch (error) {
-      console.error(`[video-attach] failed for ${v.url}:`, error);
+  for (const item of evidence.slice(0, 4)) {
+    if (picks.length >= limit) break;
+    if (!/^https?:\/\//i.test(item.url)) continue;
+    const scraped = await scrapeWebPage(item.url).catch((error) => {
+      console.error(`[video-attach] evidence page scrape failed ${item.url}:`, error);
+      return null;
+    });
+    if (!scraped?.videos?.length) continue;
+    for (const link of selectVideoLinksForPost(scraped.videos, 3)) {
+      addPick(item, link.href, link.text === "页面播放器加载的视频流" ? `${item.title}｜视频` : link.text);
+      if (picks.length >= limit) return picks;
     }
+  }
+
+  return picks;
+}
+
+function normalizeVideoPickKey(url: string) {
+  try {
+    const parsed = new URL(url);
+    parsed.hash = "";
+    if (!parsed.protocol.startsWith("http")) return "";
+    if (isVideoMediaUrl(url)) {
+      parsed.search = "";
+    }
+    return parsed.toString();
+  } catch {
+    return "";
   }
 }
 

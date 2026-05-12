@@ -1,6 +1,13 @@
 import { describe, test } from "node:test";
 import assert from "node:assert/strict";
-import { isDomesticVideoCandidate, shouldAttemptLocalVideoDownload } from "../src/lib/video-policy";
+import {
+  isDomesticVideoCandidate,
+  isEnabledInternationalCandidate,
+  parseInternationalHostKeys,
+  shouldAttemptLocalVideoDownload,
+  shouldDownloadVideo
+} from "../src/lib/video-policy";
+import { isHlsSegmentUrl, selectVideoLinksForPost } from "../src/lib/video-candidates";
 import { DEFAULT_MODULES, seedDefaultModules } from "../src/lib/source-modules";
 
 describe("video download policy", () => {
@@ -42,6 +49,113 @@ describe("video download policy", () => {
         false
       ),
       false
+    );
+  });
+
+  test("parses comma-separated international host keys and filters unknown ones", () => {
+    assert.deepEqual(
+      parseInternationalHostKeys("youtube, vimeo, FAKE, twitch"),
+      ["youtube", "vimeo", "twitch"]
+    );
+    assert.deepEqual(parseInternationalHostKeys(null), []);
+    assert.deepEqual(parseInternationalHostKeys(""), []);
+  });
+
+  test("treats enabled YouTube host as a download candidate", () => {
+    assert.equal(
+      isEnabledInternationalCandidate("https://www.youtube.com/watch?v=abc", ["youtube"]),
+      true
+    );
+    assert.equal(
+      isEnabledInternationalCandidate("https://youtu.be/abc", ["youtube"]),
+      true
+    );
+    // Vimeo URL with only youtube enabled → no go.
+    assert.equal(
+      isEnabledInternationalCandidate("https://vimeo.com/12345", ["youtube"]),
+      false
+    );
+  });
+
+  test("shouldDownloadVideo accepts domestic when domestic flag is on", () => {
+    assert.equal(
+      shouldDownloadVideo(
+        "https://cdn.example.net/video/news.mp4",
+        "https://www.thepaper.cn/newsDetail_forward_123",
+        { domestic: true, internationalHostKeys: [] }
+      ),
+      true
+    );
+  });
+
+  test("shouldDownloadVideo respects user-selected international platforms", () => {
+    assert.equal(
+      shouldDownloadVideo(
+        "https://www.youtube.com/watch?v=abc",
+        "https://news.example.com",
+        { domestic: true, internationalHostKeys: ["youtube"] }
+      ),
+      true
+    );
+    // No platforms selected → international URL is rejected even with domestic enabled.
+    assert.equal(
+      shouldDownloadVideo(
+        "https://www.youtube.com/watch?v=abc",
+        "https://news.example.com",
+        { domestic: true, internationalHostKeys: [] }
+      ),
+      false
+    );
+  });
+});
+
+describe("video candidate selection", () => {
+  test("skips HLS segments and keeps one preferred manifest per stream", () => {
+    const selected = selectVideoLinksForPost([
+      {
+        text: "segment",
+        href: "https://dh5.cntv.cdn20.com/asp/h5e/hls/1200/foo/default/bar/0.ts"
+      },
+      {
+        text: "850k",
+        href: "https://dh5.cntv.cdn20.com/asp/h5e/hls/850/foo/default/bar/850.m3u8"
+      },
+      {
+        text: "main",
+        href: "https://dh5.cntv.cdn20.com/asp/h5e/hls/main/foo/default/bar/main.m3u8"
+      },
+      {
+        text: "450k",
+        href: "https://dh5.cntv.cdn20.com/asp/h5e/hls/450/foo/default/bar/450.m3u8"
+      }
+    ]);
+
+    assert.equal(selected.length, 1);
+    assert.equal(selected[0].text, "main");
+    assert.equal(isHlsSegmentUrl(selected[0].href), false);
+  });
+
+  test("keeps distinct direct video files", () => {
+    const selected = selectVideoLinksForPost([
+      { text: "one", href: "https://cdn.example.com/video/one.mp4?token=a" },
+      { text: "two", href: "https://cdn.example.com/video/two.mp4?token=b" }
+    ]);
+
+    assert.deepEqual(
+      selected.map((item) => item.text),
+      ["one", "two"]
+    );
+  });
+
+  test("skips browser-only blob video URLs", () => {
+    const selected = selectVideoLinksForPost([
+      { text: "blob", href: "blob:https://m.news.cntv.cn/player-token" },
+      { text: "real", href: "https://cdn.example.com/video/real.mp4" }
+    ]);
+
+    assert.deepEqual(
+      selected.map((item) => item.text),
+      ["real"]
     );
   });
 });

@@ -38,6 +38,30 @@ export default async function SourcesPage({
     if (!filterModule) return true;
     return s.modules?.some((m) => m.slug === filterModule);
   });
+  const sourceIds = sources.map((source) => source.id);
+  const recentJobs = sourceIds.length
+    ? await prisma.fetchJob.findMany({
+        where: {
+          sourceId: { in: sourceIds },
+          createdAt: { gte: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000) }
+        },
+        orderBy: { createdAt: "desc" },
+        select: {
+          sourceId: true,
+          status: true,
+          error: true,
+          createdAt: true,
+          updatedAt: true
+        }
+      })
+    : [];
+  const jobsBySource = new Map<string, typeof recentJobs>();
+  for (const job of recentJobs) {
+    if (!job.sourceId) continue;
+    const list = jobsBySource.get(job.sourceId) || [];
+    list.push(job);
+    jobsBySource.set(job.sourceId, list);
+  }
 
   const toListSource = (s: SourceWithModules): ListSource => ({
     id: s.id,
@@ -47,7 +71,13 @@ export default async function SourcesPage({
     status: s.status,
     isDefault: s.isDefault,
     popularity: s.popularity,
-    popularityUpdatedAt: s.popularityUpdatedAt?.toISOString() ?? null
+    popularityUpdatedAt: s.popularityUpdatedAt?.toISOString() ?? null,
+    region: s.region || "UNKNOWN",
+    lastJobStatus: jobsBySource.get(s.id)?.[0]?.status ?? null,
+    lastJobAt: jobsBySource.get(s.id)?.[0]?.updatedAt.toISOString() ?? null,
+    lastJobError: jobsBySource.get(s.id)?.[0]?.error ?? null,
+    success7d: jobsBySource.get(s.id)?.filter((job) => job.status === "COMPLETED").length ?? 0,
+    failed7d: jobsBySource.get(s.id)?.filter((job) => job.status === "FAILED").length ?? 0
   });
 
   const infoSources = sources.filter((s) => s.type === "WEB" || s.type === "RSS" || s.type === "EXA");
@@ -168,9 +198,9 @@ export default async function SourcesPage({
           <div className="field">
             <label htmlFor="articleDepth">报道长度</label>
             <select id="articleDepth" name="articleDepth" defaultValue="long">
-              <option value="standard">标准报道（约 1200 字）</option>
-              <option value="long">长报道（约 2000 字）</option>
-              <option value="deep">深度报道（约 3200 字）</option>
+              <option value="standard">标准报道（至少 1100 字，目标 1200）</option>
+              <option value="long">长报道（至少 1900 字，目标 2000）</option>
+              <option value="deep">深度报道（至少 3000 字，目标 3200）</option>
             </select>
           </div>
           <button className="button" type="submit">搜索资料并写新闻草稿</button>

@@ -5,6 +5,7 @@ import { isLanguageKey, isNewsLanguageMode } from "@/lib/language";
 import { prisma } from "@/lib/prisma";
 import { redirectTo } from "@/lib/redirect";
 import { isFontKey, isThemeKey } from "@/lib/themes";
+import { INTERNATIONAL_PLATFORM_KEYS } from "@/lib/video-policy";
 
 function clamp(value: number, min: number, max: number) {
   if (!Number.isFinite(value)) return min;
@@ -14,6 +15,7 @@ function clamp(value: number, min: number, max: number) {
 export async function POST(request: Request) {
   await requireAdmin();
   const form = await request.formData();
+  const settingsTab = normalizeSettingsTab(form.get("settingsTab"));
 
   const autoPublish = form.get("autoPublish") === "true";
   const textOnlyMode = form.get("textOnlyMode") === "true";
@@ -41,6 +43,16 @@ export async function POST(request: Request) {
   const maxStorageMb = clamp(Number(form.get("maxStorageMb") || 2048), 64, 1024 * 100);
   const cleanupAfterDays = clamp(Number(form.get("cleanupAfterDays") || 30), 1, 3650);
   const videoMaxDurationSec = clamp(Number(form.get("videoMaxDurationSec") || 1200), 30, 1200);
+  const videoMaxPerPost = clamp(Number(form.get("videoMaxPerPost") || 4), 0, 4);
+  const videoDownloadHosts = (() => {
+    const known = new Set(INTERNATIONAL_PLATFORM_KEYS);
+    const selected = new Set<string>();
+    for (const value of form.getAll("videoDownloadHosts")) {
+      const key = String(value).trim().toLowerCase();
+      if (known.has(key)) selected.add(key);
+    }
+    return [...selected].join(",");
+  })();
   const globalPromptPrefix = String(form.get("globalPromptPrefix") || "").slice(0, 4000);
 
   const exaApiKeyPlain = String(form.get("exaApiKey") || "").trim();
@@ -62,6 +74,8 @@ export async function POST(request: Request) {
     cleanupCustomEnabled,
     videoMaxDurationSec,
     videoDownloadDomestic,
+    videoDownloadHosts,
+    videoMaxPerPost,
     exaEnabled,
     musicEnabledDefault,
     newsModelConfigId,
@@ -81,10 +95,15 @@ export async function POST(request: Request) {
     }
   });
   revalidateTag("site-settings");
-  return redirectTo("/admin/settings");
+  return redirectTo(`/admin/settings?tab=${settingsTab}`);
 }
 
 function normalizeOptionalId(value: FormDataEntryValue | null) {
   const id = String(value || "").trim();
   return id || null;
+}
+
+function normalizeSettingsTab(value: FormDataEntryValue | null) {
+  const tab = String(value || "site").trim();
+  return ["site", "content", "models", "media", "storage", "external"].includes(tab) ? tab : "site";
 }

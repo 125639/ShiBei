@@ -3,12 +3,15 @@
 import { useCallback, useEffect, useState } from "react";
 import {
   DEFAULT_DENSITY,
+  DEFAULT_CURSOR_STYLE,
   DEFAULT_FONT,
   DEFAULT_THEME,
+  CursorStyleKey,
   DensityKey,
   FontKey,
   PREF_KEYS,
   ThemeKey,
+  isCursorStyleKey,
   isDensityKey,
   isFontKey,
   isThemeKey
@@ -22,6 +25,7 @@ export type UserPrefs = {
   language: LanguageKey;
   ui: "system" | "classic" | "cyber" | "dynamic";
   customCursor: boolean;
+  cursorStyle: CursorStyleKey;
   musicEnabled: boolean;
   musicTrackId: string | null;
   musicVolume: number;
@@ -34,6 +38,7 @@ const DEFAULT_PREFS: UserPrefs = {
   language: DEFAULT_LANGUAGE,
   ui: "system",
   customCursor: false,
+  cursorStyle: DEFAULT_CURSOR_STYLE,
   musicEnabled: false,
   musicTrackId: null,
   musicVolume: 0.4
@@ -51,6 +56,7 @@ function readPrefs(siteDefaults?: Partial<UserPrefs>): UserPrefs {
     const language = localStorage.getItem(PREF_KEYS.language);
     const ui = localStorage.getItem(PREF_KEYS.ui);
     const customCursor = localStorage.getItem(PREF_KEYS.customCursor);
+    const cursorStyle = localStorage.getItem(PREF_KEYS.cursorStyle);
     const musicEnabled = localStorage.getItem(PREF_KEYS.musicEnabled);
     const musicTrackId = localStorage.getItem(PREF_KEYS.musicTrackId);
     const musicVolume = localStorage.getItem(PREF_KEYS.musicVolume);
@@ -61,6 +67,7 @@ function readPrefs(siteDefaults?: Partial<UserPrefs>): UserPrefs {
       language: isLanguageKey(language) ? language : fallback.language,
       ui: (ui === "classic" || ui === "cyber" || ui === "dynamic") ? ui : fallback.ui,
       customCursor: customCursor === null ? fallback.customCursor : customCursor === "true",
+      cursorStyle: isCursorStyleKey(cursorStyle) ? cursorStyle : fallback.cursorStyle,
       musicEnabled: musicEnabled === null ? fallback.musicEnabled : musicEnabled === "true",
       musicTrackId: musicTrackId || fallback.musicTrackId,
       musicVolume: musicVolume ? clampVolume(parseFloat(musicVolume)) : fallback.musicVolume
@@ -104,6 +111,8 @@ export function useUserPrefs(siteDefaults?: Partial<UserPrefs>) {
         if (partial.ui !== undefined) localStorage.setItem(PREF_KEYS.ui, next.ui);
         if (partial.customCursor !== undefined)
           localStorage.setItem(PREF_KEYS.customCursor, String(next.customCursor));
+        if (partial.cursorStyle !== undefined)
+          localStorage.setItem(PREF_KEYS.cursorStyle, next.cursorStyle);
         if (partial.musicEnabled !== undefined)
           localStorage.setItem(PREF_KEYS.musicEnabled, String(next.musicEnabled));
         if (partial.musicTrackId !== undefined)
@@ -116,8 +125,10 @@ export function useUserPrefs(siteDefaults?: Partial<UserPrefs>) {
         document.documentElement.setAttribute("data-language", next.language);
         if (next.customCursor) {
           document.documentElement.setAttribute("data-cursor", "custom");
+          document.documentElement.setAttribute("data-cursor-style", next.cursorStyle);
         } else {
           document.documentElement.removeAttribute("data-cursor");
+          document.documentElement.removeAttribute("data-cursor-style");
         }
         document.documentElement.lang = next.language === "en" ? "en" : "zh-CN";
         window.dispatchEvent(new CustomEvent(PREF_EVENT));
@@ -136,6 +147,8 @@ export function useUserPrefs(siteDefaults?: Partial<UserPrefs>) {
       /* ignore */
     }
     setPrefsState({ ...DEFAULT_PREFS, ...(siteDefaults || {}) });
+    document.documentElement.removeAttribute("data-cursor");
+    document.documentElement.removeAttribute("data-cursor-style");
   }, [siteDefaults ? JSON.stringify(siteDefaults) : null]);
 
   return { prefs, update, reset, hydrated };

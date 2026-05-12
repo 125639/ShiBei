@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useState } from "react";
 
 export type ListSource = {
@@ -11,6 +12,12 @@ export type ListSource = {
   isDefault: boolean;
   popularity: number;
   popularityUpdatedAt: string | null;
+  region?: string;
+  lastJobStatus?: string | null;
+  lastJobAt?: string | null;
+  lastJobError?: string | null;
+  success7d?: number;
+  failed7d?: number;
 };
 
 function formatPopularity(value: number): string {
@@ -33,6 +40,23 @@ export function BulkSourceActions({ sources, label }: { sources: ListSource[]; l
 
   function toggleSource(id: string, checked: boolean) {
     setSelectedIds((prev) => checked ? [...prev, id] : prev.filter((i) => i !== id));
+  }
+
+  function healthLabel(source: ListSource) {
+    const failed = source.failed7d || 0;
+    const success = source.success7d || 0;
+    if (!source.lastJobStatus) return "未验证";
+    if (source.lastJobStatus === "FAILED") return "最近失败";
+    if (failed >= 3 && success === 0) return "需检查";
+    if (success > 0) return "正常";
+    return source.lastJobStatus;
+  }
+
+  function healthClass(source: ListSource) {
+    const label = healthLabel(source);
+    if (label === "正常") return "source-health source-health-ok";
+    if (label === "最近失败" || label === "需检查") return "source-health source-health-bad";
+    return "source-health";
   }
 
   return (
@@ -88,8 +112,17 @@ export function BulkSourceActions({ sources, label }: { sources: ListSource[]; l
               <div className="muted">{source.url}</div>
               <div className="meta-row">
                 <span className="tag">{source.type}</span>
+                <span className="tag">{source.region || "UNKNOWN"}</span>
                 <span className="tag">{source.status}</span>
                 {source.isDefault ? <span className="tag">默认</span> : null}
+                <span
+                  className={healthClass(source)}
+                  title={source.lastJobAt ? `最近任务: ${new Date(source.lastJobAt).toLocaleString("zh-CN")}` : undefined}
+                >
+                  {healthLabel(source)}
+                </span>
+                <span className="tag">7 天成功 {source.success7d || 0}</span>
+                <span className="tag">7 天失败 {source.failed7d || 0}</span>
                 {source.popularity > 0 || source.popularityUpdatedAt ? (
                   <span
                     className="tag"
@@ -101,6 +134,7 @@ export function BulkSourceActions({ sources, label }: { sources: ListSource[]; l
                   <span className="tag" style={{ opacity: 0.55 }}>待估算</span>
                 )}
               </div>
+              {source.lastJobError ? <p className="job-error">{source.lastJobError.slice(0, 180)}</p> : null}
               {editId === source.id ? (
                 <form
                   className="form-stack"
@@ -125,11 +159,14 @@ export function BulkSourceActions({ sources, label }: { sources: ListSource[]; l
               ) : null}
             </div>
             <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "flex-start" }}>
+              <Link className="button secondary" href={`/admin/jobs?sourceId=${source.id}`} style={{ fontSize: 13, padding: "6px 10px" }}>
+                任务
+              </Link>
               <form action="/api/admin/sources/estimate" method="post">
                 <input type="hidden" name="sourceId" value={source.id} />
                 <button className="button secondary" type="submit" style={{ fontSize: 13, padding: "6px 10px" }}>估算</button>
               </form>
-              <button className="button secondary" type="button" onClick={() => setEditId(source.id)} style={{ fontSize: 13, padding: "6px 10px" }}>✏️</button>
+              <button className="button secondary" type="button" onClick={() => setEditId(source.id)} style={{ fontSize: 13, padding: "6px 10px" }}>编辑</button>
               <form action="/api/admin/run" method="post" style={{ display: "inline" }}>
                 <input type="hidden" name="sourceId" value={source.id} />
                 <button className="button secondary" type="submit" style={{ fontSize: 13, padding: "6px 10px" }}>抓取</button>

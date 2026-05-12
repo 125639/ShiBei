@@ -17,6 +17,8 @@ export type FontKey =
 
 export type DensityKey = "compact" | "normal" | "cozy";
 
+export type CursorStyleKey = "classic" | "halo" | "laser" | "focus";
+
 export const THEMES: Array<{
   key: ThemeKey;
   label: string;
@@ -124,9 +126,17 @@ export const DENSITIES: Array<{ key: DensityKey; label: string; desc: string }> 
   { key: "cozy", label: "舒适", desc: "更宽松，便于长时间阅读" }
 ];
 
+export const CURSOR_STYLES: Array<{ key: CursorStyleKey; label: string; desc: string }> = [
+  { key: "classic", label: "经典圆环", desc: "圆点跟随，圆环缓动" },
+  { key: "halo", label: "柔光光晕", desc: "低干扰光晕，适合阅读" },
+  { key: "laser", label: "准星定位", desc: "细线准星，适合精确点击" },
+  { key: "focus", label: "聚焦框", desc: "方形取景框，强调目标" }
+];
+
 export const DEFAULT_THEME: ThemeKey = "minimal";
 export const DEFAULT_FONT: FontKey = "serif-cjk";
 export const DEFAULT_DENSITY: DensityKey = "normal";
+export const DEFAULT_CURSOR_STYLE: CursorStyleKey = "classic";
 
 export function isThemeKey(value: string | null | undefined): value is ThemeKey {
   return THEMES.some((t) => t.key === value);
@@ -140,6 +150,10 @@ export function isDensityKey(value: string | null | undefined): value is Density
   return DENSITIES.some((d) => d.key === value);
 }
 
+export function isCursorStyleKey(value: string | null | undefined): value is CursorStyleKey {
+  return CURSOR_STYLES.some((style) => style.key === value);
+}
+
 export const PREF_KEYS = {
   theme: "shibei.theme",
   font: "shibei.font",
@@ -147,6 +161,7 @@ export const PREF_KEYS = {
   language: "shibei.language",
   ui: "shibei.ui",
   customCursor: "shibei.customCursor",
+  cursorStyle: "shibei.cursorStyle",
   musicEnabled: "shibei.music.enabled",
   musicTrackId: "shibei.music.trackId",
   musicVolume: "shibei.music.volume"

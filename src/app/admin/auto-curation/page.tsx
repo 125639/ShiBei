@@ -126,9 +126,9 @@ export default async function AutoCurationPage() {
           <div className="field">
             <label htmlFor="topicDepth">单篇报道长度</label>
             <select id="topicDepth" name="depth" defaultValue="long">
-              <option value="standard">标准报道（约 1200 字）</option>
-              <option value="long">长报道（约 2000 字）</option>
-              <option value="deep">深度报道（约 3200 字）</option>
+              <option value="standard">标准报道（至少 1100 字，目标 1200）</option>
+              <option value="long">长报道（至少 1900 字，目标 2000）</option>
+              <option value="deep">深度报道（至少 3000 字，目标 3200）</option>
             </select>
           </div>
           <div className="field">

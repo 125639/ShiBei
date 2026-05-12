@@ -22,7 +22,7 @@ export function CustomCursor() {
     const moveMouse = (e: MouseEvent) => {
       cursorX.set(e.clientX);
       cursorY.set(e.clientY);
-      if (!isVisible) setIsVisible(true);
+      setIsVisible(true);
     };
 
     const handleMouseLeave = () => setIsVisible(false);
@@ -51,14 +51,17 @@ export function CustomCursor() {
 
     // Make sure we apply the attribute globally here in case hydration was slow
     document.documentElement.setAttribute("data-cursor", "custom");
+    document.documentElement.setAttribute("data-cursor-style", prefs.cursorStyle);
 
     return () => {
       window.removeEventListener("mousemove", moveMouse);
       window.removeEventListener("mouseover", handleMouseOver);
       document.removeEventListener("mouseleave", handleMouseLeave);
       document.removeEventListener("mouseenter", handleMouseEnter);
+      document.documentElement.removeAttribute("data-cursor");
+      document.documentElement.removeAttribute("data-cursor-style");
     };
-  }, [hydrated, prefs.customCursor, cursorX, cursorY]);
+  }, [hydrated, prefs.customCursor, prefs.cursorStyle, cursorX, cursorY]);
 
   if (!hydrated || !prefs.customCursor) return null;
 
@@ -70,14 +73,14 @@ export function CustomCursor() {
       style={{ pointerEvents: "none", zIndex: 99999 }}
     >
       <motion.div
-        className="custom-cursor-dot"
+        className={`custom-cursor-dot cursor-${prefs.cursorStyle}`}
         style={{
           left: cursorX,
           top: cursorY,
         }}
       />
       <motion.div
-        className={`custom-cursor-ring ${isHovering ? "hover" : ""}`}
+        className={`custom-cursor-ring cursor-${prefs.cursorStyle} ${isHovering ? "hover" : ""}`}
         style={{
           left: cursorXSpring,
           top: cursorYSpring,

@@ -26,6 +26,7 @@ export async function POST(request: Request) {
   const articleDepth = String(form.get("articleDepth") || "long") as ResearchDepth;
   const sourceId = String(form.get("sourceId") || "");
   const tempUrl = String(form.get("tempUrl") || "");
+  const redirectTarget = normalizeRedirect(String(form.get("redirectTo") || "/admin/jobs"));
   const modelConfig = await getModelConfigForUse("news");
   const style =
     (await prisma.summaryStyle.findFirst({ where: { isDefault: true } })) ||
@@ -100,5 +101,9 @@ export async function POST(request: Request) {
     });
   }
 
-  return redirectTo("/admin", request);
+  return redirectTo(redirectTarget, request);
+}
+
+function normalizeRedirect(value: string) {
+  return value.startsWith("/admin") ? value : "/admin/jobs";
 }
