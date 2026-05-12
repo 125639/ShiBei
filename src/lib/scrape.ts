@@ -40,7 +40,11 @@ export async function scrapeWebPage(url: string) {
       }
     });
 
-    await page.goto(url, { waitUntil: "networkidle", timeout: 60000 });
+    await page.goto(url, { waitUntil: "domcontentloaded", timeout: 60000 });
+    await page.waitForLoadState("load", { timeout: 10_000 }).catch(() => undefined);
+    // 视频站常有长轮询/流媒体连接，networkidle 等不到不应拖垮整次抓取。
+    await page.waitForLoadState("networkidle", { timeout: 5_000 }).catch(() => undefined);
+    await page.waitForTimeout(3_000);
 
     const result = await page.evaluate(() => {
       const selectors = ["article", "main", "[role='main']", ".article", ".post", "body"];

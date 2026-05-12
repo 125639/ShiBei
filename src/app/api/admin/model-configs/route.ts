@@ -29,5 +29,5 @@ export async function POST(request: Request) {
     }
   });
 
-  return redirectTo("/admin/settings");
+  return redirectTo("/admin/settings?tab=models");
 }

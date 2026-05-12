@@ -242,13 +242,61 @@ export async function generateNewsArticle(input: GenerateNewsArticleInput) {
     "\u4f60\u5fc5\u987b\u878d\u5408\u591a\u6765\u6e90\u4fe1\u606f\uff0c\u7528\u81ea\u5df1\u7684\u8bed\u8a00\u7f16\u7ec7\u53d9\u8ff0\u3002"
   ].join("\n");
 
-  return requestChatCompletion(input.modelConfig, prompt, system);
+  const generated = await requestChatCompletion(input.modelConfig, prompt, system);
+  return expandNewsArticleIfTooShort(input, generated, depthConfig);
 }
 
 function getDepthConfig(depth: ResearchDepth) {
-  if (depth === "standard") return { label: "标准报道", words: "1200", minWords: 900 };
-  if (depth === "deep") return { label: "深度报道", words: "3200", minWords: 2400 };
-  return { label: "长报道", words: "2000", minWords: 1500 };
+  if (depth === "standard") return { label: "标准报道", words: 1200, minWords: 1100 };
+  if (depth === "deep") return { label: "深度报道", words: 3200, minWords: 3000 };
+  return { label: "长报道", words: 2000, minWords: 1900 };
+}
+
+async function expandNewsArticleIfTooShort(
+  input: GenerateNewsArticleInput,
+  generated: string,
+  depthConfig: ReturnType<typeof getDepthConfig>
+) {
+  const currentChars = countArticleBodyChars(generated);
+  if (currentChars >= depthConfig.minWords) return generated;
+
+  const prompt = [
+    "下面是一篇已经生成的中文新闻草稿，但它没有达到后台选择的报道长度要求。",
+    "",
+    "【硬性长度要求】",
+    `- 当前正文有效字符数约 ${currentChars}。`,
+    `- 必须扩写到不少于 ${depthConfig.minWords} 个中文正文字符，目标约 ${depthConfig.words} 个中文正文字符。`,
+    "- 正文字符不包含标题、参考来源列表、Markdown 标记和链接 URL。",
+    "",
+    "【扩写规则】",
+    "1. 保留原有 Markdown 结构和参考来源章节。",
+    "2. 只能基于来源资料和原草稿已经出现的事实扩写，不得新增来源资料之外的事实、日期、数字或引用。",
+    "3. 优先扩写背景脉络、影响分析、竞争格局、待确认问题和来源分歧。",
+    "4. 输出完整 Markdown 正文，不要解释你做了什么。",
+    "",
+    "【原草稿】",
+    generated,
+    "",
+    "【来源资料】",
+    formatEvidenceText(input.evidence, 700).slice(0, 10000)
+  ].join("\n");
+
+  return requestChatCompletion(
+    input.modelConfig,
+    prompt,
+    "你是严格的中文新闻编辑。你的任务是把短稿扩写到指定字数，同时保持事实边界，不编造任何来源资料之外的信息。"
+  );
+}
+
+function countArticleBodyChars(markdown: string) {
+  const body = markdown.split(/\n##\s*参考来源/i)[0] || markdown;
+  return body
+    .replace(/```[\s\S]*?```/g, "")
+    .replace(/!\[[^\]]*]\([^)]+\)/g, "")
+    .replace(/\[([^\]]+)]\([^)]+\)/g, "$1")
+    .replace(/^#{1,6}\s+/gm, "")
+    .replace(/[*_>`~#\-\[\]().,，。！？!?;；:："'“”‘’、\s]/g, "")
+    .length;
 }
 
 export async function generateDigest(input: GenerateDigestInput) {
@@ -341,7 +389,14 @@ export async function requestChatCompletion(
   prompt: string,
   system: string
 ) {
-  const apiKey = decryptSecret(modelConfig.apiKeyEnc);
+  let apiKey: string;
+  try {
+    apiKey = decryptSecret(modelConfig.apiKeyEnc);
+  } catch {
+    throw new Error(
+      "模型 API Key 无法解密：当前 ENCRYPTION_KEY/AUTH_SECRET 与保存该模型配置时不一致。请到「系统设置 > 模型」重新填写并保存该模型的 API Key。"
+    );
+  }
   return requestChatCompletionWithKey(modelConfig, apiKey, prompt, system);
 }
 
@@ -472,6 +527,9 @@ export async function generateAssistantReply(input: {
     "- 事实判断只能基于下方提供的页面上下文",
     "- 如果上下文中没有相关信息，坦诚告知用户并建议查看原始来源",
     "- 回答要简洁实用，避免冗长",
+    "- 用户只发感叹、问号、单字或语义不完整时，不要猜测其真实意图；先用一句自然的话请用户说明想问什么",
+    "- 默认用自然段回答；除非用户要求列清单，否则不要使用 Markdown 加粗、标题、编号或项目符号",
+    "- 不要用「看起来您……」这类套话开头；直接回答或直接澄清",
     "",
     "【当前页面上下文】",
     input.context.slice(0, 16000) || "（无页面上下文）",
@@ -483,7 +541,7 @@ export async function generateAssistantReply(input: {
   return requestChatCompletion(
     input.modelConfig,
     prompt,
-    "你是「拾贝」博客的 AI 助手。回答简洁、有事实依据。不要编造信息，不确定时要说明。"
+    "你是「拾贝」博客的 AI 助手。回答简洁、有事实依据、语气自然。不要编造信息，不确定时要说明。默认不要用 Markdown 加粗或标题。"
   );
 }
 

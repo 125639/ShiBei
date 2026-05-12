@@ -6,7 +6,7 @@ import { motion, Variants } from "framer-motion";
 import { useUserPrefs } from "./useUserPrefs";
 import { LANGUAGE_OPTIONS, languageLabel } from "@/lib/language";
 import { useTranslation } from "@/lib/i18n";
-import { FONTS, THEMES, DENSITIES } from "@/lib/themes";
+import { CURSOR_STYLES, FONTS, THEMES, DENSITIES } from "@/lib/themes";
 
 const containerVars: Variants = {
   hidden: { opacity: 0 },
@@ -116,6 +116,23 @@ export function CyberSettingsClient({
           <p className="cyber-desc" style={{ marginTop: 6, marginLeft: 28 }}>
             {t("customCursorDesc")}
           </p>
+          {prefs.customCursor ? (
+            <div className="cyber-grid cursor-style-grid" role="radiogroup" style={{ marginTop: 14 }}>
+              {CURSOR_STYLES.map((style) => (
+                <button
+                  key={style.key}
+                  type="button"
+                  className={`cyber-card cursor-style-card${prefs.cursorStyle === style.key ? " active" : ""}`}
+                  onClick={() => update({ cursorStyle: style.key, customCursor: true })}
+                >
+                  <div className="cyber-glow"></div>
+                  <span className={`cursor-style-preview cursor-${style.key}`} aria-hidden />
+                  <span className="cyber-card-label">{t(`cursor.${style.key}.label`) || style.label}</span>
+                  <span className="cyber-card-meta">{t(`cursor.${style.key}.desc`) || style.desc}</span>
+                </button>
+              ))}
+            </div>
+          ) : null}
         </div>
       </motion.section>
 

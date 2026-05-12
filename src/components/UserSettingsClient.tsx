@@ -5,7 +5,7 @@ import { Fragment, useState, useEffect } from "react";
 import { useUserPrefs } from "./useUserPrefs";
 import { LANGUAGE_OPTIONS, languageLabel } from "@/lib/language";
 import { useTranslation } from "@/lib/i18n";
-import { FONTS, THEMES, DENSITIES, DEFAULT_THEME, DEFAULT_FONT, DEFAULT_DENSITY } from "@/lib/themes";
+import { CURSOR_STYLES, FONTS, THEMES, DENSITIES, DEFAULT_THEME, DEFAULT_FONT, DEFAULT_DENSITY } from "@/lib/themes";
 
 export function UserSettingsClient({
   siteDefaults,
@@ -93,6 +93,24 @@ export function UserSettingsClient({
           <p className="muted-block" style={{ marginTop: 6, marginLeft: 28 }}>
             {t("customCursorDesc")}
           </p>
+          {prefs.customCursor ? (
+            <div className="option-grid cursor-style-grid" role="radiogroup" aria-label={t("cursorStyle")} style={{ marginTop: 14 }}>
+              {CURSOR_STYLES.map((style) => (
+                <button
+                  key={style.key}
+                  type="button"
+                  role="radio"
+                  aria-checked={prefs.cursorStyle === style.key}
+                  className={`option-card cursor-style-card${prefs.cursorStyle === style.key ? " active" : ""}`}
+                  onClick={() => update({ cursorStyle: style.key, customCursor: true })}
+                >
+                  <span className={`cursor-style-preview cursor-${style.key}`} aria-hidden />
+                  <span className="option-label">{t(`cursor.${style.key}.label`) || style.label}</span>
+                  <span className="option-meta">{t(`cursor.${style.key}.desc`) || style.desc}</span>
+                </button>
+              ))}
+            </div>
+          ) : null}
         </div>
       </section>
 

@@ -77,6 +77,8 @@ model SiteSettings {
   cleanupCustomEnabled Boolean  @default(false)
   videoMaxDurationSec  Int      @default(1200)
   videoDownloadDomestic Boolean @default(true)
+  videoDownloadHosts   String   @default("")
+  videoMaxPerPost      Int      @default(4)
   exaEnabled           Boolean  @default(false)
   exaApiKeyEnc         String?
   musicEnabledDefault  Boolean  @default(false)

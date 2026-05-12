@@ -7,8 +7,14 @@ import { reportStorage, formatBytes } from "@/lib/storage";
 
 export const dynamic = "force-dynamic";
 
-export default async function SettingsPage() {
+export default async function SettingsPage({
+  searchParams
+}: {
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
+}) {
   await requireAdmin();
+  const params = await searchParams;
+  const initialTab = typeof params.tab === "string" ? params.tab : "site";
   const [site, modelConfigs, styles, admin, storage] = await Promise.all([
     prisma.siteSettings.findUnique({ where: { id: "site" } }),
     prisma.modelConfig.findMany({ orderBy: { updatedAt: "desc" } }),
@@ -33,8 +39,8 @@ export default async function SettingsPage() {
 
   return (
     <AdminShell>
-      <p className="eyebrow"><I18nText zh="设置" en="Settings" /></p>
-      <h1 style={{ marginBottom: "28px" }}><I18nText zh="设置" en="Settings" /></h1>
+      <p className="eyebrow"><I18nText zh="Settings" en="Settings" /></p>
+      <h1 style={{ marginBottom: "28px" }}><I18nText zh="系统设置" en="System Settings" /></h1>
 
       <SettingsClient
         site={s}
@@ -42,6 +48,7 @@ export default async function SettingsPage() {
         styles={styles}
         admin={admin}
         storage={storageProps}
+        initialTab={initialTab}
       />
     </AdminShell>
   );
