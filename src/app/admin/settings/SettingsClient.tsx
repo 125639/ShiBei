@@ -1,7 +1,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useState, useEffect } from "react";
 import { I18nText } from "@/components/I18nText";
 import { LANGUAGE_OPTIONS, NEWS_LANGUAGE_MODE_OPTIONS } from "@/lib/language";
 import { MODEL_PROVIDER_PRESETS, providerLabel } from "@/lib/model-providers";
@@ -15,14 +15,14 @@ const INTERNATIONAL_VIDEO_PLATFORMS = [
 ];
 
 const SETTINGS_TABS = [
-  { key: "site", zh: "基础展示", en: "Site" },
-  { key: "content", zh: "内容生产", en: "Content" },
-  { key: "models", zh: "模型", en: "Models" },
-  { key: "prompts", zh: "提示词", en: "Prompts" },
-  { key: "media", zh: "媒体视频", en: "Media" },
-  { key: "storage", zh: "存储清理", en: "Storage" },
-  { key: "external", zh: "外部服务", en: "External" },
-  { key: "account", zh: "账号", en: "Account" }
+  { key: "site", zh: "基础展示", en: "Site", icon: "□" },
+  { key: "content", zh: "内容生产", en: "Content", icon: "✎" },
+  { key: "models", zh: "模型", en: "Models", icon: "◆" },
+  { key: "prompts", zh: "提示词", en: "Prompts", icon: "❝" },
+  { key: "media", zh: "媒体视频", en: "Media", icon: "▷" },
+  { key: "storage", zh: "存储清理", en: "Storage", icon: "⚙" },
+  { key: "external", zh: "外部服务", en: "External", icon: "⇄" },
+  { key: "account", zh: "账号", en: "Account", icon: "○" }
 ] as const;
 
 type SettingsTab = typeof SETTINGS_TABS[number]["key"];
@@ -39,7 +39,8 @@ export function SettingsClient({
   styles,
   admin,
   storage,
-  initialTab = "site"
+  initialTab = "site",
+  savedFlag = false
 }: {
   site: any;
   modelConfigs: any[];
@@ -47,8 +48,19 @@ export function SettingsClient({
   admin: any;
   storage: any;
   initialTab?: string;
+  savedFlag?: boolean;
 }) {
   const [activeTab, setActiveTab] = useState<SettingsTab>(isSettingsTab(initialTab) ? initialTab : "site");
+  const [savedVisible, setSavedVisible] = useState<boolean>(savedFlag);
+
+  // 让"已保存"提示在 ~2.5s 后淡出，避免一直占着视野。
+  // savedFlag 由 server 根据 ?saved=1 query 传入，刷新页面只在保存后那一次显示。
+  useEffect(() => {
+    if (!savedFlag) return;
+    const t = setTimeout(() => setSavedVisible(false), 2500);
+    return () => clearTimeout(t);
+  }, [savedFlag]);
+
   const s = site || {};
   const videoDownloadHostsSet = useMemo(
     () =>
@@ -69,8 +81,11 @@ export function SettingsClient({
   );
 
   return (
-    <>
-      <div className="topic-tabs settings-tabs" style={{ marginBottom: 24 }}>
+    <div className="settings-layout">
+      <aside className="settings-side-nav" aria-label="Settings sections">
+        <div className="settings-side-nav-header">
+          <I18nText zh="导航" en="Sections" />
+        </div>
         {SETTINGS_TABS.map((tab) => (
           <button
             key={tab.key}
@@ -78,12 +93,21 @@ export function SettingsClient({
             className={activeTab === tab.key ? "active" : ""}
             onClick={() => setActiveTab(tab.key)}
           >
+            <span className="settings-side-nav-icon" aria-hidden="true">{tab.icon}</span>
             <I18nText zh={tab.zh} en={tab.en} />
           </button>
         ))}
-      </div>
+      </aside>
 
-      {SITE_FORM_TABS.has(activeTab) ? (
+      <main className="settings-content-pane">
+        {savedVisible ? (
+          <div className="settings-saved-pill" role="status" aria-live="polite">
+            <span aria-hidden="true">✓</span>
+            <I18nText zh="已保存" en="Saved" />
+          </div>
+        ) : null}
+
+        {SITE_FORM_TABS.has(activeTab) ? (
         <form className="form-card form-stack" action="/api/admin/settings/site" method="post">
           <input type="hidden" name="settingsTab" value={activeTab} />
 
@@ -459,7 +483,8 @@ export function SettingsClient({
           <button className="button" type="submit"><I18nText zh="保存账号" en="Save Account" /></button>
         </form>
       ) : null}
-    </>
+      </main>
+    </div>
   );
 }
 

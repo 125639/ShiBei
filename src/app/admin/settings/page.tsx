@@ -15,6 +15,7 @@ export default async function SettingsPage({
   await requireAdmin();
   const params = await searchParams;
   const initialTab = typeof params.tab === "string" ? params.tab : "site";
+  const savedFlag = params.saved === "1";
   const [site, modelConfigs, styles, admin, storage] = await Promise.all([
     prisma.siteSettings.findUnique({ where: { id: "site" } }),
     prisma.modelConfig.findMany({ orderBy: { updatedAt: "desc" } }),
@@ -49,6 +50,7 @@ export default async function SettingsPage({
         admin={admin}
         storage={storageProps}
         initialTab={initialTab}
+        savedFlag={savedFlag}
       />
     </AdminShell>
   );

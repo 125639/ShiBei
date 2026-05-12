@@ -28,7 +28,14 @@ const DOMESTIC_HOSTS = [
   "sohu.com",
   "163.com",
   "sina.com.cn",
-  "ifeng.com"
+  "ifeng.com",
+  // 时政 / 财经 / 科技媒体（自播视频）
+  "guancha.cn",
+  "36kr.com",
+  "caixin.com",
+  "yicai.com",
+  "huxiu.com",
+  "mittrchina.com"
 ];
 
 const INTERNATIONAL_VIDEO_DELIVERY_HOSTS = [

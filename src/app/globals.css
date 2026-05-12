@@ -1090,6 +1090,124 @@ textarea {
   align-items: stretch;
 }
 
+/* ==============================================================
+   Settings: ChatGPT/Claude 风格的左侧 sidebar + 右侧内容布局
+   ============================================================== */
+
+.settings-layout {
+  display: grid;
+  grid-template-columns: 220px minmax(0, 1fr);
+  gap: 32px;
+  align-items: start;
+}
+
+.settings-side-nav {
+  position: sticky;
+  top: 88px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 12px;
+  background: var(--surface-soft);
+  border: var(--border-w) solid var(--line);
+  border-radius: 14px;
+}
+
+.settings-side-nav-header {
+  font-size: 11px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--muted);
+  padding: 6px 10px 10px;
+  border-bottom: 1px solid var(--line);
+  margin-bottom: 6px;
+}
+
+.settings-side-nav button {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  text-align: left;
+  padding: 9px 12px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--ink);
+  font-size: 14px;
+  line-height: 1.3;
+  cursor: pointer;
+  transition: background 0.12s ease, color 0.12s ease, border-color 0.12s ease;
+}
+
+.settings-side-nav button:hover {
+  background: var(--surface);
+}
+
+.settings-side-nav button.active {
+  background: var(--accent);
+  color: var(--white);
+  border-color: var(--accent);
+}
+
+.settings-side-nav-icon {
+  display: inline-flex;
+  width: 18px;
+  justify-content: center;
+  font-size: 13px;
+  opacity: 0.75;
+}
+
+.settings-side-nav button.active .settings-side-nav-icon {
+  opacity: 1;
+}
+
+.settings-content-pane {
+  min-width: 0;
+}
+
+.settings-saved-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 14px;
+  border-radius: 999px;
+  background: rgba(34, 197, 94, 0.12);
+  color: rgb(22, 163, 74);
+  font-size: 13px;
+  font-weight: 500;
+  margin-bottom: 16px;
+  animation: settings-saved-fade 2.6s ease forwards;
+}
+
+@keyframes settings-saved-fade {
+  0%, 70% { opacity: 1; transform: translateY(0); }
+  100% { opacity: 0; transform: translateY(-4px); }
+}
+
+@media (max-width: 880px) {
+  .settings-layout {
+    grid-template-columns: 1fr;
+    gap: 16px;
+  }
+  .settings-side-nav {
+    position: static;
+    flex-direction: row;
+    overflow-x: auto;
+    padding: 8px;
+    gap: 4px;
+    scrollbar-width: thin;
+  }
+  .settings-side-nav-header {
+    display: none;
+  }
+  .settings-side-nav button {
+    white-space: nowrap;
+    padding: 6px 12px;
+    flex-shrink: 0;
+  }
+}
+
 .settings-check-list,
 .settings-check-grid {
   display: grid;
