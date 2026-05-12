@@ -46,6 +46,11 @@ export async function scrapeWebPage(url: string) {
     await page.waitForLoadState("networkidle", { timeout: 5_000 }).catch(() => undefined);
     await page.waitForTimeout(3_000);
 
+    // 抓 page.url() 而不是入参 url：Google News / 短链 等场景下浏览器会被跳转到
+    // 真实文章页，下游用这个去做"国内 CDN 直链按来源页推断为国内"的判定，否则
+    // sourcePageUrl 始终是聚合页/短链域，CDN URL 会被错误识别为非国内。
+    const finalUrl = page.url();
+
     const result = await page.evaluate(() => {
       const selectors = ["article", "main", "[role='main']", ".article", ".post", "body"];
       const root = selectors
@@ -131,7 +136,8 @@ export async function scrapeWebPage(url: string) {
       title: result.title.trim(),
       content: result.text,
       markdown: turndown.turndown(result.html),
-      videos: merged
+      videos: merged,
+      finalUrl
     };
   } finally {
     await browser.close();

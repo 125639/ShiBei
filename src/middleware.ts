@@ -85,8 +85,11 @@ export function middleware(request: NextRequest) {
 
 // 不拦截静态资源、内置路径。注意:正则需要排除 /_next/*, /uploads/*, 静态文件、
 // 健康检查与同步路由。健康检查必须始终可访问，否则反代/容器运行时无法判断状态。
+// videos/music 上传也要排除：Next.js 15.5 给经过 middleware 的请求加了
+// 10MB body 上限（middlewareClientMaxBodySize），不排除的话大文件 FormData
+// 解析会失败抛 500。sync 早就因为同样原因排除了。
 export const config = {
   matcher: [
-    "/((?!_next/static|_next/image|favicon.ico|uploads/|api/health|api/admin/sync).*)",
+    "/((?!_next/static|_next/image|favicon.ico|uploads/|api/health|api/admin/sync|api/admin/videos|api/admin/music).*)",
   ],
 };

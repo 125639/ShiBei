@@ -88,6 +88,10 @@ export function useUserPrefs(siteDefaults?: Partial<UserPrefs>) {
   const [prefs, setPrefsState] = useState<UserPrefs>(() => ({ ...DEFAULT_PREFS, ...(siteDefaults || {}) }));
   const [hydrated, setHydrated] = useState(false);
 
+  // siteDefaults 是从 server 传下来的对象，引用每次渲染都新；用其 JSON 串当 stable key 来
+  // 避免 effect/callback 误重跑。提取到独立变量是为了让 eslint 的 exhaustive-deps 能静态识别。
+  const siteDefaultsKey = JSON.stringify(siteDefaults || {});
+
   useEffect(() => {
     setPrefsState(readPrefs(siteDefaults));
     setHydrated(true);
@@ -98,7 +102,8 @@ export function useUserPrefs(siteDefaults?: Partial<UserPrefs>) {
       window.removeEventListener(PREF_EVENT, handler);
       window.removeEventListener("storage", handler);
     };
-  }, [siteDefaults ? JSON.stringify(siteDefaults) : null]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [siteDefaultsKey]);
 
   const update = useCallback((partial: Partial<UserPrefs>) => {
     setPrefsState((prev) => {
@@ -149,7 +154,8 @@ export function useUserPrefs(siteDefaults?: Partial<UserPrefs>) {
     setPrefsState({ ...DEFAULT_PREFS, ...(siteDefaults || {}) });
     document.documentElement.removeAttribute("data-cursor");
     document.documentElement.removeAttribute("data-cursor-style");
-  }, [siteDefaults ? JSON.stringify(siteDefaults) : null]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [siteDefaultsKey]);
 
   return { prefs, update, reset, hydrated };
 }

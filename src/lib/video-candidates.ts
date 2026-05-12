@@ -8,8 +8,24 @@ const SEGMENT_RE = /\.(ts|m4s)(?:[?#]|$)/i;
 const DIRECT_VIDEO_RE = /\.(mp4|webm|mov|flv)(?:[?#]|$)/i;
 const PLATFORM_RE = /youtube|youtu\.be|bilibili|vimeo|youku|iqiyi|v\.qq\.com|dailymotion/i;
 
+// 栏目/索引页特征：抓取器的 ANCHOR_RE 只看链接里有没有 "video" 字样,
+// 因此各站点顶部导航的「视频」入口(如 /video/, /video/list.html,
+// /video/gczvideo/list.html)也会被误判成视频候选。这些 URL 实际上没有
+// 具体可下载的视频流,L1/L2 都拿不到东西,只会污染文章。
+const INDEX_PATH_RE = /(?:^\/[^/]+\/?$|\/(?:index|list|home)\.html?$|\/list-\d+\.html?$)/i;
+
 export function isHlsSegmentUrl(url: string) {
   return SEGMENT_RE.test(url);
+}
+
+function looksLikeIndexPage(url: string): boolean {
+  if (HLS_RE.test(url) || DIRECT_VIDEO_RE.test(url)) return false;
+  try {
+    const path = new URL(url).pathname.toLowerCase();
+    return INDEX_PATH_RE.test(path);
+  } catch {
+    return false;
+  }
 }
 
 export function selectVideoLinksForPost<T extends VideoLinkCandidate>(links: readonly T[], limit = 4): T[] {
@@ -19,6 +35,7 @@ export function selectVideoLinksForPost<T extends VideoLinkCandidate>(links: rea
     const link = links[index];
     const href = link.href?.trim();
     if (!href || !isHttpUrl(href) || isHlsSegmentUrl(href)) continue;
+    if (looksLikeIndexPage(href)) continue;
 
     const key = candidateKey(href);
     const score = candidateScore(href);

@@ -8,7 +8,6 @@ import { buildAdminUpsertArgs, shouldSeedAiModel } from "./seed-helpers.mjs";
 const prisma = new PrismaClient();
 
 async function main() {
-  const username = process.env.ADMIN_USERNAME || "admin";
   const password = process.env.ADMIN_PASSWORD || "change-me-now";
 
   await prisma.siteSettings.upsert({

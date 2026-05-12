@@ -849,7 +849,7 @@ async function collectEvidenceVideoPicks(evidence: EvidenceItem[], limit: number
   const seen = new Set<string>();
   const picks: EvidenceVideoPick[] = [];
 
-  const addPick = (item: EvidenceItem, url: string, title?: string | null) => {
+  const addPick = (item: EvidenceItem, url: string, title: string | null | undefined, sourcePageUrlOverride?: string | null) => {
     const key = normalizeVideoPickKey(url);
     if (!key || seen.has(key)) return;
     seen.add(key);
@@ -857,7 +857,7 @@ async function collectEvidenceVideoPicks(evidence: EvidenceItem[], limit: number
       url,
       title: (title || item.title || "相关视频资源").slice(0, 200),
       sourceName: item.sourceName,
-      sourcePageUrl: item.url
+      sourcePageUrl: sourcePageUrlOverride || item.url
     });
   };
 
@@ -877,8 +877,11 @@ async function collectEvidenceVideoPicks(evidence: EvidenceItem[], limit: number
       return null;
     });
     if (!scraped?.videos?.length) continue;
+    // 优先用 scraped.finalUrl 作为 sourcePageUrl：Google News / 短链跳转后的真实文章页，
+    // 这才是 isDomesticVideoCandidate 推断 CDN 直链国内归属时需要的来源域。
+    const sourcePageUrl = scraped.finalUrl || item.url;
     for (const link of selectVideoLinksForPost(scraped.videos, 3)) {
-      addPick(item, link.href, link.text === "页面播放器加载的视频流" ? `${item.title}｜视频` : link.text);
+      addPick(item, link.href, link.text === "页面播放器加载的视频流" ? `${item.title}｜视频` : link.text, sourcePageUrl);
       if (picks.length >= limit) return picks;
     }
   }

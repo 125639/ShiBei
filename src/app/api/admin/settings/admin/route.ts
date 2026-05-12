@@ -20,5 +20,5 @@ export async function POST(request: Request) {
     });
   }
 
-  return redirectTo("/admin/settings?tab=account");
+  return redirectTo("/admin/settings?tab=account&saved=1");
 }

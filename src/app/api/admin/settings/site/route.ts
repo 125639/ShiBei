@@ -95,7 +95,7 @@ export async function POST(request: Request) {
     }
   });
   revalidateTag("site-settings");
-  return redirectTo(`/admin/settings?tab=${settingsTab}`);
+  return redirectTo(`/admin/settings?tab=${settingsTab}&saved=1`);
 }
 
 function normalizeOptionalId(value: FormDataEntryValue | null) {
