@@ -43,6 +43,14 @@ export default async function NewsDetailPage({ params }: { params: Promise<{ slu
     post.content,
     (post as { contentEn?: string | null }).contentEn
   );
+  const inlineVideos = inlineVideoIds.size
+    ? await prisma.video.findMany({ where: { id: { in: [...inlineVideoIds] } } })
+    : [];
+  const articleVideosById = new Map(post.videos.map((video) => [video.id, video]));
+  for (const video of inlineVideos) {
+    articleVideosById.set(video.id, video);
+  }
+  const articleVideos = [...articleVideosById.values()];
   const trailingVideos = post.videos.filter((video) => !inlineVideoIds.has(video.id));
 
   return (
@@ -67,7 +75,7 @@ export default async function NewsDetailPage({ params }: { params: Promise<{ slu
               summaryEn: (post as { summaryEn?: string | null }).summaryEn,
               contentEn: (post as { contentEn?: string | null }).contentEn
             }}
-            videos={post.videos.map((video) => ({
+            videos={articleVideos.map((video) => ({
               id: video.id,
               title: video.title,
               type: video.type,

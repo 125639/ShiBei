@@ -9,7 +9,7 @@ type VideoAttribution = Pick<Video, "title" | "type" | "url"> & {
 
 export function VideoEmbed({ video }: { video: VideoAttribution }) {
   return (
-    <div>
+    <div className="video-embed">
       {video.type === "LOCAL" && <video controls src={video.url} className="video-frame" preload="metadata" />}
       {video.type === "EMBED" && (
         <iframe
@@ -25,6 +25,7 @@ export function VideoEmbed({ video }: { video: VideoAttribution }) {
           打开视频资源
         </a>
       )}
+      <div className="article-media-caption video-caption"><span>{video.title}</span></div>
 
       {(video.sourcePageUrl || video.attribution || video.sourcePlatform) && (
         <div className="video-attribution">
@@ -40,20 +41,31 @@ export function VideoEmbed({ video }: { video: VideoAttribution }) {
             <div>
               <strong>来源页面</strong>：{" "}
               <a className="text-link" href={video.sourcePageUrl} target="_blank" rel="noreferrer">
-                {video.sourcePageUrl}
+                {hostFromUrl(video.sourcePageUrl)}
               </a>
             </div>
           )}
           {video.attribution && (
-            <div style={{ marginTop: 6, whiteSpace: "pre-line" }}>{video.attribution}</div>
+            <details className="video-source-details">
+              <summary>版权与来源说明</summary>
+              <div>{video.attribution}</div>
+            </details>
           )}
-          <div style={{ marginTop: 6, fontSize: 12 }}>
+          <div className="video-copyright-note">
             视频内容版权归原作者所有，本站仅做信息整理与档案存档之用。
           </div>
         </div>
       )}
     </div>
   );
+}
+
+function hostFromUrl(url: string) {
+  try {
+    return new URL(url).hostname.replace(/^www\./, "");
+  } catch {
+    return "来源页面";
+  }
 }
 
 function formatDuration(sec: number) {

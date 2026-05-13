@@ -56,6 +56,13 @@ type FetchJobData = {
   fetchJobId: string;
 };
 
+type ScrapedImage = {
+  src: string;
+  alt?: string | null;
+  width?: number | null;
+  height?: number | null;
+};
+
 type ScheduleJobData = {
   topicId: string;
 };
@@ -97,6 +104,15 @@ function extractTitleAndSummary(markdown: string, fallbackTitle: string) {
     title: title.slice(0, 120),
     summary: plain.slice(0, 220) || "AI 已生成草稿，请管理员审核。"
   };
+}
+
+function escapeHtml(input: string): string {
+  return input
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
 }
 
 async function createDraftFromRawItem(rawItemId: string, generated: string) {
@@ -199,10 +215,11 @@ async function processWeb(fetchJobId: string) {
   const maxPerPost = clampVideoMaxPerPost((settings as { videoMaxPerPost?: number } | null)?.videoMaxPerPost);
 
   const result = await scrapeWebPage(fetchJob.sourceUrl);
+  const sourcePageUrl = result.finalUrl || fetchJob.sourceUrl;
   const rawItem = await prisma.rawItem.create({
     data: {
       title: result.title,
-      url: fetchJob.sourceUrl,
+      url: sourcePageUrl,
       content: result.content,
       markdown: result.markdown,
       sourceId: fetchJob.sourceId,
@@ -211,6 +228,7 @@ async function processWeb(fetchJobId: string) {
   });
 
   const post = await summarizeRawItem(rawItem.id, fetchJob.id);
+  await embedImagesInPostContent(post.id, result.images || [], sourcePageUrl);
 
   if (textOnly) {
     // pure-text mode: skip video collection entirely.
@@ -222,29 +240,29 @@ async function processWeb(fetchJobId: string) {
 
   for (const link of selectVideoLinksForPost(result.videos, 4)) {
     const url = link.href;
-    const region = isDomesticVideoCandidate(url, fetchJob.sourceUrl) ? "DOMESTIC" : "INTERNATIONAL";
+    const region = isDomesticVideoCandidate(url, sourcePageUrl) ? "DOMESTIC" : "INTERNATIONAL";
     const type = detectVideoType(url);
     const baseData: Record<string, unknown> = {
       title: link.text || "相关视频资源",
       type,
       url: normalizeEmbedUrl(url),
-      summary: `从来源页面识别到的视频资源：${url}`,
+      summary: "从来源页面自动识别到的视频资源。",
       postId: post.id,
       region,
-      sourcePageUrl: fetchJob.sourceUrl,
-      sourcePlatform: sourcePlatformForVideo(url, fetchJob.sourceUrl)
+      sourcePageUrl,
+      sourcePlatform: sourcePlatformForVideo(url, sourcePageUrl)
     };
 
-    let attribution = `来源页：${fetchJob.sourceUrl}\n原视频：${url}`;
+    let attribution = `来源页：${sourcePageUrl}\n原视频：${url}`;
 
     const shouldDownload =
       downloadedForThisPost < maxPerPost &&
-      shouldDownloadVideo(url, fetchJob.sourceUrl, policy);
+      shouldDownloadVideo(url, sourcePageUrl, policy);
 
     if (shouldDownload) {
       const dl = await downloadVideoByPolicy(url, policy, {
         maxDurationSec: videoMaxSec,
-        referer: fetchJob.sourceUrl
+        referer: sourcePageUrl
       }).catch((err) => {
         console.error(`[video-download] failed ${url}:`, err);
         return null;
@@ -255,7 +273,7 @@ async function processWeb(fetchJobId: string) {
         baseData.localPath = dl.localPath;
         baseData.fileSizeBytes = dl.fileSizeBytes;
         baseData.durationSec = dl.durationSec;
-        attribution = `本地下载视频，原始来源：\n - 来源页：${fetchJob.sourceUrl}\n - 原视频链接：${url}\n - 平台：${baseData.sourcePlatform || "未知"}\n仅用于内部存档与方便国内访问，所有版权归原作者所有。`;
+        attribution = `本地下载视频，原始来源：\n - 来源页：${sourcePageUrl}\n - 原视频链接：${url}\n - 平台：${baseData.sourcePlatform || "未知"}\n仅用于内部存档与方便国内访问，所有版权归原作者所有。`;
         downloadedForThisPost += 1;
       } else if (type === "LOCAL") {
         baseData.type = "LINK";
@@ -324,6 +342,59 @@ async function embedVideosInPostContent(postId: string, videoIds: string[]) {
   }).catch((err) => {
     console.error(`[video-embed] failed to inline shortcodes for post ${postId}:`, err);
   });
+}
+
+async function embedImagesInPostContent(postId: string, images: ScrapedImage[], sourcePageUrl: string) {
+  const picked = selectArticleImages(images, 3);
+  if (!picked.length) return;
+
+  const existing = await (prisma as unknown as {
+    post: { findUnique: (args: unknown) => Promise<{ content: string; contentEn: string | null } | null> };
+  }).post.findUnique({ where: { id: postId }, select: { content: true, contentEn: true } }).catch(() => null);
+  if (!existing) return;
+
+  const figures = picked
+    .filter((image) => !existing.content.includes(image.src) && !(existing.contentEn || "").includes(image.src))
+    .map((image) => articleImageFigureHtml(image, sourcePageUrl))
+    .filter(Boolean);
+  if (!figures.length) return;
+
+  const block = figures.join("\n\n");
+  const append = (content: string) => `${content}${content.endsWith("\n") ? "\n" : "\n\n"}${block}\n`;
+
+  await (prisma as unknown as {
+    post: { update: (args: unknown) => Promise<unknown> };
+  }).post.update({
+    where: { id: postId },
+    data: existing.contentEn
+      ? { content: append(existing.content), contentEn: append(existing.contentEn) }
+      : { content: append(existing.content) }
+  }).catch((err) => {
+    console.error(`[image-embed] failed to inline images for post ${postId}:`, err);
+  });
+}
+
+function selectArticleImages(images: ScrapedImage[], limit: number): ScrapedImage[] {
+  const seen = new Set<string>();
+  const out: ScrapedImage[] = [];
+  for (const image of images) {
+    if (!image?.src || seen.has(image.src) || !/^https?:\/\//i.test(image.src)) continue;
+    seen.add(image.src);
+    out.push(image);
+    if (out.length >= limit) break;
+  }
+  return out;
+}
+
+function articleImageFigureHtml(image: ScrapedImage, sourcePageUrl: string) {
+  const caption = image.alt?.trim() || "原文配图";
+  const sourceHost = hostFromUrl(sourcePageUrl) || "原文";
+  return [
+    `<figure class="article-media article-image">`,
+    `<img src="${escapeHtml(image.src)}" alt="${escapeHtml(caption)}" loading="lazy" decoding="async">`,
+    `<figcaption><span>${escapeHtml(caption)}</span><a href="${escapeHtml(sourcePageUrl)}" target="_blank" rel="noreferrer">${escapeHtml(sourceHost)}</a></figcaption>`,
+    `</figure>`
+  ].join("");
 }
 
 function hostFromUrl(url: string): string | null {
@@ -797,7 +868,7 @@ async function attachVideosFromEvidence(postId: string, evidence: EvidenceItem[]
       title: v.title,
       type,
       url: normalizeEmbedUrl(v.url),
-      summary: `从${v.sourceName}的报道中识别到的视频资源：${v.url}`,
+      summary: `从${v.sourceName}的报道中自动识别到的视频资源。`,
       postId,
       region,
       sourcePageUrl: v.sourcePageUrl,

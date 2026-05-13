@@ -6,8 +6,8 @@ export default async function AboutPage() {
 
   return (
     <PublicShell>
-      <main className="container">
-        <article className="prose">
+      <main className="container bento-page">
+        <article className="prose page-intro bento-card bento-wide">
           <h1>关于这个博客</h1>
           <p>
             {settings?.name || "拾贝 信息博客"} 是一个面向个人使用的信息整理博客。管理员可以接入 OpenAI-compatible 模型，选择默认或临时信息源，抓取网页与 RSS 内容，生成待审核草稿后再发布。

@@ -5,6 +5,7 @@ import { createWriteStream } from "node:fs";
 import { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import path from "node:path";
+import os from "node:os";
 import { chromium, type Page } from "playwright";
 import { ensureUploadDirs, VIDEO_DIR } from "./storage";
 import { getModelConfigForUse } from "./model-selection";
@@ -88,8 +89,10 @@ export async function downloadVideo(
   await ensureUploadDirs();
   const maxSec = opts?.maxDurationSec ?? 1200;
   const explicitReferer = opts?.referer;
-  const referer = explicitReferer || originOf(url) || url;
+  const sourceRefererUrl = shouldUseSourceReferer(url) ? explicitReferer : null;
+  const referer = sourceRefererUrl || originOf(url) || url;
   const sniffPageUrl = explicitReferer && shouldResniffReferer(url, explicitReferer) ? explicitReferer : url;
+  const sniffReferer = sniffPageUrl;
 
   // L1：URL 本身就是直链
   if (looksLikeMediaUrl(url)) {
@@ -106,7 +109,7 @@ export async function downloadVideo(
     return null;
   });
   if (sniffed?.mediaUrl) {
-    const r = await downloadMediaUrl(sniffed.mediaUrl, referer, maxSec, {
+    const r = await downloadMediaUrl(sniffed.mediaUrl, sniffReferer, maxSec, {
       cookieHeader: sniffed.cookieHeader
     }).catch((err) => {
       console.warn(`[video-download] L2 download failed for ${sniffed.mediaUrl}:`, err?.message || err);
@@ -352,9 +355,13 @@ async function sniffMediaWithBrowser(
 
     if (found.size === 0) return { mediaUrl: "", html, cookieHeader };
 
-    // 选优先级：m3u8 > 体积最大的 mp4 > 任何剩下的
+    // 选优先级：具体 HLS 清单 > 主 HLS 清单 > 体积最大的 mp4 > 任何剩下的。
+    // 一些站点的 master/adp 清单会列出多个码率，ffmpeg 可能逐个探测并被单个坏分片拖垮；
+    // 已经被播放器实际请求过的具体清单更稳定。
     const arr = Array.from(found.values());
-    const m3u8 = arr.find((f) => HLS_RE.test(f.url));
+    const m3u8 = arr
+      .filter((f) => HLS_RE.test(f.url))
+      .sort((a, b) => hlsPlaylistScore(b.url) - hlsPlaylistScore(a.url))[0];
     const sortedMp4 = arr
       .filter((f) => !f.isManifest)
       .sort((a, b) => b.bytes - a.bytes);
@@ -499,10 +506,14 @@ function originOf(url: string): string | null {
   }
 }
 
+function shouldUseSourceReferer(url: string): boolean {
+  return looksLikeMediaUrl(url) || /\/videoplayback(?:[/?#]|$)|[?&]mime=video\//i.test(url);
+}
+
 function shouldResniffReferer(url: string, referer: string): boolean {
   if (!referer || referer === url) return false;
   if (!/^https?:\/\//i.test(referer)) return false;
-  return looksLikeMediaUrl(url) || /\/videoplayback(?:[/?#]|$)|[?&]mime=video\//i.test(url);
+  return shouldUseSourceReferer(url);
 }
 
 async function triggerHtml5VideoPlayback(page: Page) {
@@ -522,17 +533,50 @@ function guessExtFromUrl(url: string): string | null {
   return ["mp4", "m4v", "mov", "webm", "flv"].includes(ext) ? ext : null;
 }
 
+function hlsPlaylistScore(url: string) {
+  if (/\/hls\/main\//i.test(url) || /\/main\.m3u8(?:[?#]|$)/i.test(url)) return 1000;
+  if (/\/video_[^/]+\.m3u8(?:[?#]|$)/i.test(url)) return 980;
+  if (/\/adp\.[^/]+\.m3u8(?:[?#]|$)|\/(?:master|index|playlist)[^/]*\.m3u8(?:[?#]|$)/i.test(url)) return 900;
+  const bitrate = url.match(/\/hls\/(\d{2,5})\//i)?.[1] || url.match(/\/(\d{2,5})\.m3u8(?:[?#]|$)/i)?.[1];
+  return 900 + Math.min(Number(bitrate || 0) / 100, 80);
+}
+
 async function resolveBin(name: string): Promise<string | null> {
   const candidates = [`/usr/local/bin/${name}`, `/usr/bin/${name}`, name];
+  if (name === "ffmpeg") {
+    if (process.env.FFMPEG_PATH) candidates.unshift(process.env.FFMPEG_PATH);
+    candidates.push(...await playwrightFfmpegCandidates());
+  }
+  const versionArgs = name === "ffmpeg" ? ["-version"] : ["--version"];
   for (const candidate of candidates) {
     try {
-      await runCmd(candidate, ["--version"], { timeoutMs: 5_000 });
-      return candidate;
+      const result = await runCmd(candidate, versionArgs, { timeoutMs: 5_000 });
+      if (result.code === 0) return candidate;
     } catch {
       /* try next */
     }
   }
   return null;
+}
+
+async function playwrightFfmpegCandidates(): Promise<string[]> {
+  const roots = [
+    process.env.PLAYWRIGHT_BROWSERS_PATH && process.env.PLAYWRIGHT_BROWSERS_PATH !== "0"
+      ? process.env.PLAYWRIGHT_BROWSERS_PATH
+      : null,
+    path.join(os.homedir(), ".cache", "ms-playwright")
+  ].filter(Boolean) as string[];
+  const out: string[] = [];
+  for (const root of roots) {
+    const entries = await fs.readdir(root, { withFileTypes: true }).catch(() => []);
+    for (const entry of entries) {
+      if (!entry.isDirectory() || !entry.name.startsWith("ffmpeg-")) continue;
+      out.push(path.join(root, entry.name, "ffmpeg-linux"));
+      out.push(path.join(root, entry.name, "ffmpeg-mac"));
+      out.push(path.join(root, entry.name, "ffmpeg-win64.exe"));
+    }
+  }
+  return out;
 }
 
 function runCmd(

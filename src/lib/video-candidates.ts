@@ -7,6 +7,8 @@ const HLS_RE = /\.m3u8(?:[?#]|$)/i;
 const SEGMENT_RE = /\.(ts|m4s)(?:[?#]|$)/i;
 const DIRECT_VIDEO_RE = /\.(mp4|webm|mov|flv)(?:[?#]|$)/i;
 const PLATFORM_RE = /youtube|youtu\.be|bilibili|vimeo|youku|iqiyi|v\.qq\.com|dailymotion/i;
+const STRONG_MEDIA_SCORE = 700;
+const KEEP_WITH_MEDIA_SCORE = 600;
 
 // 栏目/索引页特征：抓取器的 ANCHOR_RE 只看链接里有没有 "video" 字样,
 // 因此各站点顶部导航的「视频」入口(如 /video/, /video/list.html,
@@ -49,10 +51,14 @@ export function selectVideoLinksForPost<T extends VideoLinkCandidate>(links: rea
     }
   }
 
-  return Array.from(selected.values())
+  const ranked = Array.from(selected.values())
     .sort((a, b) => a.order - b.order)
-    .slice(0, limit)
-    .map((item) => item.link);
+    .filter((item, _index, arr) => {
+      const hasStrongMedia = arr.some((candidate) => candidate.score >= STRONG_MEDIA_SCORE);
+      return !hasStrongMedia || item.score >= KEEP_WITH_MEDIA_SCORE;
+    });
+
+  return ranked.slice(0, limit).map((item) => item.link);
 }
 
 function isHttpUrl(url: string) {
@@ -72,7 +78,8 @@ function candidateKey(url: string) {
     if (HLS_RE.test(url)) {
       const normalizedPath = pathname
         .replace(/\/hls\/(?:main|\d{2,5})\//i, "/hls/*/")
-        .replace(/\/(?:main|\d{2,5})\.m3u8$/i, "/*.m3u8");
+        .replace(/\/(?:main|\d{2,5})\.m3u8$/i, "/*.m3u8")
+        .replace(/\/(?:adp\.[^/]+|video_[^/]+)\.m3u8$/i, "/*.m3u8");
       return `hls:${host}${normalizedPath}`;
     }
     if (DIRECT_VIDEO_RE.test(url)) {
@@ -87,6 +94,8 @@ function candidateKey(url: string) {
 function candidateScore(url: string) {
   if (HLS_RE.test(url)) {
     if (/\/hls\/main\//i.test(url) || /\/main\.m3u8(?:[?#]|$)/i.test(url)) return 1000;
+    if (/\/video_[^/]+\.m3u8(?:[?#]|$)/i.test(url)) return 980;
+    if (/\/adp\.[^/]+\.m3u8(?:[?#]|$)|\/(?:master|index|playlist)[^/]*\.m3u8(?:[?#]|$)/i.test(url)) return 900;
     const bitrate = url.match(/\/hls\/(\d{2,5})\//i)?.[1] || url.match(/\/(\d{2,5})\.m3u8(?:[?#]|$)/i)?.[1];
     return 900 + Math.min(Number(bitrate || 0) / 100, 80);
   }

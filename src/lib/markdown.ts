@@ -61,6 +61,14 @@ function formatDuration(sec: number) {
   return `${m}:${String(s).padStart(2, "0")}`;
 }
 
+function hostFromUrl(url: string): string {
+  try {
+    return new URL(url).hostname.replace(/^www\./, "");
+  } catch {
+    return "来源页面";
+  }
+}
+
 /**
  * 把一个 Video 渲染为内嵌 HTML（与 src/lib/video.tsx 的 <VideoEmbed> 视觉等价，但产出字符串）。
  * 同步、纯函数、不引用 React。
@@ -91,17 +99,18 @@ export function videoShortcodeHtml(video: VideoForShortcode): string {
     );
   }
   if (video.sourcePageUrl) {
+    const sourceLabel = hostFromUrl(video.sourcePageUrl);
     attributionParts.push(
-      `<div><strong>来源页面</strong>：<a class="text-link" href="${escapeHtml(video.sourcePageUrl)}" target="_blank" rel="noreferrer">${escapeHtml(video.sourcePageUrl)}</a></div>`
+      `<div><strong>来源页面</strong>：<a class="text-link" href="${escapeHtml(video.sourcePageUrl)}" target="_blank" rel="noreferrer">${escapeHtml(sourceLabel)}</a></div>`
     );
   }
   if (video.attribution) {
     attributionParts.push(
-      `<div style="margin-top:6px;white-space:pre-line">${escapeHtml(video.attribution)}</div>`
+      `<details class="video-source-details"><summary>版权与来源说明</summary><div>${escapeHtml(video.attribution)}</div></details>`
     );
   }
   attributionParts.push(
-    `<div style="margin-top:6px;font-size:12px">视频内容版权归原作者所有，本站仅做信息整理与档案存档之用。</div>`
+    `<div class="video-copyright-note">视频内容版权归原作者所有，本站仅做信息整理与档案存档之用。</div>`
   );
 
   const summaryHtml = video.summary
@@ -110,9 +119,9 @@ export function videoShortcodeHtml(video: VideoForShortcode): string {
 
   return [
     `<div class="video-embed video-shortcode" data-video-id="${escapeHtml(video.id)}">`,
-    `<h3 class="video-shortcode-title">${title}</h3>`,
-    summaryHtml,
     player,
+    `<div class="article-media-caption video-caption"><span>${title}</span></div>`,
+    summaryHtml,
     `<div class="video-attribution">${attributionParts.join("")}</div>`,
     `</div>`,
   ].join("");
@@ -146,7 +155,7 @@ export function markdownToHtml(markdown: string, opts?: MarkdownOptions): string
   // 同时把 iframe src 限制在已知视频 host（已在 videoShortcodeHtml 中预过滤）。
   return DOMPurify.sanitize(rawHtml, {
     USE_PROFILES: { html: true },
-    ADD_TAGS: ["iframe", "video", "source"],
+    ADD_TAGS: ["iframe", "video", "source", "figure", "figcaption", "details", "summary"],
     ADD_ATTR: [
       "target",
       "rel",
@@ -155,6 +164,8 @@ export function markdownToHtml(markdown: string, opts?: MarkdownOptions): string
       "frameborder",
       "controls",
       "preload",
+      "loading",
+      "decoding",
       "data-video-id",
     ],
     FORBID_TAGS: ["style", "form", "input", "button"],

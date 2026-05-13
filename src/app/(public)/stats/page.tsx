@@ -20,12 +20,14 @@ export default async function StatsPage({
 
   return (
     <PublicShell>
-      <main className="container">
-        <p className="eyebrow">Statistics</p>
-        <h1 className="page-title">数据看板</h1>
-        <p className="muted-block" style={{ maxWidth: 720, margin: "16px 0 26px" }}>
-          实时统计 ShiBei 收录的新闻与视频。该数据每分钟刷新一次缓存。
-        </p>
+      <main className="container bento-page">
+        <section className="page-intro bento-card bento-wide">
+          <p className="eyebrow">Statistics</p>
+          <h1 className="page-title">数据看板</h1>
+          <p className="muted-block">
+            实时统计 ShiBei 收录的新闻与视频。该数据每分钟刷新一次缓存。
+          </p>
+        </section>
 
         <div className="topic-tabs" role="tablist" aria-label="时间窗口">
           {([
@@ -45,7 +47,7 @@ export default async function StatsPage({
           ))}
         </div>
 
-        <div className="admin-grid-3" style={{ marginBottom: 18 }}>
+        <div className="bento-grid stats-metric-bento">
           <Metric label="新闻 · 当天" value={stats.todayNews} />
           <Metric label="新闻 · 本周" value={stats.weekNews} />
           <Metric label="新闻 · 总数" value={stats.totals.news} />
@@ -54,16 +56,16 @@ export default async function StatsPage({
           <Metric label="视频 · 总数" value={stats.totals.videos} />
         </div>
 
-        <div className="chart-grid">
-          <div className="chart-card">
+        <div className="bento-grid chart-bento">
+          <div className="chart-card bento-card bento-wide">
             <h3>新闻数量（按日，近 {stats.newsBuckets.length} 天）</h3>
             <BarChart buckets={stats.newsBuckets} ariaLabel="按日新闻柱状图" />
           </div>
-          <div className="chart-card">
+          <div className="chart-card bento-card bento-wide">
             <h3>视频数量（按日，近 {stats.videoBuckets.length} 天）</h3>
             <LineChart buckets={stats.videoBuckets} ariaLabel="按日视频折线图" />
           </div>
-          <div className="chart-card">
+          <div className="chart-card bento-card bento-wide">
             <h3>新闻 vs 视频（堆叠对比）</h3>
             <StackedBarChart
               primary={stats.newsBuckets}
@@ -71,11 +73,11 @@ export default async function StatsPage({
               ariaLabel="新闻视频对比"
             />
           </div>
-          <div className="chart-card">
+          <div className="chart-card bento-card">
             <h3>新闻分类占比（{labelOf(window)}）</h3>
             <DonutChart slices={stats.topicSlices} ariaLabel="新闻分类环形图" />
           </div>
-          <div className="chart-card">
+          <div className="chart-card bento-card">
             <h3>当天 24 小时分布</h3>
             <BarChart
               buckets={stats.hourBuckets}
@@ -84,7 +86,7 @@ export default async function StatsPage({
               color="var(--chart-3)"
             />
           </div>
-          <div className="chart-card">
+          <div className="chart-card bento-card">
             <h3>分类详情</h3>
             {stats.topicSlices.length === 0 ? (
               <p className="muted">暂无分类数据。先在管理后台添加 NewsTopic 与已发布文章。</p>
@@ -117,8 +119,8 @@ export default async function StatsPage({
 
 function Metric({ label, value }: { label: string; value: number }) {
   return (
-    <div className="metric-card">
-      <div style={{ fontSize: 32, fontWeight: 500, fontFamily: "var(--font-display)" }}>{value}</div>
+    <div className="metric-card bento-card">
+      <div className="bento-kpi">{value}</div>
       <div className="muted" style={{ fontSize: 13 }}>
         {label}
       </div>

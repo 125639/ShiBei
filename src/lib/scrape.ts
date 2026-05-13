@@ -7,6 +7,19 @@ const MEDIA_CONTENT_TYPE_RE = /^(video\/|application\/(vnd\.apple\.mpegurl|x-mpe
 
 type SniffedMedia = { href: string; bytes: number; contentType: string };
 
+function sniffedMediaScore(media: SniffedMedia) {
+  if (/\.m3u8(?:[?#]|$)/i.test(media.href) || /mpegurl/i.test(media.contentType)) {
+    if (/\/hls\/main\//i.test(media.href) || /\/main\.m3u8(?:[?#]|$)/i.test(media.href)) return 1000;
+    if (/\/video_[^/]+\.m3u8(?:[?#]|$)/i.test(media.href)) return 980;
+    if (/\/adp\.[^/]+\.m3u8(?:[?#]|$)|\/(?:master|index|playlist)[^/]*\.m3u8(?:[?#]|$)/i.test(media.href)) return 900;
+    const bitrate = media.href.match(/\/hls\/(\d{2,5})\//i)?.[1] || media.href.match(/\/(\d{2,5})\.m3u8(?:[?#]|$)/i)?.[1];
+    return 900 + Math.min(Number(bitrate || 0) / 100, 80);
+  }
+  if (/\.mp4(?:[?#]|$)/i.test(media.href)) return 900;
+  if (/\.(webm|mov|flv)(?:[?#]|$)/i.test(media.href)) return 850;
+  return 100;
+}
+
 export async function scrapeWebPage(url: string) {
   // 拒绝 file://、loopback、私网、云 metadata 等，避免 SSRF 通过 Playwright 触达内部服务。
   assertSafeFetchUrl(url);
@@ -52,12 +65,54 @@ export async function scrapeWebPage(url: string) {
     const finalUrl = page.url();
 
     const result = await page.evaluate(() => {
-      const selectors = ["article", "main", "[role='main']", ".article", ".post", "body"];
-      const root = selectors
-        .map((selector) => document.querySelector(selector))
-        .find((node) => node && (node.textContent || "").trim().length > 500) || document.body;
-
-      root.querySelectorAll("script, style, nav, footer, aside, noscript").forEach((node) => node.remove());
+      const selectors = [
+        "article",
+        "main",
+        "[role='main']",
+        ".article",
+        ".article-content",
+        ".post",
+        ".post-content",
+        ".entry-content",
+        ".content",
+        ".content-main",
+        ".main",
+        ".w800"
+      ];
+      const clutterSelector = [
+        "script",
+        "style",
+        "nav",
+        "footer",
+        "aside",
+        "noscript",
+        "form",
+        ".playerv",
+        ".video-js",
+        ".recommend",
+        ".recommend_video",
+        ".related",
+        ".content_more",
+        ".content_look",
+        ".details",
+        ".gc-comment",
+        ".comment",
+        ".comments",
+        ".share",
+        ".social",
+        ".sidebar",
+        ".ad",
+        ".advert",
+        ".breadcrumb",
+        "[class*='comment']",
+        "[id*='comment']",
+        "[class*='recommend']",
+        "[class*='related']",
+        "[class*='share']"
+      ].join(",");
+      const root = pickContentRoot(selectors);
+      const cleanRoot = root.cloneNode(true) as HTMLElement;
+      cleanRoot.querySelectorAll(clutterSelector).forEach((node) => node.remove());
 
       // 三类视频源:
       //   <video src=> / <video><source>      — 页面内嵌 HTML5 视频
@@ -108,18 +163,139 @@ export async function scrapeWebPage(url: string) {
       }
 
       return {
-        title: document.title || root.querySelector("h1")?.textContent?.trim() || location.href,
-        html: root.innerHTML,
-        text: root.textContent?.replace(/\s+/g, " ").trim() || "",
-        videos
+        title: bestTitle(root),
+        html: cleanRoot.innerHTML,
+        text: cleanRoot.textContent?.replace(/\s+/g, " ").trim() || "",
+        videos,
+        images: collectImages(cleanRoot)
       };
+
+      function pickContentRoot(candidateSelectors: string[]): HTMLElement {
+        const seen = new Set<Element>();
+        const candidates: HTMLElement[] = [];
+        for (const selector of candidateSelectors) {
+          for (const el of Array.from(document.querySelectorAll(selector))) {
+            if (seen.has(el) || el === document.body) continue;
+            seen.add(el);
+            candidates.push(el as HTMLElement);
+          }
+        }
+        const viable = candidates
+          .map((el) => ({ el, score: scoreContentRoot(el) }))
+          .filter((item) => item.score > 0)
+          .sort((a, b) => b.score - a.score);
+        return viable[0]?.el || document.body;
+      }
+
+      function scoreContentRoot(el: HTMLElement): number {
+        const text = (el.textContent || "").replace(/\s+/g, " ").trim();
+        const textLen = text.length;
+        const mediaCount = el.querySelectorAll("video, iframe, img").length;
+        if (textLen < 80 && mediaCount === 0) return -1;
+        const linkTextLen = Array.from(el.querySelectorAll("a"))
+          .reduce((sum, a) => sum + ((a.textContent || "").trim().length), 0);
+        const linkDensity = textLen > 0 ? linkTextLen / textLen : 1;
+        const marker = `${el.id} ${String(el.className)} ${el.tagName}`.toLowerCase();
+        const semantic =
+          /article|content|post|entry|main|w800/.test(marker) ? 260 : 0;
+        const clutter =
+          /comment|recommend|related|nav|footer|sidebar|share|advert|login/.test(marker) ? 1000 : 0;
+        return Math.min(textLen, 2600) + mediaCount * 140 + semantic - linkDensity * 900 - clutter;
+      }
+
+      function bestTitle(rootEl: HTMLElement): string {
+        const metaTitle =
+          document.querySelector<HTMLMetaElement>("meta[property='og:title']")?.content ||
+          document.querySelector<HTMLMetaElement>("meta[name='twitter:title']")?.content ||
+          "";
+        return (
+          rootEl.querySelector("h1")?.textContent?.trim() ||
+          rootEl.querySelector("#content")?.textContent?.trim() ||
+          metaTitle.trim() ||
+          document.title ||
+          location.href
+        );
+      }
+
+      function collectImages(rootEl: HTMLElement): Array<{ src: string; alt: string; width: number | null; height: number | null }> {
+        const out: Array<{ src: string; alt: string; width: number | null; height: number | null }> = [];
+        const seen = new Set<string>();
+        for (const img of Array.from(rootEl.querySelectorAll("img"))) {
+          const src = imageSrc(img);
+          if (!src || seen.has(src) || shouldSkipImage(img, src)) continue;
+          seen.add(src);
+          const width = img.naturalWidth || numberAttr(img, "width");
+          const height = img.naturalHeight || numberAttr(img, "height");
+          out.push({
+            src,
+            alt: (img.getAttribute("alt") || img.getAttribute("title") || "").replace(/\s+/g, " ").trim(),
+            width: width || null,
+            height: height || null
+          });
+          if (out.length >= 4) break;
+        }
+        return out;
+      }
+
+      function imageSrc(img: HTMLImageElement): string {
+        const attrs = [
+          "src",
+          "data-src",
+          "data-original",
+          "data-url",
+          "data-actualsrc",
+          "data-lazy-src",
+          "data-original-src"
+        ];
+        let raw = "";
+        for (const attr of attrs) {
+          const value = img.getAttribute(attr);
+          if (value && value.trim()) {
+            raw = value.trim();
+            break;
+          }
+        }
+        if (!raw) {
+          raw = pickFromSrcset(img.getAttribute("srcset") || img.getAttribute("data-srcset") || "");
+        }
+        if (!raw || /^data:/i.test(raw)) return "";
+        try {
+          return new URL(raw, document.baseURI).toString();
+        } catch {
+          return "";
+        }
+      }
+
+      function pickFromSrcset(srcset: string): string {
+        const parts = srcset.split(",").map((part) => part.trim()).filter(Boolean);
+        return parts.at(-1)?.split(/\s+/)[0] || "";
+      }
+
+      function shouldSkipImage(img: HTMLImageElement, src: string): boolean {
+        const marker = `${src} ${img.alt || ""} ${img.title || ""} ${img.id || ""} ${String(img.className || "")}`.toLowerCase();
+        if (/logo|icon|sprite|avatar|qrcode|qr-|wechat|weixin|share|blank|loading|vip|diamond|advert|ad-|banner/.test(marker)) {
+          return true;
+        }
+        const width = img.naturalWidth || numberAttr(img, "width");
+        const height = img.naturalHeight || numberAttr(img, "height");
+        if (width && width < 160) return true;
+        if (height && height < 100) return true;
+        return false;
+      }
+
+      function numberAttr(el: Element, name: string): number {
+        const raw = el.getAttribute(name);
+        const value = raw ? Number.parseInt(raw, 10) : 0;
+        return Number.isFinite(value) ? value : 0;
+      }
     });
 
     // 把网络嗅探到的真实视频 URL 合并进 videos[],排在 DOM-扫到的源前面
     // (DOM 扫到的常常是 iframe 容器/播放器壳,真要下载还得拿到底层流;嗅探到的
     // 多半就是底层流本身)。按 Content-Length 降序——最大的那条最可能是正片。
     const sniffedSorted = Array.from(sniffed.values())
-      .sort((a, b) => b.bytes - a.bytes)
+      .filter((m) => !/\.(ts|m4s)(?:[?#]|$)/i.test(m.href))
+      .sort((a, b) => sniffedMediaScore(b) - sniffedMediaScore(a) || b.bytes - a.bytes)
       .map((m) => ({ text: "页面播放器加载的视频流", href: m.href }));
 
     const seen = new Set<string>();
@@ -137,6 +313,7 @@ export async function scrapeWebPage(url: string) {
       content: result.text,
       markdown: turndown.turndown(result.html),
       videos: merged,
+      images: result.images,
       finalUrl
     };
   } finally {
