@@ -56,16 +56,17 @@ export default async function NewsPage({ searchParams }: { searchParams: Promise
 
   return (
     <PublicShell>
-      <main className="container">
-        <h1 className="page-title"><I18nText zh="新闻总结" en="News" /></h1>
-        <div className="section-heading">
+      <main className="container bento-page">
+        <section className="page-intro bento-card bento-wide">
+          <p className="eyebrow">News</p>
+          <h1 className="page-title"><I18nText zh="新闻总结" en="News" /></h1>
           <p className="muted">
             <I18nText
               zh={<>由抓取材料生成草稿，再经管理员审核或自动发布。{activeTopic ? `当前筛选：${activeTopic.name}。` : null}</>}
               en={<>Drafts are generated from fetched material, then admin-reviewed or auto-published.{activeTopic ? ` Current filter: ${activeTopic.name}.` : null}</>}
             />
           </p>
-        </div>
+        </section>
 
         {mode === "topic-tabs" && topics.length > 0 ? (
           <nav className="topic-tabs" aria-label="主题筛选">
@@ -83,7 +84,7 @@ export default async function NewsPage({ searchParams }: { searchParams: Promise
         ) : null}
 
         {posts.length === 0 ? (
-          <div className="card">
+          <div className="bento-card bento-wide">
             <h3><I18nText zh={activeTopic ? `${activeTopic.name} 暂无文章` : "还没有发布内容"} en={activeTopic ? `No posts for ${activeTopic.name}` : "No Published Content Yet"} /></h3>
             <p><I18nText zh="启用一个主题并设置定时表后，自动整理任务会陆续在这里发布文章。" en="Enable a topic and schedule it; curated articles will appear here over time." /></p>
           </div>
@@ -99,8 +100,8 @@ function PostsLayout({ mode, posts }: { mode: DisplayMode; posts: PostListEntry[
   if (mode === "magazine" && posts.length > 0) {
     const [hero, ...rest] = posts;
     return (
-      <>
-        <Link className="news-magazine-hero" href={`/news/${hero.slug}`}>
+      <div className="bento-grid news-bento">
+        <Link className="bento-card bento-feature news-magazine-hero" href={`/news/${hero.slug}`}>
           <div>
             <div className="meta-row">
               <span>{hero.publishedAt?.toLocaleDateString("zh-CN")}</span>
@@ -116,12 +117,10 @@ function PostsLayout({ mode, posts }: { mode: DisplayMode; posts: PostListEntry[
             <span className="text-link"><I18nText zh="阅读封面文章" en="Read Feature" /></span>
           </div>
         </Link>
-        <div className="grid">
-          {rest.map((post) => (
-            <PostCard key={post.id} post={post} />
-          ))}
-        </div>
-      </>
+        {rest.map((post, index) => (
+          <PostCard key={post.id} post={post} variant={index === 0 ? "bento-wide" : ""} />
+        ))}
+      </div>
     );
   }
 
@@ -150,17 +149,17 @@ function PostsLayout({ mode, posts }: { mode: DisplayMode; posts: PostListEntry[
 
   // Default: grid (also used by topic-tabs)
   return (
-    <div className="grid">
-      {posts.map((post) => (
-        <PostCard key={post.id} post={post} />
+    <div className="bento-grid news-bento">
+      {posts.map((post, index) => (
+        <PostCard key={post.id} post={post} variant={index === 0 ? "bento-large" : index === 1 ? "bento-wide" : ""} />
       ))}
     </div>
   );
 }
 
-function PostCard({ post }: { post: PostListEntry }) {
+function PostCard({ post, variant = "" }: { post: PostListEntry; variant?: string }) {
   return (
-    <Link className="card" href={`/news/${post.slug}`}>
+    <Link className={`bento-card post-card ${variant}`} href={`/news/${post.slug}`}>
       <div>
         <div className="meta-row">
           <span>{post.publishedAt?.toLocaleDateString("zh-CN")}</span>

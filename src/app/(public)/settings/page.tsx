@@ -45,13 +45,15 @@ export default async function SettingsPage() {
 
   return (
     <PublicShell>
-      <main className="container" style={{ position: "relative", zIndex: 10 }}>
-        <p className="eyebrow" style={ui === "cyber" ? { color: "#00f0ff" } : {}}>User</p>
-        <h1 className="page-title">设置</h1>
-        <p className="muted-block" style={{ maxWidth: 720, margin: "16px 0 26px" }}>
-          这些选择只保存在你自己的浏览器中（localStorage）。
-          如要恢复管理员设定，点击底部的「恢复默认」。
-        </p>
+      <main className="container bento-page" style={{ position: "relative", zIndex: 10 }}>
+        <section className="page-intro bento-card bento-wide">
+          <p className="eyebrow" style={ui === "cyber" ? { color: "#00f0ff" } : {}}>User</p>
+          <h1 className="page-title">设置</h1>
+          <p className="muted-block">
+            这些选择只保存在你自己的浏览器中（localStorage）。
+            如要恢复管理员设定，点击底部的「恢复默认」。
+          </p>
+        </section>
         <SettingsPageSwitcher
           siteDefaults={{ theme, font, density, language, ui, musicEnabled }}
         />

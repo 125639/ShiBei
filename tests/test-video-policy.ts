@@ -158,6 +158,28 @@ describe("video candidate selection", () => {
       ["real"]
     );
   });
+
+  test("deduplicates Guancha HLS variants, prefers concrete playlists, and drops related page links", () => {
+    const selected = selectVideoLinksForPost([
+      {
+        text: "master",
+        href: "https://v.guancha.cn/path/to/video/adp.10.m3u8?t=1"
+      },
+      {
+        text: "variant",
+        href: "https://v.guancha.cn/path/to/video/video_10_4.m3u8?t=1"
+      },
+      {
+        text: "related",
+        href: "https://www.guancha.cn/video/gczvideo/content.html?id=55147"
+      }
+    ]);
+
+    assert.deepEqual(
+      selected.map((item) => item.text),
+      ["variant"]
+    );
+  });
 });
 
 describe("default source seeding", () => {
