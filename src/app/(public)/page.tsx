@@ -61,6 +61,24 @@ export default async function HomePage() {
 
         <AiAssistant
           contextLabel="博客主页"
+          suggestionGroups={[
+            {
+              title: <I18nText zh="近期热点" en="Recent Topics" />,
+              prompts: [
+                "概括首页最近几篇文章的共同主线",
+                "哪些议题值得优先阅读？",
+                "帮我挑一篇适合深入看的文章"
+              ]
+            },
+            {
+              title: <I18nText zh="推荐阅读路径" en="Reading Path" />,
+              prompts: [
+                "按重要性给这些内容排序",
+                "整理一个 5 分钟快速了解版本",
+                "这些报道之间有什么关联？"
+              ]
+            }
+          ]}
           context={[
             settings?.description || "拾贝 信息博客",
             ...posts.map((post) => `${post.title}\n${post.summary}`)

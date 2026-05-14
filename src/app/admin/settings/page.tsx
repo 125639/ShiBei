@@ -28,6 +28,7 @@ export default async function SettingsPage({
 
   const storageProps = storage ? {
     uploadsBytes: formatBytes(storage.uploadsBytes),
+    imageBytes: formatBytes(storage.imageBytes),
     musicBytes: formatBytes(storage.musicBytes),
     videoBytes: formatBytes(storage.videoBytes),
     postCount: storage.postCount,

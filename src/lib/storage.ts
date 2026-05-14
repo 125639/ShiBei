@@ -4,10 +4,12 @@ import { prisma } from "./prisma";
 import { resolveUploadsPath } from "./uploads-path";
 
 const UPLOAD_ROOT = path.join(process.cwd(), "public", "uploads");
+export const IMAGE_DIR = path.join(UPLOAD_ROOT, "image");
 export const MUSIC_DIR = path.join(UPLOAD_ROOT, "music");
 export const VIDEO_DIR = path.join(UPLOAD_ROOT, "video");
 
 export async function ensureUploadDirs() {
+  await fs.mkdir(IMAGE_DIR, { recursive: true });
   await fs.mkdir(MUSIC_DIR, { recursive: true });
   await fs.mkdir(VIDEO_DIR, { recursive: true });
 }
@@ -33,6 +35,7 @@ export async function dirSizeBytes(dir: string): Promise<number> {
 
 export type StorageReport = {
   uploadsBytes: number;
+  imageBytes: number;
   musicBytes: number;
   videoBytes: number;
   postCount: number;
@@ -47,8 +50,9 @@ export type StorageReport = {
 
 export async function reportStorage(): Promise<StorageReport> {
   await ensureUploadDirs();
-  const [musicBytes, videoBytes, settings, postCount, rawItemCount, videoCount, fetchJobCount] =
+  const [imageBytes, musicBytes, videoBytes, settings, postCount, rawItemCount, videoCount, fetchJobCount] =
     await Promise.all([
+      dirSizeBytes(IMAGE_DIR),
       dirSizeBytes(MUSIC_DIR),
       dirSizeBytes(VIDEO_DIR),
       prisma.siteSettings.findUnique({ where: { id: "site" } }),
@@ -62,7 +66,8 @@ export async function reportStorage(): Promise<StorageReport> {
   const approxDbBytesEstimate = postCount * 6000 + rawItemCount * 3000 + fetchJobCount * 1000 + videoCount * 1200;
 
   return {
-    uploadsBytes: musicBytes + videoBytes,
+    uploadsBytes: imageBytes + musicBytes + videoBytes,
+    imageBytes,
     musicBytes,
     videoBytes,
     postCount,
