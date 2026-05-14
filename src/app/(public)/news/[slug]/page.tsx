@@ -106,6 +106,24 @@ export default async function NewsDetailPage({ params }: { params: Promise<{ slu
         <div className="prose">
           <AiAssistant
             contextLabel={<I18nText zh="当前新闻" en="Current News" />}
+            suggestionGroups={[
+              {
+                title: <I18nText zh="近期热点" en="Key Points" />,
+                prompts: [
+                  "用三句话概括这篇新闻",
+                  "这篇文章最重要的事实是什么？",
+                  "哪些背景信息需要补充？"
+                ]
+              },
+              {
+                title: <I18nText zh="推荐分析角度" en="Analysis Angles" />,
+                prompts: [
+                  "这件事的争议点是什么？",
+                  "列出事实、观点和推测的区别",
+                  "这件事可能带来什么影响？"
+                ]
+              }
+            ]}
             context={[post.title, post.summary, post.content.slice(0, 8000)].join("\n\n")}
           />
 

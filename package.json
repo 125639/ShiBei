@@ -11,12 +11,14 @@
     "prisma:migrate": "prisma migrate dev",
     "prisma:deploy": "prisma migrate deploy",
     "db:seed": "tsx prisma/seed.ts",
+    "repair:article-images": "tsx scripts/repair-article-images.ts",
     "worker": "tsx src/worker/index.ts",
     "sync-worker": "tsx src/sync-worker/index.ts"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",
     "@dnd-kit/sortable": "^10.0.0",
+    "@fontsource-variable/noto-sans-sc": "^5.2.10",
     "@prisma/client": "^5.22.0",
     "adm-zip": "^0.5.16",
     "bcryptjs": "^2.4.3",

@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import "@fontsource-variable/noto-sans-sc";
 import "./globals.css";
 import { UserPreferencesScript } from "@/components/UserPreferencesScript";
 import { DEFAULT_LANGUAGE } from "@/lib/language";

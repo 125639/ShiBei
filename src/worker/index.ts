@@ -42,6 +42,7 @@ import {
 import { selectVideoLinksForPost } from "../lib/video-candidates";
 import { runStorageCleanup } from "../lib/storage";
 import { insertMarkdownBlock } from "../lib/video-display";
+import { cacheArticleImage } from "../lib/article-image-cache";
 
 function workerConcurrency(envName: string, fallback = 1) {
   const n = Number(process.env[envName] || fallback);
@@ -311,10 +312,12 @@ async function embedImagesInPostContent(postId: string, images: ArticleImageCand
   const picked = selectArticleImages(images, 3, keywords);
   if (!picked.length) return;
 
-  const figures = picked
-    .filter((image) => !existing.content.includes(image.src) && !(existing.contentEn || "").includes(image.src))
-    .map((image) => articleImageFigureHtml(image))
-    .filter(Boolean);
+  const figures: string[] = [];
+  for (const image of picked) {
+    if (existing.content.includes(image.src) || (existing.contentEn || "").includes(image.src)) continue;
+    const figure = await articleImageFigureHtml(image);
+    if (figure) figures.push(figure);
+  }
   if (!figures.length) return;
 
   const block = figures.join("\n\n");
@@ -504,12 +507,15 @@ function selectArticleImages(images: ArticleImageCandidate[], limit: number, key
     .map((entry) => entry.image);
 }
 
-function articleImageFigureHtml(image: ArticleImageCandidate) {
+async function articleImageFigureHtml(image: ArticleImageCandidate) {
+  const cached = await cacheArticleImage(image.src, { sourcePageUrl: image.sourcePageUrl });
+  if (!cached) return null;
+
   const caption = image.alt?.trim() || "原文配图";
   const sourceHost = hostFromUrl(image.sourcePageUrl) || "原文";
   return [
     `<figure class="article-media article-image">`,
-    `<img src="${escapeHtml(image.src)}" alt="${escapeHtml(caption)}" loading="lazy" decoding="async">`,
+    `<img src="${escapeHtml(cached.url)}" alt="${escapeHtml(caption)}" loading="lazy" decoding="async">`,
     `<figcaption><span>${escapeHtml(caption)}</span><a href="${escapeHtml(image.sourcePageUrl)}" target="_blank" rel="noreferrer">${escapeHtml(sourceHost)}</a></figcaption>`,
     `</figure>`
   ].join("");

@@ -416,6 +416,7 @@ export function SettingsClient({
           <h2 style={{ marginTop: 0 }}><I18nText zh="当前存储占用" en="Current Storage Usage" /></h2>
           <div className="admin-grid-3" style={{ marginTop: 10 }}>
             <Stat label={<I18nText zh="上传目录总和" en="Uploads Total" />} value={String(storage.uploadsBytes)} />
+            <Stat label={<I18nText zh="图片缓存" en="Image Cache" />} value={String(storage.imageBytes)} />
             <Stat label={<I18nText zh="音乐占用" en="Music Usage" />} value={String(storage.musicBytes)} />
             <Stat label={<I18nText zh="视频占用" en="Video Usage" />} value={String(storage.videoBytes)} />
             <Stat label={<I18nText zh="文章数量" en="Post Count" />} value={String(storage.postCount)} />
