@@ -35,16 +35,13 @@ import { enqueueTopicRun, parseTopicKeywords } from "../lib/auto-curation";
 import { bootstrapAllSchedules } from "../lib/scheduler";
 import { searchWithExa } from "../lib/exa";
 import {
-  downloadVideoByPolicy,
   isDomesticVideoCandidate,
   isDomesticVideoUrl,
-  isVideoMediaUrl,
-  parseInternationalHostKeys,
-  shouldDownloadVideo,
-  type VideoDownloadPolicy
-} from "../lib/video-downloader";
+  isVideoMediaUrl
+} from "../lib/video-policy";
 import { selectVideoLinksForPost } from "../lib/video-candidates";
 import { runStorageCleanup } from "../lib/storage";
+import { insertMarkdownBlock } from "../lib/video-display";
 
 function workerConcurrency(envName: string, fallback = 1) {
   const n = Number(process.env[envName] || fallback);
@@ -61,6 +58,12 @@ type ScrapedImage = {
   alt?: string | null;
   width?: number | null;
   height?: number | null;
+  domDepth?: number | null;
+  parentMarker?: string | null;
+};
+
+type ArticleImageCandidate = ScrapedImage & {
+  sourcePageUrl: string;
 };
 
 type ScheduleJobData = {
@@ -210,9 +213,6 @@ async function processWeb(fetchJobId: string) {
   const fetchJob = await prisma.fetchJob.findUniqueOrThrow({ where: { id: fetchJobId } });
   const settings = await prisma.siteSettings.findUnique({ where: { id: "site" } });
   const textOnly = (settings as { textOnlyMode?: boolean } | null)?.textOnlyMode === true;
-  const videoMaxSec = clampVideoDuration((settings as { videoMaxDurationSec?: number } | null)?.videoMaxDurationSec);
-  const policy = videoPolicyFromSettings(settings);
-  const maxPerPost = clampVideoMaxPerPost((settings as { videoMaxPerPost?: number } | null)?.videoMaxPerPost);
 
   const result = await scrapeWebPage(fetchJob.sourceUrl);
   const sourcePageUrl = result.finalUrl || fetchJob.sourceUrl;
@@ -228,59 +228,33 @@ async function processWeb(fetchJobId: string) {
   });
 
   const post = await summarizeRawItem(rawItem.id, fetchJob.id);
-  await embedImagesInPostContent(post.id, result.images || [], sourcePageUrl);
+  if (autoImageSearchEnabled(settings)) {
+    await embedImagesInPostContent(post.id, withImageSource(result.images || [], sourcePageUrl));
+  }
 
   if (textOnly) {
     // pure-text mode: skip video collection entirely.
     return;
   }
 
-  let downloadedForThisPost = 0;
   const createdVideoIds: string[] = [];
 
   for (const link of selectVideoLinksForPost(result.videos, 4)) {
     const url = link.href;
     const region = isDomesticVideoCandidate(url, sourcePageUrl) ? "DOMESTIC" : "INTERNATIONAL";
-    const type = detectVideoType(url);
     const baseData: Record<string, unknown> = {
       title: link.text || "相关视频资源",
-      type,
-      url: normalizeEmbedUrl(url),
-      summary: "从来源页面自动识别到的视频资源。",
+      type: "LINK",
+      url,
+      displayMode: "link",
+      summary: "从来源页面自动识别到的相关视频链接。",
       postId: post.id,
       region,
       sourcePageUrl,
       sourcePlatform: sourcePlatformForVideo(url, sourcePageUrl)
     };
 
-    let attribution = `来源页：${sourcePageUrl}\n原视频：${url}`;
-
-    const shouldDownload =
-      downloadedForThisPost < maxPerPost &&
-      shouldDownloadVideo(url, sourcePageUrl, policy);
-
-    if (shouldDownload) {
-      const dl = await downloadVideoByPolicy(url, policy, {
-        maxDurationSec: videoMaxSec,
-        referer: sourcePageUrl
-      }).catch((err) => {
-        console.error(`[video-download] failed ${url}:`, err);
-        return null;
-      });
-      if (dl?.localPath) {
-        baseData.type = "LOCAL";
-        baseData.url = dl.localPath;
-        baseData.localPath = dl.localPath;
-        baseData.fileSizeBytes = dl.fileSizeBytes;
-        baseData.durationSec = dl.durationSec;
-        attribution = `本地下载视频，原始来源：\n - 来源页：${sourcePageUrl}\n - 原视频链接：${url}\n - 平台：${baseData.sourcePlatform || "未知"}\n仅用于内部存档与方便国内访问，所有版权归原作者所有。`;
-        downloadedForThisPost += 1;
-      } else if (type === "LOCAL") {
-        baseData.type = "LINK";
-      }
-    }
-
-    baseData.attribution = attribution;
+    baseData.attribution = `来源页：${sourcePageUrl}\n视频链接：${url}\n自动流程仅保留链接，不下载视频文件。`;
 
     const created = await createVideoRecord(baseData);
     createdVideoIds.push(created.id);
@@ -291,29 +265,8 @@ async function processWeb(fetchJobId: string) {
   }
 }
 
-function clampVideoDuration(value: number | undefined | null) {
-  if (!value || !Number.isFinite(value)) return 1200;
-  return Math.min(Math.max(Math.floor(value), 30), 1200);
-}
-
-function clampVideoMaxPerPost(value: number | undefined | null) {
-  if (!value || !Number.isFinite(value)) return 4;
-  return Math.min(Math.max(Math.floor(value), 0), 4);
-}
-
-function videoPolicyFromSettings(settings: unknown): VideoDownloadPolicy {
-  const s = (settings || {}) as {
-    videoDownloadDomestic?: boolean;
-    videoDownloadHosts?: string | null;
-  };
-  return {
-    domestic: s.videoDownloadDomestic !== false,
-    internationalHostKeys: parseInternationalHostKeys(s.videoDownloadHosts)
-  };
-}
-
 /**
- * 把 [[video:ID]] 短代码追加到 post.content（以及英文翻译，如果已生成）末尾。
+ * 把 [[video:ID]] 短代码插入到 post.content（以及英文翻译，如果已生成）参考来源前。
  * 渲染层（news/[slug]/page.tsx + markdown.ts）会把短代码替换为播放器，并把
  * 已内嵌的视频从文末"相关视频"列表里去重，因此追加不会造成重复展示。
  */
@@ -324,14 +277,13 @@ async function embedVideosInPostContent(postId: string, videoIds: string[]) {
     .catch(() => null);
   if (!post) return;
   const block = videoIds.map((id) => `[[video:${id}]]`).join("\n\n");
-  const sep = post.content.endsWith("\n") ? "\n" : "\n\n";
-  const nextContent = `${post.content}${sep}${block}\n`;
+  const nextContent = insertMarkdownBlock(post.content, block, "before-references");
 
   const existingEn = await (prisma as unknown as {
     post: { findUnique: (args: unknown) => Promise<{ contentEn: string | null } | null> };
   }).post.findUnique({ where: { id: postId }, select: { contentEn: true } }).catch(() => null);
   const nextContentEn = existingEn?.contentEn
-    ? `${existingEn.contentEn}${existingEn.contentEn.endsWith("\n") ? "\n" : "\n\n"}${block}\n`
+    ? insertMarkdownBlock(existingEn.contentEn, block, "before-references")
     : null;
 
   await (prisma as unknown as {
@@ -344,55 +296,221 @@ async function embedVideosInPostContent(postId: string, videoIds: string[]) {
   });
 }
 
-async function embedImagesInPostContent(postId: string, images: ScrapedImage[], sourcePageUrl: string) {
-  const picked = selectArticleImages(images, 3);
-  if (!picked.length) return;
+async function embedImagesInPostContent(postId: string, images: ArticleImageCandidate[]) {
+  if (!images.length) return;
 
   const existing = await (prisma as unknown as {
-    post: { findUnique: (args: unknown) => Promise<{ content: string; contentEn: string | null } | null> };
-  }).post.findUnique({ where: { id: postId }, select: { content: true, contentEn: true } }).catch(() => null);
+    post: { findUnique: (args: unknown) => Promise<{ title: string; summary: string; content: string; contentEn: string | null } | null> };
+  }).post.findUnique({
+    where: { id: postId },
+    select: { title: true, summary: true, content: true, contentEn: true }
+  }).catch(() => null);
   if (!existing) return;
+
+  const keywords = extractPostKeywords(existing.title, existing.summary);
+  const picked = selectArticleImages(images, 3, keywords);
+  if (!picked.length) return;
 
   const figures = picked
     .filter((image) => !existing.content.includes(image.src) && !(existing.contentEn || "").includes(image.src))
-    .map((image) => articleImageFigureHtml(image, sourcePageUrl))
+    .map((image) => articleImageFigureHtml(image))
     .filter(Boolean);
   if (!figures.length) return;
 
   const block = figures.join("\n\n");
-  const append = (content: string) => `${content}${content.endsWith("\n") ? "\n" : "\n\n"}${block}\n`;
+  const insert = (content: string) => insertMarkdownBlock(content, block, "after-intro");
 
   await (prisma as unknown as {
     post: { update: (args: unknown) => Promise<unknown> };
   }).post.update({
     where: { id: postId },
     data: existing.contentEn
-      ? { content: append(existing.content), contentEn: append(existing.contentEn) }
-      : { content: append(existing.content) }
+      ? { content: insert(existing.content), contentEn: insert(existing.contentEn) }
+      : { content: insert(existing.content) }
   }).catch((err) => {
     console.error(`[image-embed] failed to inline images for post ${postId}:`, err);
   });
 }
 
-function selectArticleImages(images: ScrapedImage[], limit: number): ScrapedImage[] {
-  const seen = new Set<string>();
-  const out: ScrapedImage[] = [];
-  for (const image of images) {
-    if (!image?.src || seen.has(image.src) || !/^https?:\/\//i.test(image.src)) continue;
-    seen.add(image.src);
-    out.push(image);
-    if (out.length >= limit) break;
-  }
-  return out;
+function autoImageSearchEnabled(settings: unknown) {
+  return (settings as { autoImageSearchEnabled?: boolean } | null)?.autoImageSearchEnabled !== false;
 }
 
-function articleImageFigureHtml(image: ScrapedImage, sourcePageUrl: string) {
+function withImageSource(images: ScrapedImage[], sourcePageUrl: string): ArticleImageCandidate[] {
+  return images.map((image) => ({ ...image, sourcePageUrl }));
+}
+
+async function attachImagesFromEvidence(postId: string, evidence: EvidenceItem[]) {
+  const settings = await prisma.siteSettings.findUnique({ where: { id: "site" } });
+  if (!autoImageSearchEnabled(settings)) return;
+
+  const images: ArticleImageCandidate[] = [];
+  const seen = new Set<string>();
+
+  for (const item of evidence.slice(0, 10)) {
+    if (images.length >= 30) break;
+    if (!/^https?:\/\//i.test(item.url)) continue;
+    const scraped = await scrapeWebPage(item.url).catch((error) => {
+      console.error(`[image-search] evidence page scrape failed ${item.url}:`, error);
+      return null;
+    });
+    if (!scraped?.images?.length) continue;
+    const sourcePageUrl = scraped.finalUrl || item.url;
+    for (const image of scraped.images) {
+      if (!image.src) continue;
+      const canonical = canonicalizeImageUrl(image.src);
+      if (seen.has(canonical)) continue;
+      seen.add(canonical);
+      images.push({ ...image, sourcePageUrl });
+      if (images.length >= 30) break;
+    }
+  }
+
+  await embedImagesInPostContent(postId, images);
+}
+
+const CN_STOPWORDS = new Set([
+  "的", "了", "是", "在", "和", "与", "或", "及", "对", "对于", "为", "为了", "等",
+  "也", "都", "就", "而", "但", "及其", "其", "之", "之类", "这", "那", "我们", "他们",
+  "她们", "它们", "你们", "我", "你", "他", "她", "它", "我们的", "本", "该", "这些",
+  "那些", "从", "到", "向", "上", "下", "中", "里", "外", "前", "后", "如", "若", "并",
+  "并且", "而且", "或者", "因为", "所以", "如果", "因此", "据", "据悉", "表示", "认为",
+  "已经", "已", "可以", "可能", "不", "没有", "没"
+]);
+
+const EN_STOPWORDS = new Set([
+  "the", "a", "an", "and", "or", "but", "of", "to", "in", "on", "at", "for", "by",
+  "with", "from", "as", "is", "are", "was", "were", "be", "been", "being", "this",
+  "that", "these", "those", "it", "its", "they", "them", "their", "we", "our", "us",
+  "you", "your", "he", "she", "him", "her", "his", "hers", "i", "my", "me", "mine",
+  "yours", "ours", "theirs", "do", "does", "did", "have", "has", "had", "will",
+  "would", "could", "should", "may", "might", "can", "must", "not", "no", "yes",
+  "if", "then", "than", "so", "such", "what", "which", "who", "whom", "whose",
+  "where", "when", "why", "how", "about", "after", "before", "between", "during",
+  "into", "out", "over", "under", "again", "further", "more", "most", "some", "any",
+  "all", "each", "every", "few", "many", "other", "another"
+]);
+
+function extractPostKeywords(title: string, summary: string): string[] {
+  const text = `${title || ""} ${(summary || "").slice(0, 200)}`.toLowerCase();
+  const counts = new Map<string, number>();
+
+  // English / digit words
+  const enMatches = text.match(/[a-z0-9][a-z0-9-]{2,}/g) || [];
+  for (const word of enMatches) {
+    if (EN_STOPWORDS.has(word)) continue;
+    counts.set(word, (counts.get(word) || 0) + 1);
+  }
+
+  // Chinese: bigram extraction over runs of CJK characters
+  const cjkRuns = text.match(/[一-鿿]+/g) || [];
+  for (const run of cjkRuns) {
+    for (let i = 0; i < run.length - 1; i += 1) {
+      const bigram = run.slice(i, i + 2);
+      if (CN_STOPWORDS.has(bigram) || CN_STOPWORDS.has(bigram[0]) || CN_STOPWORDS.has(bigram[1])) continue;
+      counts.set(bigram, (counts.get(bigram) || 0) + 1);
+    }
+  }
+
+  return [...counts.entries()]
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 8)
+    .map(([key]) => key);
+}
+
+function canonicalizeImageUrl(url: string): string {
+  try {
+    const u = new URL(url);
+    u.search = "";
+    u.hash = "";
+    u.hostname = u.hostname.replace(/^www\./i, "").toLowerCase();
+    u.protocol = u.protocol.toLowerCase();
+    return u.toString();
+  } catch {
+    return url;
+  }
+}
+
+const IMAGE_TRACKER_DOMAINS = ["trk.", "px.", "tracker.", "pixel.", "gravatar.com", "stats."];
+
+function scoreArticleImage(image: ArticleImageCandidate, keywords: string[]): number {
+  const width = image.width || 0;
+  const height = image.height || 0;
+  const ratio = width && height ? width / height : 0;
+  const marker = (image.parentMarker || "").toLowerCase();
+  const alt = (image.alt || "").toLowerCase();
+  let score = 0;
+
+  score += Math.min(width * height, 1_200_000) / 10_000;
+
+  if (width && height) {
+    if (width < 320 || height < 200) score -= 60;
+    if (ratio >= 1.2 && ratio <= 2.4) score += 40;
+    if (ratio > 4 || ratio < 0.4) score -= 30;
+  }
+
+  if (/(article|main|content|entry|post)/.test(marker)) score += 25;
+  if (/(sidebar|footer|header|nav|related|comment|share|advert|ad-|hot|recom)/.test(marker)) score -= 40;
+
+  let overlap = 0;
+  for (const keyword of keywords) {
+    if (!keyword) continue;
+    if (alt.includes(keyword)) overlap += 1;
+    if (overlap >= 5) break;
+  }
+  score += overlap * 12;
+
+  const filename = (() => {
+    try {
+      return new URL(image.src).pathname.split("/").pop() || "";
+    } catch {
+      return "";
+    }
+  })().toLowerCase();
+  if (filename.length > 6 && !/^[0-9_.-]+$/.test(filename)) score += 10;
+
+  const host = (() => {
+    try {
+      return new URL(image.src).hostname.toLowerCase();
+    } catch {
+      return "";
+    }
+  })();
+  if (host && IMAGE_TRACKER_DOMAINS.some((bad) => host.includes(bad))) score -= 100;
+
+  return score;
+}
+
+function selectArticleImages(images: ArticleImageCandidate[], limit: number, keywords: string[] = []): ArticleImageCandidate[] {
+  const byCanonical = new Map<string, ArticleImageCandidate>();
+  for (const image of images) {
+    if (!image?.src || !/^https?:\/\//i.test(image.src)) continue;
+    const key = canonicalizeImageUrl(image.src);
+    const existing = byCanonical.get(key);
+    if (!existing) {
+      byCanonical.set(key, image);
+    } else {
+      // Keep the entry with richer metadata (larger known dimensions, longer alt).
+      const oldRank = (existing.width || 0) * (existing.height || 0) + (existing.alt?.length || 0);
+      const newRank = (image.width || 0) * (image.height || 0) + (image.alt?.length || 0);
+      if (newRank > oldRank) byCanonical.set(key, image);
+    }
+  }
+
+  return [...byCanonical.values()]
+    .map((image) => ({ image, score: scoreArticleImage(image, keywords) }))
+    .sort((a, b) => b.score - a.score)
+    .slice(0, limit)
+    .map((entry) => entry.image);
+}
+
+function articleImageFigureHtml(image: ArticleImageCandidate) {
   const caption = image.alt?.trim() || "原文配图";
-  const sourceHost = hostFromUrl(sourcePageUrl) || "原文";
+  const sourceHost = hostFromUrl(image.sourcePageUrl) || "原文";
   return [
     `<figure class="article-media article-image">`,
     `<img src="${escapeHtml(image.src)}" alt="${escapeHtml(caption)}" loading="lazy" decoding="async">`,
-    `<figcaption><span>${escapeHtml(caption)}</span><a href="${escapeHtml(sourcePageUrl)}" target="_blank" rel="noreferrer">${escapeHtml(sourceHost)}</a></figcaption>`,
+    `<figcaption><span>${escapeHtml(caption)}</span><a href="${escapeHtml(image.sourcePageUrl)}" target="_blank" rel="noreferrer">${escapeHtml(sourceHost)}</a></figcaption>`,
     `</figure>`
   ].join("");
 }
@@ -439,10 +557,6 @@ async function processVideo(fetchJobId: string) {
   });
   const settings = await prisma.siteSettings.findUnique({ where: { id: "site" } });
   const textOnly = (settings as { textOnlyMode?: boolean } | null)?.textOnlyMode === true;
-  const videoMaxSec = clampVideoDuration((settings as { videoMaxDurationSec?: number } | null)?.videoMaxDurationSec);
-  const policy = textOnly
-    ? { domestic: false, internationalHostKeys: [] as string[] }
-    : videoPolicyFromSettings(settings);
   const title = fetchJob.source?.name || "视频资源";
   const originalUrl = fetchJob.sourceUrl;
   const summary = "管理员添加的视频资源。";
@@ -481,6 +595,7 @@ async function processVideo(fetchJobId: string) {
     title,
     type,
     url: normalizeEmbedUrl(originalUrl),
+    displayMode: textOnly ? "link" : "embed",
     summary,
     postId: post.id,
     region,
@@ -488,27 +603,6 @@ async function processVideo(fetchJobId: string) {
     sourcePlatform: sourcePlatformForVideo(originalUrl, originalUrl),
     attribution: `来源页：${originalUrl}\n原视频：${originalUrl}`
   };
-
-  if (shouldDownloadVideo(originalUrl, originalUrl, policy)) {
-    const dl = await downloadVideoByPolicy(originalUrl, policy, {
-      maxDurationSec: videoMaxSec,
-      referer: originalUrl
-    }).catch((err) => {
-      console.error(`[video-download] failed ${originalUrl}:`, err);
-      return null;
-    });
-
-    if (dl?.localPath) {
-      baseData.type = "LOCAL";
-      baseData.url = dl.localPath;
-      baseData.localPath = dl.localPath;
-      baseData.fileSizeBytes = dl.fileSizeBytes;
-      baseData.durationSec = dl.durationSec;
-      baseData.attribution = `本地下载视频，原始来源：\n - 来源页：${originalUrl}\n - 原视频链接：${originalUrl}\n - 平台：${baseData.sourcePlatform || "未知"}\n仅用于内部存档与方便国内访问，所有版权归原作者所有。`;
-    } else if (type === "LOCAL") {
-      baseData.type = "LINK";
-    }
-  }
 
   const video = await createVideoRecord(baseData);
   await prisma.post.update({
@@ -568,6 +662,7 @@ async function processKeywordResearch(fetchJobId: string, keyword: string, scope
     }
 
     const post = await createDraftFromResearch(fetchJob.id, keyword, scopeLabel, evidence, generated, index);
+    await attachImagesFromEvidence(post.id, evidence);
     await attachVideosFromEvidence(post.id, evidence, `关键词「${keyword}」`);
   }
 }
@@ -853,53 +948,25 @@ function extractVideoUrlsFromText(text: string): string[] {
 async function attachVideosFromEvidence(postId: string, evidence: EvidenceItem[], contextLabel: string) {
   const settings = await prisma.siteSettings.findUnique({ where: { id: "site" } });
   if ((settings as { textOnlyMode?: boolean } | null)?.textOnlyMode === true) return;
-  const videoMaxSec = clampVideoDuration((settings as { videoMaxDurationSec?: number } | null)?.videoMaxDurationSec);
-  const policy = videoPolicyFromSettings(settings);
-  const maxPerPost = clampVideoMaxPerPost((settings as { videoMaxPerPost?: number } | null)?.videoMaxPerPost);
   const picks = await collectEvidenceVideoPicks(evidence, 6);
   if (!picks.length) return;
 
   const createdIds: string[] = [];
-  let downloadedForThisPost = 0;
   for (const v of picks) {
     const region = isDomesticVideoCandidate(v.url, v.sourcePageUrl) ? "DOMESTIC" : "INTERNATIONAL";
-    const type = detectVideoType(v.url);
     const baseData: Record<string, unknown> = {
       title: v.title,
-      type,
-      url: normalizeEmbedUrl(v.url),
-      summary: `从${v.sourceName}的报道中自动识别到的视频资源。`,
+      type: "LINK",
+      url: v.url,
+      displayMode: "link",
+      summary: `从${v.sourceName}的报道中自动识别到的相关视频链接。`,
       postId,
       region,
       sourcePageUrl: v.sourcePageUrl,
       sourcePlatform: sourcePlatformForVideo(v.url, v.sourcePageUrl)
     };
-    let attribution = `来源页：${v.sourcePageUrl}\n原视频：${v.url}\n（基于${contextLabel}的研究资料自动提取）`;
 
-    if (downloadedForThisPost < maxPerPost && shouldDownloadVideo(v.url, v.sourcePageUrl, policy)) {
-      const dl = await downloadVideoByPolicy(v.url, policy, {
-        maxDurationSec: videoMaxSec,
-        referer: v.sourcePageUrl
-      }).catch((err) => {
-        console.error(`[video-download] failed ${v.url}:`, err);
-        return null;
-      });
-      if (dl?.localPath) {
-        baseData.type = "LOCAL";
-        baseData.url = dl.localPath;
-        baseData.localPath = dl.localPath;
-        baseData.fileSizeBytes = dl.fileSizeBytes;
-        baseData.durationSec = dl.durationSec;
-        downloadedForThisPost += 1;
-        attribution = `本地下载视频，原始来源：\n - 来源页：${v.sourcePageUrl}\n - 原视频链接：${v.url}\n - 平台：${baseData.sourcePlatform || "未知"}\n仅用于内部存档与方便国内访问，所有版权归原作者所有。`;
-      } else if (type === "LOCAL") {
-        baseData.type = "LINK";
-      }
-    } else if (type === "LOCAL") {
-      baseData.type = "LINK";
-    }
-
-    baseData.attribution = attribution;
+    baseData.attribution = `来源页：${v.sourcePageUrl}\n视频链接：${v.url}\n（基于${contextLabel}的研究资料自动提取；不下载视频文件）`;
 
     try {
       const created = await createVideoRecord(baseData);
@@ -1071,6 +1138,7 @@ async function processDigest(fetchJobId: string, topicId: string, digestKind: "D
   }
 
   const post = await createDraftFromDigest(fetchJob.id, topic.id, digestKind, fallbackTitle, allEvidence, generated, windowLabel, scopeLabel);
+  await attachImagesFromEvidence(post.id, allEvidence);
   await attachVideosFromEvidence(post.id, allEvidence, `${topic.name} ${windowLabel}`);
 }
 

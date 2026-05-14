@@ -38,7 +38,7 @@ export function UserPreferencesScript({
     var density = localStorage.getItem(k.density) || def.density;
     var language = localStorage.getItem(k.language) || def.language;
     var ui = localStorage.getItem(k.ui);
-    if (ui !== 'classic' && ui !== 'cyber') ui = def.ui;
+    if (ui !== 'classic' && ui !== 'cyber' && ui !== 'dynamic') ui = def.ui;
     
     doc.setAttribute('data-theme', theme);
     doc.setAttribute('data-font', font);

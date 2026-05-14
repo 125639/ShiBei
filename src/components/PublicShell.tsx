@@ -17,10 +17,12 @@ export async function PublicShell({ children }: { children: React.ReactNode }) {
 
   return (
     <div className="site-shell">
-      <header className="site-header">
+      <header className="site-header site-header-glass">
         <Link className="brand-mark" href="/">
           <strong>{settings?.name || "ShiBei"}</strong>
-          <span><I18nText zh={settings?.description || "抓取、整理、发布信息"} en="Automated Info Curation & Publishing" /></span>
+          <span className="brand-tagline">
+            <I18nText zh={settings?.description || "抓取、整理、发布信息"} en="Automated Info Curation & Publishing" />
+          </span>
         </Link>
         <nav className="nav">
           <Link href="/news"><I18nText zh="新闻总结" en="News" /></Link>

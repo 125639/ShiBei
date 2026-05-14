@@ -30,7 +30,7 @@ export async function scrapeWebPage(url: string) {
 
     // 被动嗅探网络响应：现代新闻站把视频 URL 放在 JS-注入的播放器配置里,DOM 扫不到。
     // 这里在页面加载过程中收集所有 content-type 是 video/* 或 URL 命中 .mp4/.m3u8 的请求,
-    // 真正下载视频的环节(video-downloader)再决定要不要拉。Content-Length < 100KB 的过滤掉,
+    // 后续的链接收集环节再决定要不要展示。Content-Length < 100KB 的过滤掉,
     // 防止把封面/海报/poster.mp4 之类的 placeholder 误认为正片。
     page.on("response", (resp) => {
       try {
@@ -217,8 +217,8 @@ export async function scrapeWebPage(url: string) {
         );
       }
 
-      function collectImages(rootEl: HTMLElement): Array<{ src: string; alt: string; width: number | null; height: number | null }> {
-        const out: Array<{ src: string; alt: string; width: number | null; height: number | null }> = [];
+      function collectImages(rootEl: HTMLElement): Array<{ src: string; alt: string; width: number | null; height: number | null; domDepth: number; parentMarker: string }> {
+        const out: Array<{ src: string; alt: string; width: number | null; height: number | null; domDepth: number; parentMarker: string }> = [];
         const seen = new Set<string>();
         for (const img of Array.from(rootEl.querySelectorAll("img"))) {
           const src = imageSrc(img);
@@ -230,11 +230,42 @@ export async function scrapeWebPage(url: string) {
             src,
             alt: (img.getAttribute("alt") || img.getAttribute("title") || "").replace(/\s+/g, " ").trim(),
             width: width || null,
-            height: height || null
+            height: height || null,
+            domDepth: domDepthOf(img),
+            parentMarker: parentContainerMarker(img)
           });
-          if (out.length >= 4) break;
+          if (out.length >= 12) break;
         }
         return out;
+      }
+
+      function domDepthOf(el: Element): number {
+        let depth = 0;
+        let cur: Element | null = el;
+        while (cur && cur !== document.body) {
+          depth += 1;
+          cur = cur.parentElement;
+        }
+        return depth;
+      }
+
+      function parentContainerMarker(el: Element): string {
+        const parts: string[] = [];
+        let cur: Element | null = el.parentElement;
+        let hops = 0;
+        while (cur && hops < 6 && cur !== document.body) {
+          const tag = cur.tagName.toLowerCase();
+          if (tag === "article" || tag === "main" || tag === "section" || tag === "aside" || tag === "header" || tag === "footer" || tag === "nav") {
+            parts.push(tag);
+          }
+          const cls = String(cur.className || "").toLowerCase();
+          const id = String(cur.id || "").toLowerCase();
+          if (cls) parts.push(cls);
+          if (id) parts.push(id);
+          cur = cur.parentElement;
+          hops += 1;
+        }
+        return parts.join(" ").slice(0, 400);
       }
 
       function imageSrc(img: HTMLImageElement): string {
@@ -278,8 +309,8 @@ export async function scrapeWebPage(url: string) {
         }
         const width = img.naturalWidth || numberAttr(img, "width");
         const height = img.naturalHeight || numberAttr(img, "height");
-        if (width && width < 160) return true;
-        if (height && height < 100) return true;
+        if (width && width < 200) return true;
+        if (height && height < 120) return true;
         return false;
       }
 

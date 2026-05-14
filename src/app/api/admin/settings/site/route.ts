@@ -5,7 +5,6 @@ import { isLanguageKey, isNewsLanguageMode } from "@/lib/language";
 import { prisma } from "@/lib/prisma";
 import { redirectTo } from "@/lib/redirect";
 import { isFontKey, isThemeKey } from "@/lib/themes";
-import { INTERNATIONAL_PLATFORM_KEYS } from "@/lib/video-policy";
 
 function clamp(value: number, min: number, max: number) {
   if (!Number.isFinite(value)) return min;
@@ -20,20 +19,20 @@ export async function POST(request: Request) {
   const autoPublish = form.get("autoPublish") === "true";
   const textOnlyMode = form.get("textOnlyMode") === "true";
   const exaEnabled = form.get("exaEnabled") === "true";
-  const videoDownloadDomestic = form.get("videoDownloadDomestic") === "true";
+  const autoImageSearchEnabled = form.getAll("autoImageSearchEnabled").map(String).includes("true");
   const musicEnabledDefault = form.get("musicEnabledDefault") === "true";
   const cleanupCustomEnabled = form.get("cleanupCustomEnabled") === "true";
 
-  const themeRaw = String(form.get("defaultTheme") || "minimal");
-  const fontRaw = String(form.get("defaultFont") || "serif-cjk");
+  const themeRaw = String(form.get("defaultTheme") || "apple");
+  const fontRaw = String(form.get("defaultFont") || "sans-cjk");
   const languageRaw = String(form.get("defaultLanguage") || "zh");
   const newsLanguageModeRaw = String(form.get("newsLanguageMode") || "default-language");
   const defaultSettingsUIRaw = String(form.get("defaultSettingsUI") || "classic");
-  const defaultTheme = isThemeKey(themeRaw) ? themeRaw : "minimal";
-  const defaultFont = isFontKey(fontRaw) ? fontRaw : "serif-cjk";
+  const defaultTheme = isThemeKey(themeRaw) ? themeRaw : "apple";
+  const defaultFont = isFontKey(fontRaw) ? fontRaw : "sans-cjk";
   const defaultLanguage = isLanguageKey(languageRaw) ? languageRaw : "zh";
   const newsLanguageMode = isNewsLanguageMode(newsLanguageModeRaw) ? newsLanguageModeRaw : "default-language";
-  const defaultSettingsUI = ["classic", "cyber"].includes(defaultSettingsUIRaw) ? defaultSettingsUIRaw : "classic";
+  const defaultSettingsUI = ["classic", "cyber", "dynamic"].includes(defaultSettingsUIRaw) ? defaultSettingsUIRaw : "classic";
 
   const newsModelConfigId = normalizeOptionalId(form.get("newsModelConfigId"));
   const assistantModelConfigId = normalizeOptionalId(form.get("assistantModelConfigId"));
@@ -42,17 +41,6 @@ export async function POST(request: Request) {
 
   const maxStorageMb = clamp(Number(form.get("maxStorageMb") || 2048), 64, 1024 * 100);
   const cleanupAfterDays = clamp(Number(form.get("cleanupAfterDays") || 30), 1, 3650);
-  const videoMaxDurationSec = clamp(Number(form.get("videoMaxDurationSec") || 1200), 30, 1200);
-  const videoMaxPerPost = clamp(Number(form.get("videoMaxPerPost") || 4), 0, 4);
-  const videoDownloadHosts = (() => {
-    const known = new Set(INTERNATIONAL_PLATFORM_KEYS);
-    const selected = new Set<string>();
-    for (const value of form.getAll("videoDownloadHosts")) {
-      const key = String(value).trim().toLowerCase();
-      if (known.has(key)) selected.add(key);
-    }
-    return [...selected].join(",");
-  })();
   const globalPromptPrefix = String(form.get("globalPromptPrefix") || "").slice(0, 4000);
 
   const exaApiKeyPlain = String(form.get("exaApiKey") || "").trim();
@@ -72,10 +60,7 @@ export async function POST(request: Request) {
     maxStorageMb,
     cleanupAfterDays,
     cleanupCustomEnabled,
-    videoMaxDurationSec,
-    videoDownloadDomestic,
-    videoDownloadHosts,
-    videoMaxPerPost,
+    autoImageSearchEnabled,
     exaEnabled,
     musicEnabledDefault,
     newsModelConfigId,

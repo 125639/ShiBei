@@ -222,6 +222,7 @@ async function upsertVideo(payload: SyncVideoPayload): Promise<"upserted" | "ski
     url: localPath ? payload.url : payload.type === "LOCAL" ? "" : payload.url,
     coverUrl: payload.coverUrl,
     summary: payload.summary,
+    displayMode: payload.displayMode === "link" ? "link" : "embed",
     sortOrder: payload.sortOrder,
     durationSec: payload.durationSec,
     region: payload.region,

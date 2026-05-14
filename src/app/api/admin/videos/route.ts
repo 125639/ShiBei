@@ -7,6 +7,7 @@ import { requireAdmin } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { redirectTo } from "@/lib/redirect";
 import { VIDEO_DIR, ensureUploadDirs } from "@/lib/storage";
+import { insertVideoShortcode, normalizeVideoDisplayMode, normalizeVideoPlacement } from "@/lib/video-display";
 
 const ALLOWED_EXT = new Set([".mp4", ".webm", ".mov", ".m4v"]);
 const MAX_BYTES = 300 * 1024 * 1024;
@@ -20,6 +21,9 @@ export async function POST(request: Request) {
   const url = String(form.get("url") || "").trim();
   const postId = String(form.get("postId") || "").trim();
   const sortOrder = normalizeSortOrder(form.get("sortOrder"));
+  const displayMode = normalizeVideoDisplayMode(form.get("displayMode") || "embed");
+  const insertShortcode = form.get("insertShortcode") === "true";
+  const insertPlacement = normalizeVideoPlacement(form.get("insertPlacement"));
   let videoUrl = url;
   let type = normalizeVideoType(String(form.get("type") || "LINK"));
   let fileSizeBytes: number | null = null;
@@ -39,11 +43,12 @@ export async function POST(request: Request) {
 
   if (!videoUrl) return NextResponse.json({ error: "请上传视频文件或填写视频链接" }, { status: 400 });
 
-  await prisma.video.create({
+  const video = await prisma.video.create({
     data: {
       title,
       type,
       url: type === "EMBED" ? normalizeEmbedUrl(videoUrl) : videoUrl,
+      displayMode,
       summary: String(form.get("summary") || ""),
       sortOrder,
       fileSizeBytes,
@@ -55,7 +60,26 @@ export async function POST(request: Request) {
     }
   });
 
+  if (postId && insertShortcode) {
+    await insertVideoIntoPost(postId, video.id, insertPlacement);
+  }
+
   return redirectTo(postId ? `/admin/posts/${postId}` : "/admin/videos");
+}
+
+async function insertVideoIntoPost(postId: string, videoId: string, placement: ReturnType<typeof normalizeVideoPlacement>) {
+  const post = await prisma.post.findUnique({
+    where: { id: postId },
+    select: { content: true, contentEn: true }
+  });
+  if (!post) return;
+  await prisma.post.update({
+    where: { id: postId },
+    data: {
+      content: insertVideoShortcode(post.content, videoId, placement),
+      ...(post.contentEn ? { contentEn: insertVideoShortcode(post.contentEn, videoId, placement) } : {})
+    }
+  });
 }
 
 function normalizeSortOrder(value: FormDataEntryValue | null) {

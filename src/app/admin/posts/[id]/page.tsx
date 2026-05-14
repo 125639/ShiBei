@@ -10,7 +10,7 @@ export default async function AdminPostEditPage({ params }: { params: Promise<{ 
     prisma.post.findUnique({ where: { id }, include: { videos: true, tags: true } }),
     prisma.video.findMany({
       orderBy: [{ sortOrder: "asc" }, { createdAt: "desc" }],
-      select: { id: true, title: true, type: true, postId: true },
+      select: { id: true, title: true, type: true, displayMode: true, postId: true },
     }),
   ]);
   if (!post) notFound();
@@ -84,10 +84,25 @@ export default async function AdminPostEditPage({ params }: { params: Promise<{ 
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <strong>{video.title}</strong>
                   <div style={{ fontSize: 12, opacity: 0.7 }}>
-                    {video.type} · ID: <code>{video.id}</code>
+                    {video.type} · 展示：{(video as { displayMode?: string | null }).displayMode === "link" ? "链接" : "嵌入"} · ID: <code>{video.id}</code>
                   </div>
                 </div>
                 <code style={{ fontSize: 12, marginRight: 12 }}>[[video:{video.id}]]</code>
+                <form action="/api/admin/videos/insert" method="post" className="meta-row" style={{ gap: 6, alignItems: "center" }}>
+                  <input type="hidden" name="id" value={video.id} />
+                  <input type="hidden" name="postId" value={post.id} />
+                  <input type="hidden" name="redirect" value={`/admin/posts/${post.id}`} />
+                  <select name="displayMode" defaultValue={(video as { displayMode?: string | null }).displayMode || "embed"}>
+                    <option value="embed">嵌入</option>
+                    <option value="link">链接</option>
+                  </select>
+                  <select name="insertPlacement" defaultValue="before-references">
+                    <option value="after-intro">导语后</option>
+                    <option value="before-references">参考来源前</option>
+                    <option value="end">文末</option>
+                  </select>
+                  <button className="button-secondary" type="submit">插入/调整位置</button>
+                </form>
                 <form
                   action={`/api/admin/videos/delete?id=${encodeURIComponent(video.id)}&redirect=${encodeURIComponent(`/admin/posts/${post.id}`)}`}
                   method="post"
@@ -128,6 +143,26 @@ export default async function AdminPostEditPage({ params }: { params: Promise<{ 
           </div>
           <div className="field-row">
             <div className="field">
+              <label htmlFor="video-display-mode">文章展示方式</label>
+              <select id="video-display-mode" name="displayMode" defaultValue="embed">
+                <option value="embed">嵌入视频播放器（默认）</option>
+                <option value="link">仅以链接形式插入</option>
+              </select>
+            </div>
+            <div className="field">
+              <label htmlFor="video-insert-placement">插入位置</label>
+              <select id="video-insert-placement" name="insertPlacement" defaultValue="before-references">
+                <option value="after-intro">导语后</option>
+                <option value="before-references">参考来源前</option>
+                <option value="end">文末</option>
+              </select>
+            </div>
+          </div>
+          <label>
+            <input type="checkbox" name="insertShortcode" value="true" defaultChecked /> 上传后自动插入到正文
+          </label>
+          <div className="field-row">
+            <div className="field">
               <label htmlFor="video-file">文件（仅本地上传）</label>
               <input id="video-file" type="file" name="file" accept="video/mp4,video/webm,video/quicktime,.mp4,.webm,.mov,.m4v" />
             </div>
@@ -156,7 +191,7 @@ export default async function AdminPostEditPage({ params }: { params: Promise<{ 
           </div>
           <button className="button" type="submit">上传并挂到本文章</button>
         </form>
-        <p className="hint">上传后回到本页，复制旁边的 <code>[[video:ID]]</code> 短代码，粘到正文 Markdown 中即可在该位置嵌入播放器。</p>
+        <p className="hint">默认会把上传的视频以嵌入模式插入到正文；也可以改成链接模式，或在上方列表重新调整位置。</p>
       </section>
 
       <section className="form-card form-stack" style={{ marginTop: 16 }}>
@@ -164,7 +199,7 @@ export default async function AdminPostEditPage({ params }: { params: Promise<{ 
         {allVideos.length === 0 ? (
           <p className="muted-block">暂无可选择的视频，可先在上方上传。</p>
         ) : (
-          <form action="/api/admin/videos/attach" method="post" className="form-stack">
+          <form action="/api/admin/videos/insert" method="post" className="form-stack">
             <input type="hidden" name="redirect" value={`/admin/posts/${post.id}`} />
             <input type="hidden" name="postId" value={post.id} />
             <div className="field">
@@ -173,15 +208,32 @@ export default async function AdminPostEditPage({ params }: { params: Promise<{ 
                 <option value="" disabled>选择一个已有视频</option>
                 {allVideos.map((video) => (
                   <option key={video.id} value={video.id}>
-                    {video.title} · {video.type}{video.postId && video.postId !== post.id ? " · 已挂载其他文章" : ""}
+                    {video.title} · {video.type} · {(video.displayMode || "embed") === "link" ? "链接" : "嵌入"}{video.postId && video.postId !== post.id ? " · 已挂载其他文章" : ""}
                   </option>
                 ))}
               </select>
             </div>
-            <button className="button-secondary" type="submit">挂到本文章</button>
+            <div className="field-row">
+              <div className="field">
+                <label htmlFor="existing-video-display-mode">文章展示方式</label>
+                <select id="existing-video-display-mode" name="displayMode" defaultValue="embed">
+                  <option value="embed">嵌入视频播放器</option>
+                  <option value="link">仅以链接形式插入</option>
+                </select>
+              </div>
+              <div className="field">
+                <label htmlFor="existing-video-placement">插入位置</label>
+                <select id="existing-video-placement" name="insertPlacement" defaultValue="before-references">
+                  <option value="after-intro">导语后</option>
+                  <option value="before-references">参考来源前</option>
+                  <option value="end">文末</option>
+                </select>
+              </div>
+            </div>
+            <button className="button-secondary" type="submit">挂到本文章并插入</button>
           </form>
         )}
-        <p className="hint">挂载后，该视频会出现在上方列表；复制它的 <code>[[video:ID]]</code> 到正文任意位置即可定点展示。</p>
+        <p className="hint">提交后会自动把 <code>[[video:ID]]</code> 写入正文；再次提交同一视频会先移除旧短代码再按新位置插入。</p>
       </section>
     </AdminShell>
   );

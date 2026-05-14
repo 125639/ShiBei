@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { requireAdmin } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { redirectTo } from "@/lib/redirect";
+import { normalizeVideoDisplayMode } from "@/lib/video-display";
 
 // 把 Video 关联到 / 解除关联到 一篇文章。
 // POST /api/admin/videos/attach
@@ -13,6 +14,9 @@ export async function POST(request: Request) {
   const id = String(form.get("id") || "").trim();
   const postIdRaw = String(form.get("postId") || "").trim();
   const redirect = safeRedirectPath(String(form.get("redirect") || "/admin/videos"));
+  const displayModeData = form.has("displayMode")
+    ? { displayMode: normalizeVideoDisplayMode(form.get("displayMode")) }
+    : {};
   if (!id) return NextResponse.json({ error: "missing video id" }, { status: 400 });
 
   const video = await prisma.video.findUnique({ where: { id } });
@@ -23,12 +27,12 @@ export async function POST(request: Request) {
     if (!post) return NextResponse.json({ error: "post not found" }, { status: 404 });
     await prisma.video.update({
       where: { id },
-      data: { post: { connect: { id: post.id } } },
+      data: { ...displayModeData, post: { connect: { id: post.id } } },
     });
   } else {
     await prisma.video.update({
       where: { id },
-      data: { post: { disconnect: true } },
+      data: { ...displayModeData, post: { disconnect: true } },
     });
   }
 

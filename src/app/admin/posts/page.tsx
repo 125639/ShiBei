@@ -93,7 +93,7 @@ export default async function AdminPostsPage() {
         <div className="field-row">
           <div className="field">
             <label htmlFor="videoType">链接类型</label>
-            <select id="videoType" name="type" defaultValue="LINK">
+            <select id="videoType" name="type" defaultValue="EMBED">
               <option value="LINK">普通外链</option>
               <option value="EMBED">可嵌入链接</option>
               <option value="LOCAL">本地文件</option>
@@ -103,6 +103,13 @@ export default async function AdminPostsPage() {
             <label htmlFor="videoSortOrder">排序（小的在前）</label>
             <input id="videoSortOrder" name="sortOrder" type="number" defaultValue="0" />
           </div>
+        </div>
+        <div className="field">
+          <label htmlFor="videoDisplayMode">文章展示方式</label>
+          <select id="videoDisplayMode" name="displayMode" defaultValue="embed">
+            <option value="embed">嵌入视频播放器（默认）</option>
+            <option value="link">仅以链接形式插入</option>
+          </select>
         </div>
         <button className="button" type="submit">保存视频</button>
       </form>
