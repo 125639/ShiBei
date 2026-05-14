@@ -69,16 +69,13 @@ model SiteSettings {
   newsDisplayMode      String   @default("grid")
   newsLanguageMode     String   @default("default-language")
   defaultLanguage      String   @default("zh")
-  defaultTheme         String   @default("minimal")
-  defaultFont          String   @default("serif-cjk")
+  defaultTheme         String   @default("apple")
+  defaultFont          String   @default("sans-cjk")
   textOnlyMode         Boolean  @default(false)
   maxStorageMb         Int      @default(2048)
   cleanupAfterDays     Int      @default(30)
   cleanupCustomEnabled Boolean  @default(false)
-  videoMaxDurationSec  Int      @default(1200)
-  videoDownloadDomestic Boolean @default(true)
-  videoDownloadHosts   String   @default("")
-  videoMaxPerPost      Int      @default(4)
+  autoImageSearchEnabled Boolean @default(true)
   exaEnabled           Boolean  @default(false)
   exaApiKeyEnc         String?
   musicEnabledDefault  Boolean  @default(false)
@@ -221,6 +218,8 @@ model Video {
   url             String
   coverUrl        String?
   summary         String    @db.Text
+  displayMode     String    @default("embed")
+  lastPlacement   String?   @db.VarChar(32)
   sortOrder       Int       @default(0)
   durationSec     Int?
   region          SourceRegion @default(UNKNOWN)

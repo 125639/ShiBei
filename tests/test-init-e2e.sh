@@ -27,6 +27,18 @@ setup_sandbox() {
   echo "$sandbox"
 }
 
+make_dockerless_path() {
+  local bin_dir cmd src
+  bin_dir=$(mktemp -d)
+  for cmd in bash cat clear uname openssl tr head awk hostname stty date chmod cp basename dirname pwd ip ifconfig xxd od; do
+    src=$(command -v "$cmd" 2>/dev/null || true)
+    if [ -n "$src" ] && [ -x "$src" ]; then
+      ln -s "$src" "$bin_dir/$cmd"
+    fi
+  done
+  echo "$bin_dir"
+}
+
 # 默认在所有 e2e 用例里关掉自动启动；想测启动逻辑的用例显式 unset。
 export SHIBEI_AUTO_START=n
 
@@ -332,8 +344,8 @@ test_auto_start_recovers_when_docker_missing() {
   # docker 不在 PATH 时，向导必须 warn 但不 crash，.env 仍要写好。
   local sandbox empty_path
   sandbox=$(setup_sandbox)
-  empty_path=$(mktemp -d)
-  PATH="$empty_path:/usr/bin:/bin" SHIBEI_AUTO_START=y \
+  empty_path=$(make_dockerless_path)
+  PATH="$empty_path" SHIBEI_AUTO_START=y \
     NO_COLOR=1 bash -c "printf '1\n\n\n\ns\ny\n' | bash '$sandbox/scripts/init.sh'" >/dev/null 2>&1
   local rc=$?
   if [ "$rc" -ne 0 ]; then
@@ -350,8 +362,8 @@ test_auto_start_does_not_celebrate_when_docker_missing() {
   # 路径,并提供 Docker 安装指引。
   local sandbox empty_path output
   sandbox=$(setup_sandbox)
-  empty_path=$(mktemp -d)
-  output=$(PATH="$empty_path:/usr/bin:/bin" SHIBEI_AUTO_START=y \
+  empty_path=$(make_dockerless_path)
+  output=$(PATH="$empty_path" SHIBEI_AUTO_START=y \
     NO_COLOR=1 bash -c "printf '1\n\n\n\ns\ny\n' | bash '$sandbox/scripts/init.sh'" 2>&1)
   local rc=$?
   if [ "$rc" -ne 0 ]; then

@@ -1,4 +1,5 @@
 export type ThemeKey =
+  | "apple"
   | "minimal"
   | "dark"
   | "sepia"
@@ -26,10 +27,16 @@ export const THEMES: Array<{
   swatch: [string, string, string, string];
 }> = [
   {
+    key: "apple",
+    label: "Apple",
+    desc: "纯白底色 + Apple 蓝点缀，大字号留白宽阔（默认）",
+    swatch: ["#ffffff", "#fbfbfd", "#0071e3", "#1d1d1f"]
+  },
+  {
     key: "minimal",
     label: "简约",
-    desc: "纸质米白，安静的暖色基调（默认）",
-    swatch: ["#f7f1e8", "#efe4d3", "#9f4f2f", "#201a16"]
+    desc: "精密留白、冷静灰阶与产品式蓝色焦点",
+    swatch: ["#f5f5f7", "#ffffff", "#0071e3", "#1d1d1f"]
   },
   {
     key: "dark",
@@ -133,8 +140,8 @@ export const CURSOR_STYLES: Array<{ key: CursorStyleKey; label: string; desc: st
   { key: "focus", label: "聚焦框", desc: "方形取景框，强调目标" }
 ];
 
-export const DEFAULT_THEME: ThemeKey = "minimal";
-export const DEFAULT_FONT: FontKey = "serif-cjk";
+export const DEFAULT_THEME: ThemeKey = "apple";
+export const DEFAULT_FONT: FontKey = "sans-cjk";
 export const DEFAULT_DENSITY: DensityKey = "normal";
 export const DEFAULT_CURSOR_STYLE: CursorStyleKey = "classic";
 

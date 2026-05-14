@@ -28,6 +28,7 @@ export type SyncVideoPayload = {
   url: string;
   coverUrl: string | null;
   summary: string;
+  displayMode: "embed" | "link";
   sortOrder: number;
   durationSec: number | null;
   region: "DOMESTIC" | "INTERNATIONAL" | "UNKNOWN";

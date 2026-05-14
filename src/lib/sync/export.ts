@@ -72,6 +72,7 @@ export async function exportToZip(opts: ExportOptions = {}): Promise<Buffer> {
     url: video.url,
     coverUrl: video.coverUrl,
     summary: video.summary,
+    displayMode: ((video as { displayMode?: string | null }).displayMode === "link" ? "link" : "embed"),
     sortOrder: video.sortOrder,
     durationSec: video.durationSec,
     region: video.region,

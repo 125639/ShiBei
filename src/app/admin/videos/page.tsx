@@ -1,4 +1,5 @@
 import { AdminShell } from "@/components/AdminShell";
+import { VideoReorderList } from "@/components/VideoReorderList";
 import { requireAdmin } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { formatBytes } from "@/lib/storage";
@@ -21,13 +22,30 @@ export default async function VideosAdminPage() {
     }),
   ]);
 
+  const videoRows = videos.map((video) => ({
+    id: video.id,
+    title: video.title,
+    type: String(video.type),
+    url: video.url,
+    displayMode: (video as { displayMode?: string | null }).displayMode || "embed",
+    lastPlacement: (video as { lastPlacement?: string | null }).lastPlacement || null,
+    fileSizeBytes: video.fileSizeBytes ?? null,
+    postId: video.post?.id ?? null,
+    postTitle: video.post?.title ?? null,
+  }));
+
+  const formattedSizes: Record<string, string> = {};
+  for (const video of videos) {
+    if (video.fileSizeBytes) formattedSizes[video.id] = formatBytes(video.fileSizeBytes);
+  }
+
   return (
     <AdminShell>
       <p className="eyebrow">Videos</p>
       <h1>视频管理</h1>
       <p className="muted-block" style={{ maxWidth: 720 }}>
         上传本地视频文件（MP4 / WebM / MOV / M4V，≤300 MB），或者添加 YouTube / Bilibili 等嵌入链接、外链。
-        每个视频都有独立的 ID，可以在文章 Markdown 正文里通过 <code>[[video:ID]]</code> 短代码插入到任意位置。
+        每个视频都有独立的 ID，可以选择以播放器嵌入或仅链接的方式出现在文章里；同一篇文章下的视频支持拖拽排序与三档预设位置。
       </p>
 
       <form
@@ -52,6 +70,13 @@ export default async function VideosAdminPage() {
             <option value="LOCAL">本地上传</option>
             <option value="EMBED">嵌入（YouTube / Bilibili 等可 iframe 的播放器）</option>
             <option value="LINK">外链（仅展示「打开视频」按钮）</option>
+          </select>
+        </div>
+        <div className="field">
+          <label htmlFor="displayMode">文章展示方式</label>
+          <select id="displayMode" name="displayMode" defaultValue="embed">
+            <option value="embed">嵌入视频播放器（默认）</option>
+            <option value="link">仅以链接形式插入</option>
           </select>
         </div>
         <div className="field-row">
@@ -108,66 +133,11 @@ export default async function VideosAdminPage() {
         {videos.length === 0 ? (
           <p className="muted">暂无视频。在上方上传一个开始。</p>
         ) : (
-          <div className="table-list">
-            {videos.map((video) => (
-              <div className="table-item" key={video.id} style={{ flexDirection: "column", alignItems: "stretch" }}>
-                <div className="meta-row" style={{ alignItems: "center", justifyContent: "space-between" }}>
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <strong>{video.title}</strong>
-                    <div className="muted" style={{ fontSize: 13 }}>
-                      {video.type} ·{" "}
-                      {video.fileSizeBytes ? formatBytes(video.fileSizeBytes) + " · " : ""}
-                      ID: <code>{video.id}</code>
-                    </div>
-                    <div style={{ fontSize: 12, opacity: 0.7, marginTop: 4 }}>
-                      关联文章：
-                      {video.post ? (
-                        <a className="text-link" href={`/admin/posts/${video.post.id}`}>
-                          {video.post.title}
-                        </a>
-                      ) : (
-                        "未挂载"
-                      )}
-                    </div>
-                  </div>
-                  <code style={{ fontSize: 12, marginRight: 8 }}>[[video:{video.id}]]</code>
-                </div>
-
-                {video.type === "LOCAL" && video.url ? (
-                  <video controls preload="metadata" src={video.url} style={{ marginTop: 8, maxWidth: "100%", maxHeight: 240 }} />
-                ) : null}
-
-                <div className="meta-row" style={{ marginTop: 12, gap: 12, flexWrap: "wrap" }}>
-                  <form action="/api/admin/videos/attach" method="post" className="meta-row" style={{ gap: 6, alignItems: "center" }}>
-                    <input type="hidden" name="id" value={video.id} />
-                    <input type="hidden" name="redirect" value="/admin/videos" />
-                    <select name="postId" defaultValue={video.post?.id || ""} style={{ maxWidth: 280 }}>
-                      <option value="">—— 解除挂载 ——</option>
-                      {posts.map((p) => (
-                        <option key={p.id} value={p.id}>
-                          {p.title}
-                        </option>
-                      ))}
-                    </select>
-                    <button className="button-secondary" type="submit">更新挂载</button>
-                  </form>
-                  <form
-                    action={`/api/admin/videos/delete?id=${encodeURIComponent(video.id)}&redirect=/admin/videos`}
-                    method="post"
-                    style={{ marginLeft: "auto" }}
-                  >
-                    <button
-                      type="submit"
-                      className="text-link"
-                      style={{ color: "var(--color-danger, #c44)", background: "none", border: 0, padding: 0, cursor: "pointer" }}
-                    >
-                      删除视频
-                    </button>
-                  </form>
-                </div>
-              </div>
-            ))}
-          </div>
+          <VideoReorderList
+            videos={videoRows}
+            posts={posts.map((p) => ({ id: p.id, title: p.title }))}
+            formatBytes={formattedSizes}
+          />
         )}
       </section>
     </AdminShell>

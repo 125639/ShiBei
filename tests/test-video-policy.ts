@@ -1,16 +1,10 @@
 import { describe, test } from "node:test";
 import assert from "node:assert/strict";
-import {
-  isDomesticVideoCandidate,
-  isEnabledInternationalCandidate,
-  parseInternationalHostKeys,
-  shouldAttemptLocalVideoDownload,
-  shouldDownloadVideo
-} from "../src/lib/video-policy";
+import { isDomesticVideoCandidate } from "../src/lib/video-policy";
 import { isHlsSegmentUrl, selectVideoLinksForPost } from "../src/lib/video-candidates";
 import { DEFAULT_MODULES, seedDefaultModules } from "../src/lib/source-modules";
 
-describe("video download policy", () => {
+describe("video region tagging", () => {
   test("treats CDN media discovered from a domestic source page as domestic", () => {
     assert.equal(
       isDomesticVideoCandidate(
@@ -36,73 +30,6 @@ describe("video download policy", () => {
       isDomesticVideoCandidate(
         "https://rr1---sn.example.googlevideo.com/videoplayback?x=1",
         "https://www.thepaper.cn/newsDetail_forward_123"
-      ),
-      false
-    );
-  });
-
-  test("respects the admin download toggle", () => {
-    assert.equal(
-      shouldAttemptLocalVideoDownload(
-        "https://cdn.example.net/video/news.mp4",
-        "https://news.cctv.com/article",
-        false
-      ),
-      false
-    );
-  });
-
-  test("parses comma-separated international host keys and filters unknown ones", () => {
-    assert.deepEqual(
-      parseInternationalHostKeys("youtube, vimeo, FAKE, twitch"),
-      ["youtube", "vimeo", "twitch"]
-    );
-    assert.deepEqual(parseInternationalHostKeys(null), []);
-    assert.deepEqual(parseInternationalHostKeys(""), []);
-  });
-
-  test("treats enabled YouTube host as a download candidate", () => {
-    assert.equal(
-      isEnabledInternationalCandidate("https://www.youtube.com/watch?v=abc", ["youtube"]),
-      true
-    );
-    assert.equal(
-      isEnabledInternationalCandidate("https://youtu.be/abc", ["youtube"]),
-      true
-    );
-    // Vimeo URL with only youtube enabled → no go.
-    assert.equal(
-      isEnabledInternationalCandidate("https://vimeo.com/12345", ["youtube"]),
-      false
-    );
-  });
-
-  test("shouldDownloadVideo accepts domestic when domestic flag is on", () => {
-    assert.equal(
-      shouldDownloadVideo(
-        "https://cdn.example.net/video/news.mp4",
-        "https://www.thepaper.cn/newsDetail_forward_123",
-        { domestic: true, internationalHostKeys: [] }
-      ),
-      true
-    );
-  });
-
-  test("shouldDownloadVideo respects user-selected international platforms", () => {
-    assert.equal(
-      shouldDownloadVideo(
-        "https://www.youtube.com/watch?v=abc",
-        "https://news.example.com",
-        { domestic: true, internationalHostKeys: ["youtube"] }
-      ),
-      true
-    );
-    // No platforms selected → international URL is rejected even with domestic enabled.
-    assert.equal(
-      shouldDownloadVideo(
-        "https://www.youtube.com/watch?v=abc",
-        "https://news.example.com",
-        { domestic: true, internationalHostKeys: [] }
       ),
       false
     );

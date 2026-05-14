@@ -6,16 +6,15 @@ import { PublicShell } from "@/components/PublicShell";
 import { I18nText } from "@/components/I18nText";
 import { prisma } from "@/lib/prisma";
 import { VideoEmbed } from "@/lib/video";
-
-const SHORTCODE_RE = /\[\[video:([A-Za-z0-9_-]+)\]\]/g;
+import { VIDEO_SHORTCODE_RE } from "@/lib/video-display";
 
 function collectShortcodedVideoIds(...sources: Array<string | null | undefined>): Set<string> {
   const ids = new Set<string>();
   for (const text of sources) {
     if (!text) continue;
     let match: RegExpExecArray | null;
-    SHORTCODE_RE.lastIndex = 0;
-    while ((match = SHORTCODE_RE.exec(text)) !== null) {
+    VIDEO_SHORTCODE_RE.lastIndex = 0;
+    while ((match = VIDEO_SHORTCODE_RE.exec(text)) !== null) {
       ids.add(match[1]);
     }
   }
@@ -55,15 +54,29 @@ export default async function NewsDetailPage({ params }: { params: Promise<{ slu
 
   return (
     <PublicShell>
-      <main className="container">
-        <article className="prose">
-          <p className="eyebrow">{post.publishedAt?.toLocaleDateString("zh-CN") || <I18nText zh="已发布" en="Published" />}</p>
+      <main className="container-narrow">
+        <header className="apple-article-header">
+          <p className="eyebrow-apple">
+            {post.tags.length ? post.tags[0].name : <I18nText zh="新闻总结" en="News" />}
+          </p>
+          <h1>
+            <I18nText zh={post.title} en={(post as { titleEn?: string | null }).titleEn || post.title} />
+          </h1>
+          {post.summary ? (
+            <p className="lead">
+              <I18nText zh={post.summary} en={(post as { summaryEn?: string | null }).summaryEn || post.summary} />
+            </p>
+          ) : null}
           <div className="meta-row">
-            {post.tags.map((tag) => <span className="tag" key={tag.id}>{tag.name}</span>)}
+            <span>{post.publishedAt?.toLocaleDateString("zh-CN") || <I18nText zh="已发布" en="Published" />}</span>
+            {post.tags.slice(1).map((tag) => <span className="tag" key={tag.id}>{tag.name}</span>)}
             {post.sourceUrl ? (
-              <Link className="text-link" href={post.sourceUrl} target="_blank"><I18nText zh="原始来源" en="Original Source" /></Link>
+              <Link className="text-link" href={post.sourceUrl} target="_blank"><I18nText zh="原始来源" en="Original source" /></Link>
             ) : null}
           </div>
+        </header>
+
+        <article className="prose">
           <LanguageAwareNews
             postId={post.id}
             newsLanguageMode={newsLanguageMode}
@@ -80,6 +93,7 @@ export default async function NewsDetailPage({ params }: { params: Promise<{ slu
               title: video.title,
               type: video.type,
               url: video.url,
+              displayMode: (video as { displayMode?: string | null }).displayMode,
               summary: video.summary,
               sourcePageUrl: video.sourcePageUrl,
               sourcePlatform: video.sourcePlatform,
@@ -96,7 +110,7 @@ export default async function NewsDetailPage({ params }: { params: Promise<{ slu
           />
 
           {trailingVideos.length ? (
-            <section style={{ marginTop: 48 }}>
+            <section style={{ marginTop: 72 }}>
               <h2><I18nText zh="相关视频" en="Related Videos" /></h2>
               {trailingVideos.map((video) => (
                 <div key={video.id} className="form-card" style={{ marginBottom: 24 }}>

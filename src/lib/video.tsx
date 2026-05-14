@@ -1,6 +1,8 @@
 import type { Video } from "@prisma/client";
+import { shouldRenderVideoAsLink } from "./video-display";
 
 type VideoAttribution = Pick<Video, "title" | "type" | "url"> & {
+  displayMode?: string | null;
   attribution?: string | null;
   sourcePageUrl?: string | null;
   sourcePlatform?: string | null;
@@ -10,8 +12,14 @@ type VideoAttribution = Pick<Video, "title" | "type" | "url"> & {
 export function VideoEmbed({ video }: { video: VideoAttribution }) {
   return (
     <div className="video-embed">
-      {video.type === "LOCAL" && <video controls src={video.url} className="video-frame" preload="metadata" />}
-      {video.type === "EMBED" && (
+      {shouldRenderVideoAsLink(video) && (
+        <a className="video-link-card" href={video.url} target="_blank" rel="noreferrer">
+          <span>{video.title}</span>
+          <strong>打开视频</strong>
+        </a>
+      )}
+      {!shouldRenderVideoAsLink(video) && video.type === "LOCAL" && <video controls src={video.url} className="video-frame" preload="metadata" />}
+      {!shouldRenderVideoAsLink(video) && video.type === "EMBED" && (
         <iframe
           className="video-frame"
           title={video.title}
@@ -20,7 +28,7 @@ export function VideoEmbed({ video }: { video: VideoAttribution }) {
           allowFullScreen
         />
       )}
-      {video.type === "LINK" && (
+      {!shouldRenderVideoAsLink(video) && video.type === "LINK" && (
         <a className="text-link" href={video.url} target="_blank" rel="noreferrer">
           打开视频资源
         </a>

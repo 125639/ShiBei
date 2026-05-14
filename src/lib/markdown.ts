@@ -1,5 +1,6 @@
 import { Marked } from "marked";
 import DOMPurify from "isomorphic-dompurify";
+import { shouldRenderVideoAsLink, VIDEO_SHORTCODE_RE } from "./video-display";
 
 // GFM 默认开启；breaks: 软换行转 <br>，更贴近写作直觉。
 const marked = new Marked({
@@ -13,6 +14,7 @@ export type VideoForShortcode = {
   title: string;
   type: "LOCAL" | "EMBED" | "LINK";
   url: string;
+  displayMode?: string | null;
   summary?: string | null;
   sourcePageUrl?: string | null;
   sourcePlatform?: string | null;
@@ -27,8 +29,6 @@ export type MarkdownOptions = {
    */
   videosById?: Map<string, VideoForShortcode>;
 };
-
-const SHORTCODE_RE = /\[\[video:([A-Za-z0-9_-]+)\]\]/g;
 
 // 允许 iframe src 落在这些 host（必须以 http/https 开头）。
 // 任何不在白名单内的 EMBED 视频会降级为链接。
@@ -77,7 +77,9 @@ export function videoShortcodeHtml(video: VideoForShortcode): string {
   const title = escapeHtml(video.title || "视频");
   const url = video.url || "";
   let player = "";
-  if (video.type === "LOCAL" && url) {
+  if (shouldRenderVideoAsLink(video) && url) {
+    player = `<a class="video-link-card" href="${escapeHtml(url)}" target="_blank" rel="noreferrer"><span>${title}</span><strong>打开视频</strong></a>`;
+  } else if (video.type === "LOCAL" && url) {
     player = `<video controls preload="metadata" class="video-frame" src="${escapeHtml(url)}"></video>`;
   } else if (video.type === "EMBED" && isAllowedEmbedUrl(url)) {
     player = `<iframe class="video-frame" title="${title}" src="${escapeHtml(url)}" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" allowfullscreen></iframe>`;
@@ -130,11 +132,11 @@ export function videoShortcodeHtml(video: VideoForShortcode): string {
 function preprocessShortcodes(markdown: string, videosById?: Map<string, VideoForShortcode>): string {
   if (!videosById || videosById.size === 0) {
     // 没提供 map 时仍处理：把短代码替换为占位提示，避免把 [[video:xxx]] 原样展示给用户。
-    return markdown.replace(SHORTCODE_RE, (_, id) => {
+    return markdown.replace(VIDEO_SHORTCODE_RE, (_, id) => {
       return `\n\n<div class="video-shortcode-missing">[未找到视频：${escapeHtml(id)}]</div>\n\n`;
     });
   }
-  return markdown.replace(SHORTCODE_RE, (_, id) => {
+  return markdown.replace(VIDEO_SHORTCODE_RE, (_, id) => {
     const video = videosById.get(id);
     if (!video) {
       return `\n\n<div class="video-shortcode-missing">[未找到视频：${escapeHtml(id)}]</div>\n\n`;

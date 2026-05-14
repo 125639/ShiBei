@@ -1,18 +1,11 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 "use client";
 
-import { useMemo, useState, useEffect } from "react";
+import { useState, useEffect } from "react";
 import { I18nText } from "@/components/I18nText";
 import { LANGUAGE_OPTIONS, NEWS_LANGUAGE_MODE_OPTIONS } from "@/lib/language";
 import { MODEL_PROVIDER_PRESETS, providerLabel } from "@/lib/model-providers";
 import { FONTS, THEMES } from "@/lib/themes";
-
-const INTERNATIONAL_VIDEO_PLATFORMS = [
-  { key: "youtube", label: "YouTube" },
-  { key: "vimeo", label: "Vimeo" },
-  { key: "twitch", label: "Twitch" },
-  { key: "dailymotion", label: "Dailymotion" }
-];
 
 const SETTINGS_TABS = [
   { key: "site", zh: "基础展示", en: "Site", icon: "□" },
@@ -62,16 +55,6 @@ export function SettingsClient({
   }, [savedFlag]);
 
   const s = site || {};
-  const videoDownloadHostsSet = useMemo(
-    () =>
-      new Set<string>(
-        String(s?.videoDownloadHosts || "")
-          .split(/[\s,]+/)
-          .map((token: string) => token.trim().toLowerCase())
-          .filter(Boolean)
-      ),
-    [s?.videoDownloadHosts]
-  );
 
   const Stat = ({ label, value }: { label: React.ReactNode; value: string }) => (
     <div className="metric-card">
@@ -128,7 +111,7 @@ export function SettingsClient({
             <div className="field-row">
               <div className="field">
                 <label htmlFor="defaultTheme"><I18nText zh="默认主题" en="Default Theme" /></label>
-                <select id="defaultTheme" name="defaultTheme" defaultValue={String(s?.defaultTheme ?? "minimal")}>
+                <select id="defaultTheme" name="defaultTheme" defaultValue={String(s?.defaultTheme ?? "apple")}>
                   {THEMES.map((t) => (
                     <option key={t.key} value={t.key}>{t.label} - {t.desc}</option>
                   ))}
@@ -136,7 +119,7 @@ export function SettingsClient({
               </div>
               <div className="field">
                 <label htmlFor="defaultFont"><I18nText zh="默认字体" en="Default Font" /></label>
-                <select id="defaultFont" name="defaultFont" defaultValue={String(s?.defaultFont ?? "serif-cjk")}>
+                <select id="defaultFont" name="defaultFont" defaultValue={String(s?.defaultFont ?? "sans-cjk")}>
                   {FONTS.map((f) => (
                     <option key={f.key} value={f.key}>{f.label} - {f.desc}</option>
                   ))}
@@ -157,6 +140,7 @@ export function SettingsClient({
                 <select id="defaultSettingsUI" name="defaultSettingsUI" defaultValue={String(s?.defaultSettingsUI ?? "classic")}>
                   <option value="classic">经典风格</option>
                   <option value="cyber">科技风格</option>
+                  <option value="dynamic">动态风格</option>
                 </select>
               </div>
             </div>
@@ -211,47 +195,25 @@ export function SettingsClient({
             <SectionTitle title={<I18nText zh="媒体与视频策略" en="Media & Video" />} />
             <div className="settings-check-list">
               <label>
-                <input type="checkbox" name="textOnlyMode" value="true" defaultChecked={Boolean(s?.textOnlyMode)} />{" "}
-                <I18nText zh="纯文本模式：不抓取或下载视频，仅保留链接" en="Text-only mode: keep video links only" />
+                <input type="hidden" name="autoImageSearchEnabled" value="false" />
+                <input type="checkbox" name="autoImageSearchEnabled" value="true" defaultChecked={s?.autoImageSearchEnabled !== false} />{" "}
+                <I18nText zh="自动搜索并插入相关图片" en="Automatically search and insert related images" />
               </label>
               <label>
-                <input type="checkbox" name="videoDownloadDomestic" value="true" defaultChecked={s?.videoDownloadDomestic !== false} />{" "}
-                <I18nText zh="国内视频允许本地下载" en="Allow local download for domestic videos" />
+                <input type="checkbox" name="textOnlyMode" value="true" defaultChecked={Boolean(s?.textOnlyMode)} />{" "}
+                <I18nText zh="关闭自动视频链接识别（保留纯文本）" en="Disable automatic video link discovery" />
               </label>
               <label>
                 <input type="checkbox" name="musicEnabledDefault" value="true" defaultChecked={Boolean(s?.musicEnabledDefault)} />{" "}
                 <I18nText zh="默认开启背景音乐" en="Enable background music by default" />
               </label>
             </div>
-            <div className="field">
-              <span className="field-label"><I18nText zh="国际视频平台本地下载" en="International Platform Download" /></span>
-              <div className="settings-check-grid">
-                {INTERNATIONAL_VIDEO_PLATFORMS.map((platform) => (
-                  <label key={platform.key}>
-                    <input
-                      type="checkbox"
-                      name="videoDownloadHosts"
-                      value={platform.key}
-                      defaultChecked={videoDownloadHostsSet.has(platform.key)}
-                    />{" "}
-                    {platform.label}
-                  </label>
-                ))}
-              </div>
-              <small className="muted">
-                <I18nText zh="未勾选的平台会优先以嵌入或外链展示，不占用本地存储。" en="Unchecked platforms stay embedded or linked and use no local storage." />
-              </small>
-            </div>
-            <div className="field-row">
-              <div className="field">
-                <label htmlFor="videoMaxDurationSec"><I18nText zh="视频时长上限（秒）" en="Video Max Duration (seconds)" /></label>
-                <input id="videoMaxDurationSec" name="videoMaxDurationSec" type="number" min={30} max={1200} defaultValue={Number(s?.videoMaxDurationSec ?? 1200)} />
-              </div>
-              <div className="field">
-                <label htmlFor="videoMaxPerPost"><I18nText zh="每篇最多下载视频数" en="Max Local Videos Per Post" /></label>
-                <input id="videoMaxPerPost" name="videoMaxPerPost" type="number" min={0} max={4} defaultValue={Number(s?.videoMaxPerPost ?? 4)} />
-              </div>
-            </div>
+            <p className="muted-block">
+              <I18nText
+                zh="自动流程只搜索相关视频链接或可嵌入播放器，不再下载视频文件；本地上传的视频可在文章中以嵌入或链接方式展示，并支持拖拽排序与三档预设位置。"
+                en="Automatic runs only keep video links or embeddable players; no video files are downloaded. Manually uploaded videos render as embeds or links and support drag reordering with three preset placements."
+              />
+            </p>
           </section>
 
           <section style={{ display: activeTab === "storage" ? "block" : "none" }}>
