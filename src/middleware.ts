@@ -20,16 +20,16 @@ const FRONTEND_BLOCKED_PREFIXES = [
   "/admin/auto-curation",
   "/api/admin/sources",
   "/api/admin/modules",
-  "/api/admin/topics",
+  "/api/admin/content-topics",
   "/api/admin/run",
   "/api/admin/settings/auto-curation",
-  "/api/admin/summary-styles",
+  "/api/admin/content-styles",
   "/api/admin/model-configs",
 ];
 
-// 在 backend 模式下,公开页面(/news, /videos, /stats, /settings, /about, /write 等)
+// 在 backend 模式下,公开页面(/posts, /news, /videos, /stats, /settings, /about, /write 等)
 // 不面向最终用户,统一重定向到 admin。
-const BACKEND_PUBLIC_PREFIXES = ["/news", "/videos", "/stats", "/settings", "/about", "/write"];
+const BACKEND_PUBLIC_PREFIXES = ["/posts", "/news", "/videos", "/stats", "/settings", "/about", "/write"];
 
 function buildRedirectUrl(request: NextRequest, path: string): URL {
   const xfHost = request.headers.get("x-forwarded-host");

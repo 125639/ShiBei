@@ -2,7 +2,7 @@ import { Worker } from "bullmq";
 import { CompilationKind, Source, VideoType } from "@prisma/client";
 import {
   generateDigest,
-  generateNewsArticle,
+  generateContentArticle,
   generateSummary,
   estimateAudience,
   type EvidenceItem
@@ -42,7 +42,13 @@ import {
 import { selectVideoLinksForPost } from "../lib/video-candidates";
 import { runStorageCleanup } from "../lib/storage";
 import { insertMarkdownBlock } from "../lib/video-display";
-import { cacheArticleImage } from "../lib/article-image-cache";
+import {
+  canonicalizeArticleImageUrl,
+  embedArticleImagesInPostContent,
+  withImageSource,
+  type ArticleImageCandidate
+} from "../lib/article-images";
+import { hostFromUrl } from "../lib/html";
 
 function workerConcurrency(envName: string, fallback = 1) {
   const n = Number(process.env[envName] || fallback);
@@ -52,19 +58,6 @@ function workerConcurrency(envName: string, fallback = 1) {
 
 type FetchJobData = {
   fetchJobId: string;
-};
-
-type ScrapedImage = {
-  src: string;
-  alt?: string | null;
-  width?: number | null;
-  height?: number | null;
-  domDepth?: number | null;
-  parentMarker?: string | null;
-};
-
-type ArticleImageCandidate = ScrapedImage & {
-  sourcePageUrl: string;
 };
 
 type ScheduleJobData = {
@@ -77,14 +70,14 @@ type ScheduleJobData = {
  * 从 fetchJob 的关联配置或全局默认加载 model + style。
  * 三条流程(summarize / keyword-research / digest)都执行相同的查询逻辑。
  */
-async function loadModelAndStyle(fetchJob: { modelConfigId: string | null; summaryStyleId: string | null }) {
+async function loadModelAndStyle(fetchJob: { modelConfigId: string | null; contentStyleId: string | null }) {
   const [modelConfig, style] = await Promise.all([
     fetchJob.modelConfigId
       ? prisma.modelConfig.findUnique({ where: { id: fetchJob.modelConfigId } })
-      : getModelConfigForUse("news"),
-    fetchJob.summaryStyleId
-      ? prisma.summaryStyle.findUnique({ where: { id: fetchJob.summaryStyleId } })
-      : prisma.summaryStyle.findFirst({ where: { isDefault: true } })
+      : getModelConfigForUse("content"),
+    fetchJob.contentStyleId
+      ? prisma.contentStyle.findUnique({ where: { id: fetchJob.contentStyleId } })
+      : prisma.contentStyle.findFirst({ orderBy: [{ isDefault: "desc" }, { updatedAt: "desc" }] })
   ]);
   return { modelConfig, style };
 }
@@ -110,15 +103,6 @@ function extractTitleAndSummary(markdown: string, fallbackTitle: string) {
   };
 }
 
-function escapeHtml(input: string): string {
-  return input
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#39;");
-}
-
 async function createDraftFromRawItem(rawItemId: string, generated: string) {
   const rawItem = await prisma.rawItem.findUniqueOrThrow({
     where: { id: rawItemId },
@@ -128,7 +112,7 @@ async function createDraftFromRawItem(rawItemId: string, generated: string) {
   const slugBase = slugify(`${parsed.title}-${rawItem.id}`);
   const slug = `${slugBase}-${Date.now().toString(36)}`;
   const publication = await getPublicationData();
-  const topicLink = await resolveTopicLink(rawItem.fetchJob?.newsTopicId);
+  const topicLink = await resolveTopicLink(rawItem.fetchJob?.contentTopicId);
 
   return prisma.post.create({
     data: {
@@ -153,7 +137,7 @@ async function createDraftFromResearch(fetchJobId: string, keyword: string, scop
   const sourceUrl = `keyword://${encodeURIComponent(keyword)}`;
   const publication = await getPublicationData();
   const fetchJob = await prisma.fetchJob.findUnique({ where: { id: fetchJobId } });
-  const topicLink = await resolveTopicLink(fetchJob?.newsTopicId);
+  const topicLink = await resolveTopicLink(fetchJob?.contentTopicId);
   const markdown = [
     `# ${keyword}`,
     "",
@@ -196,7 +180,7 @@ async function createDraftFromResearch(fetchJobId: string, keyword: string, scop
 
 async function resolveTopicLink(topicId: string | null | undefined): Promise<{ connect: string | null; kind: CompilationKind }> {
   if (!topicId) return { connect: null, kind: "SINGLE_ARTICLE" };
-  const topic = await prisma.newsTopic.findUnique({ where: { id: topicId } });
+  const topic = await prisma.contentTopic.findUnique({ where: { id: topicId } });
   if (!topic) return { connect: null, kind: "SINGLE_ARTICLE" };
   return { connect: topic.id, kind: topic.compileKind };
 }
@@ -230,7 +214,8 @@ async function processWeb(fetchJobId: string) {
 
   const post = await summarizeRawItem(rawItem.id, fetchJob.id);
   if (autoImageSearchEnabled(settings)) {
-    await embedImagesInPostContent(post.id, withImageSource(result.images || [], sourcePageUrl));
+    // 网页来源已经有 DOM 上下文，直接用来源页图片走统一筛选/缓存/插入链路。
+    await embedArticleImagesInPostContent(post.id, withImageSource(result.images || [], sourcePageUrl));
   }
 
   if (textOnly) {
@@ -297,71 +282,38 @@ async function embedVideosInPostContent(postId: string, videoIds: string[]) {
   });
 }
 
-async function embedImagesInPostContent(postId: string, images: ArticleImageCandidate[]) {
-  if (!images.length) return;
-
-  const existing = await (prisma as unknown as {
-    post: { findUnique: (args: unknown) => Promise<{ title: string; summary: string; content: string; contentEn: string | null } | null> };
-  }).post.findUnique({
-    where: { id: postId },
-    select: { title: true, summary: true, content: true, contentEn: true }
-  }).catch(() => null);
-  if (!existing) return;
-
-  const keywords = extractPostKeywords(existing.title, existing.summary);
-  const picked = selectArticleImages(images, 3, keywords);
-  if (!picked.length) return;
-
-  const figures: string[] = [];
-  for (const image of picked) {
-    if (existing.content.includes(image.src) || (existing.contentEn || "").includes(image.src)) continue;
-    const figure = await articleImageFigureHtml(image);
-    if (figure) figures.push(figure);
-  }
-  if (!figures.length) return;
-
-  const block = figures.join("\n\n");
-  const insert = (content: string) => insertMarkdownBlock(content, block, "after-intro");
-
-  await (prisma as unknown as {
-    post: { update: (args: unknown) => Promise<unknown> };
-  }).post.update({
-    where: { id: postId },
-    data: existing.contentEn
-      ? { content: insert(existing.content), contentEn: insert(existing.contentEn) }
-      : { content: insert(existing.content) }
-  }).catch((err) => {
-    console.error(`[image-embed] failed to inline images for post ${postId}:`, err);
-  });
-}
-
 function autoImageSearchEnabled(settings: unknown) {
   return (settings as { autoImageSearchEnabled?: boolean } | null)?.autoImageSearchEnabled !== false;
-}
-
-function withImageSource(images: ScrapedImage[], sourcePageUrl: string): ArticleImageCandidate[] {
-  return images.map((image) => ({ ...image, sourcePageUrl }));
 }
 
 async function attachImagesFromEvidence(postId: string, evidence: EvidenceItem[]) {
   const settings = await prisma.siteSettings.findUnique({ where: { id: "site" } });
   if (!autoImageSearchEnabled(settings)) return;
 
+  const evidenceItems = evidence.slice(0, 10).filter((item) => /^https?:\/\//i.test(item.url));
+  // 关键词研究和摘要没有原始 DOM，只能回到 evidence 页面二次抓图；并发跑能把
+  // 串行 20–50s 的 Playwright 抓取拉到 ~5–10s 量级。
+  const scraped = await Promise.all(
+    evidenceItems.map((item) =>
+      scrapeWebPage(item.url)
+        .then((result) => ({ result, fallbackUrl: item.url }))
+        .catch((error) => {
+          console.error(`[image-search] evidence page scrape failed ${item.url}:`, error);
+          return null;
+        })
+    )
+  );
+
   const images: ArticleImageCandidate[] = [];
   const seen = new Set<string>();
-
-  for (const item of evidence.slice(0, 10)) {
+  for (const entry of scraped) {
     if (images.length >= 30) break;
-    if (!/^https?:\/\//i.test(item.url)) continue;
-    const scraped = await scrapeWebPage(item.url).catch((error) => {
-      console.error(`[image-search] evidence page scrape failed ${item.url}:`, error);
-      return null;
-    });
-    if (!scraped?.images?.length) continue;
-    const sourcePageUrl = scraped.finalUrl || item.url;
-    for (const image of scraped.images) {
+    if (!entry?.result?.images?.length) continue;
+    const sourcePageUrl = entry.result.finalUrl || entry.fallbackUrl;
+    for (const image of entry.result.images) {
       if (!image.src) continue;
-      const canonical = canonicalizeImageUrl(image.src);
+      // query/hash 会被规范化，避免同一张图片被多个追踪 URL 重复挂载。
+      const canonical = canonicalizeArticleImageUrl(image.src);
       if (seen.has(canonical)) continue;
       seen.add(canonical);
       images.push({ ...image, sourcePageUrl });
@@ -369,164 +321,7 @@ async function attachImagesFromEvidence(postId: string, evidence: EvidenceItem[]
     }
   }
 
-  await embedImagesInPostContent(postId, images);
-}
-
-const CN_STOPWORDS = new Set([
-  "的", "了", "是", "在", "和", "与", "或", "及", "对", "对于", "为", "为了", "等",
-  "也", "都", "就", "而", "但", "及其", "其", "之", "之类", "这", "那", "我们", "他们",
-  "她们", "它们", "你们", "我", "你", "他", "她", "它", "我们的", "本", "该", "这些",
-  "那些", "从", "到", "向", "上", "下", "中", "里", "外", "前", "后", "如", "若", "并",
-  "并且", "而且", "或者", "因为", "所以", "如果", "因此", "据", "据悉", "表示", "认为",
-  "已经", "已", "可以", "可能", "不", "没有", "没"
-]);
-
-const EN_STOPWORDS = new Set([
-  "the", "a", "an", "and", "or", "but", "of", "to", "in", "on", "at", "for", "by",
-  "with", "from", "as", "is", "are", "was", "were", "be", "been", "being", "this",
-  "that", "these", "those", "it", "its", "they", "them", "their", "we", "our", "us",
-  "you", "your", "he", "she", "him", "her", "his", "hers", "i", "my", "me", "mine",
-  "yours", "ours", "theirs", "do", "does", "did", "have", "has", "had", "will",
-  "would", "could", "should", "may", "might", "can", "must", "not", "no", "yes",
-  "if", "then", "than", "so", "such", "what", "which", "who", "whom", "whose",
-  "where", "when", "why", "how", "about", "after", "before", "between", "during",
-  "into", "out", "over", "under", "again", "further", "more", "most", "some", "any",
-  "all", "each", "every", "few", "many", "other", "another"
-]);
-
-function extractPostKeywords(title: string, summary: string): string[] {
-  const text = `${title || ""} ${(summary || "").slice(0, 200)}`.toLowerCase();
-  const counts = new Map<string, number>();
-
-  // English / digit words
-  const enMatches = text.match(/[a-z0-9][a-z0-9-]{2,}/g) || [];
-  for (const word of enMatches) {
-    if (EN_STOPWORDS.has(word)) continue;
-    counts.set(word, (counts.get(word) || 0) + 1);
-  }
-
-  // Chinese: bigram extraction over runs of CJK characters
-  const cjkRuns = text.match(/[一-鿿]+/g) || [];
-  for (const run of cjkRuns) {
-    for (let i = 0; i < run.length - 1; i += 1) {
-      const bigram = run.slice(i, i + 2);
-      if (CN_STOPWORDS.has(bigram) || CN_STOPWORDS.has(bigram[0]) || CN_STOPWORDS.has(bigram[1])) continue;
-      counts.set(bigram, (counts.get(bigram) || 0) + 1);
-    }
-  }
-
-  return [...counts.entries()]
-    .sort((a, b) => b[1] - a[1])
-    .slice(0, 8)
-    .map(([key]) => key);
-}
-
-function canonicalizeImageUrl(url: string): string {
-  try {
-    const u = new URL(url);
-    u.search = "";
-    u.hash = "";
-    u.hostname = u.hostname.replace(/^www\./i, "").toLowerCase();
-    u.protocol = u.protocol.toLowerCase();
-    return u.toString();
-  } catch {
-    return url;
-  }
-}
-
-const IMAGE_TRACKER_DOMAINS = ["trk.", "px.", "tracker.", "pixel.", "gravatar.com", "stats."];
-
-function scoreArticleImage(image: ArticleImageCandidate, keywords: string[]): number {
-  const width = image.width || 0;
-  const height = image.height || 0;
-  const ratio = width && height ? width / height : 0;
-  const marker = (image.parentMarker || "").toLowerCase();
-  const alt = (image.alt || "").toLowerCase();
-  let score = 0;
-
-  score += Math.min(width * height, 1_200_000) / 10_000;
-
-  if (width && height) {
-    if (width < 320 || height < 200) score -= 60;
-    if (ratio >= 1.2 && ratio <= 2.4) score += 40;
-    if (ratio > 4 || ratio < 0.4) score -= 30;
-  }
-
-  if (/(article|main|content|entry|post)/.test(marker)) score += 25;
-  if (/(sidebar|footer|header|nav|related|comment|share|advert|ad-|hot|recom)/.test(marker)) score -= 40;
-
-  let overlap = 0;
-  for (const keyword of keywords) {
-    if (!keyword) continue;
-    if (alt.includes(keyword)) overlap += 1;
-    if (overlap >= 5) break;
-  }
-  score += overlap * 12;
-
-  const filename = (() => {
-    try {
-      return new URL(image.src).pathname.split("/").pop() || "";
-    } catch {
-      return "";
-    }
-  })().toLowerCase();
-  if (filename.length > 6 && !/^[0-9_.-]+$/.test(filename)) score += 10;
-
-  const host = (() => {
-    try {
-      return new URL(image.src).hostname.toLowerCase();
-    } catch {
-      return "";
-    }
-  })();
-  if (host && IMAGE_TRACKER_DOMAINS.some((bad) => host.includes(bad))) score -= 100;
-
-  return score;
-}
-
-function selectArticleImages(images: ArticleImageCandidate[], limit: number, keywords: string[] = []): ArticleImageCandidate[] {
-  const byCanonical = new Map<string, ArticleImageCandidate>();
-  for (const image of images) {
-    if (!image?.src || !/^https?:\/\//i.test(image.src)) continue;
-    const key = canonicalizeImageUrl(image.src);
-    const existing = byCanonical.get(key);
-    if (!existing) {
-      byCanonical.set(key, image);
-    } else {
-      // Keep the entry with richer metadata (larger known dimensions, longer alt).
-      const oldRank = (existing.width || 0) * (existing.height || 0) + (existing.alt?.length || 0);
-      const newRank = (image.width || 0) * (image.height || 0) + (image.alt?.length || 0);
-      if (newRank > oldRank) byCanonical.set(key, image);
-    }
-  }
-
-  return [...byCanonical.values()]
-    .map((image) => ({ image, score: scoreArticleImage(image, keywords) }))
-    .sort((a, b) => b.score - a.score)
-    .slice(0, limit)
-    .map((entry) => entry.image);
-}
-
-async function articleImageFigureHtml(image: ArticleImageCandidate) {
-  const cached = await cacheArticleImage(image.src, { sourcePageUrl: image.sourcePageUrl });
-  if (!cached) return null;
-
-  const caption = image.alt?.trim() || "原文配图";
-  const sourceHost = hostFromUrl(image.sourcePageUrl) || "原文";
-  return [
-    `<figure class="article-media article-image">`,
-    `<img src="${escapeHtml(cached.url)}" alt="${escapeHtml(caption)}" loading="lazy" decoding="async">`,
-    `<figcaption><span>${escapeHtml(caption)}</span><a href="${escapeHtml(image.sourcePageUrl)}" target="_blank" rel="noreferrer">${escapeHtml(sourceHost)}</a></figcaption>`,
-    `</figure>`
-  ].join("");
-}
-
-function hostFromUrl(url: string): string | null {
-  try {
-    return new URL(url).hostname.replace(/^www\./, "");
-  } catch {
-    return null;
-  }
+  await embedArticleImagesInPostContent(postId, images);
 }
 
 function sourcePlatformForVideo(videoUrl: string, sourcePageUrl?: string | null): string | null {
@@ -578,7 +373,7 @@ async function processVideo(fetchJobId: string) {
   });
 
   const publication = await getPublicationData();
-  const topicLink = await resolveTopicLink(fetchJob.newsTopicId);
+  const topicLink = await resolveTopicLink(fetchJob.contentTopicId);
   const slugBase = slugify(`${title}-${fetchJob.id}`);
   const post = await prisma.post.create({
     data: {
@@ -623,7 +418,7 @@ async function processKeywordResearch(fetchJobId: string, keyword: string, scope
   const fetchJob = await prisma.fetchJob.findUniqueOrThrow({ where: { id: fetchJobId } });
   const { modelConfig, style } = await loadModelAndStyle(fetchJob);
   const scopeLabel = researchScopeLabel(scope);
-  const evidence = await collectKeywordEvidence(keyword, scope, { topicId: fetchJob.newsTopicId });
+  const evidence = await collectKeywordEvidence(keyword, scope, { topicId: fetchJob.contentTopicId });
 
   if (!evidence.length) {
     await createDraftFromResearch(
@@ -631,7 +426,7 @@ async function processKeywordResearch(fetchJobId: string, keyword: string, scope
       keyword,
       scopeLabel,
       [],
-      `# ${keyword}\n\n没有搜索到足够资料，暂时无法形成新闻稿。请换一个更具体的关键词，或检查信息源是否可访问。`
+      `# ${keyword}\n\n没有搜索到足够资料，暂时无法形成文章草稿。请换一个更具体的关键词，或检查信息源是否可访问。`
     );
     return;
   }
@@ -643,7 +438,7 @@ async function processKeywordResearch(fetchJobId: string, keyword: string, scope
         keyword,
         scopeLabel,
         evidence,
-        `# ${count > 1 ? `${keyword}（第 ${index} 篇）` : keyword}\n\n> 未配置模型或总结风格，已保留关键词研究资料作为草稿。\n\n${evidence.map((item) => `- [${item.title}](${item.url})：${item.summary}`).join("\n")}`,
+        `# ${count > 1 ? `${keyword}（第 ${index} 篇）` : keyword}\n\n> 未配置模型或内容风格，已保留关键词研究资料作为草稿。\n\n${evidence.map((item) => `- [${item.title}](${item.url})：${item.summary}`).join("\n")}`,
         index
       );
     }
@@ -653,7 +448,7 @@ async function processKeywordResearch(fetchJobId: string, keyword: string, scope
   for (let index = 1; index <= count; index++) {
     let generated: string;
     try {
-      generated = await generateNewsArticle({
+      generated = await generateContentArticle({
         modelConfig,
         style,
         keyword,
@@ -723,7 +518,7 @@ async function collectFromSavedSources(keyword: string, scope: ResearchScope, op
   }
   if (opts?.topicId) {
     // Restrict to sources tied to any module that the topic also belongs to.
-    const topic = await prisma.newsTopic.findUnique({
+    const topic = await prisma.contentTopic.findUnique({
       where: { id: opts.topicId },
       include: { modules: { select: { id: true } } } as never
     });
@@ -840,9 +635,9 @@ function buildResearchFallbackDraft(keyword: string, scopeLabel: string, evidenc
   return [
     `# ${count > 1 ? `${keyword}（第 ${index} 篇）` : keyword}`,
     "",
-    `> AI 新闻写作请求未完成：${reason}。系统保留了本次关键词研究的原始资料，管理员可基于这些事实线索手动改写为正式报道。`,
+    `> AI 内容生成请求未完成：${reason}。系统保留了本次关键词研究的原始资料，管理员可基于这些事实线索手动改写为正式文章。`,
     "",
-    `报道范围：${scopeLabel}　计划篇数：${count}　报道长度：${depth}`,
+    `资料范围：${scopeLabel}　计划篇数：${count}　文章长度：${depth}`,
     "",
     "## 已收集的事实线索",
     "",
@@ -888,7 +683,7 @@ async function summarizeRawItem(rawItemId: string, fetchJobId: string) {
   const { modelConfig, style } = await loadModelAndStyle(fetchJob);
 
   if (!modelConfig || !style) {
-    return createDraftFromRawItem(rawItem.id, `# ${rawItem.title}\n\n${rawItem.markdown}\n\n> 未配置模型或总结风格，已保留原始内容作为草稿。`);
+    return createDraftFromRawItem(rawItem.id, `# ${rawItem.title}\n\n${rawItem.markdown}\n\n> 未配置模型或内容风格，已保留原始内容作为草稿。`);
   }
 
   const generated = await generateSummary({
@@ -965,7 +760,7 @@ async function attachVideosFromEvidence(postId: string, evidence: EvidenceItem[]
       type: "LINK",
       url: v.url,
       displayMode: "link",
-      summary: `从${v.sourceName}的报道中自动识别到的相关视频链接。`,
+      summary: `从${v.sourceName}的文章中自动识别到的相关视频链接。`,
       postId,
       region,
       sourcePageUrl: v.sourcePageUrl,
@@ -1049,7 +844,7 @@ function normalizeVideoPickKey(url: string) {
 
 async function processAudienceEstimate(fetchJobId: string, sourceId: string) {
   const source = await prisma.source.findUniqueOrThrow({ where: { id: sourceId } });
-  const modelConfig = await getModelConfigForUse("news");
+  const modelConfig = await getModelConfigForUse("content");
 
   if (!modelConfig) {
     await prisma.source.update({
@@ -1087,7 +882,7 @@ async function processAudienceEstimate(fetchJobId: string, sourceId: string) {
 async function processDigest(fetchJobId: string, topicId: string, digestKind: "DAILY_DIGEST" | "WEEKLY_ROUNDUP") {
   const [fetchJob, topic] = await Promise.all([
     prisma.fetchJob.findUniqueOrThrow({ where: { id: fetchJobId } }),
-    prisma.newsTopic.findUniqueOrThrow({ where: { id: topicId } })
+    prisma.contentTopic.findUniqueOrThrow({ where: { id: topicId } })
   ]);
   const { modelConfig, style } = await loadModelAndStyle(fetchJob);
 
@@ -1140,7 +935,7 @@ async function processDigest(fetchJobId: string, topicId: string, digestKind: "D
       generated = buildDigestFallback(topic.name, formatLabel, windowLabel, scopeLabel, allEvidence, error);
     }
   } else {
-    generated = buildDigestFallback(topic.name, formatLabel, windowLabel, scopeLabel, allEvidence, new Error("未配置模型或总结风格"));
+    generated = buildDigestFallback(topic.name, formatLabel, windowLabel, scopeLabel, allEvidence, new Error("未配置模型或内容风格"));
   }
 
   const post = await createDraftFromDigest(fetchJob.id, topic.id, digestKind, fallbackTitle, allEvidence, generated, windowLabel, scopeLabel);
@@ -1212,7 +1007,7 @@ function buildDigestFallback(topicName: string, formatLabel: string, windowLabel
   return [
     `# ${topicName} · ${formatLabel}`,
     "",
-    `> AI ${formatLabel}请求未完成：${reason}。系统已经把过去${windowLabel}内可用的新闻线索整理在下方，管理员可以直接基于这些事实改写发布。`,
+    `> AI ${formatLabel}请求未完成：${reason}。系统已经把过去${windowLabel}内可用的资料线索整理在下方，管理员可以直接基于这些事实改写发布。`,
     "",
     `范围：${scopeLabel}　时段：${windowLabel}　收录条目：${cleaned.length}`,
     "",
@@ -1220,7 +1015,7 @@ function buildDigestFallback(topicName: string, formatLabel: string, windowLabel
     "",
     cleaned.length === 0
       ? "本期暂未抓到足够的事实线索。"
-      : `${windowLabel}内，${topicName}话题共有 ${cleaned.length} 条值得关注的报道，涵盖${listKeyTitles(cleaned)}等议题。具体内容如下。`,
+      : `${windowLabel}内，${topicName}话题共有 ${cleaned.length} 条值得关注的材料，涵盖${listKeyTitles(cleaned)}等议题。具体内容如下。`,
     "",
     "## 事实线索",
     "",
@@ -1315,7 +1110,7 @@ const scheduleHandler = async (job: { data: ScheduleJobData }) => {
     console.log(`[schedule] auto curation disabled; skip topic ${topicId}`);
     return;
   }
-  const topic = await prisma.newsTopic.findUnique({ where: { id: topicId } });
+  const topic = await prisma.contentTopic.findUnique({ where: { id: topicId } });
   if (!topic || !topic.isEnabled) {
     console.log(`[schedule] topic ${topicId} not active; skip`);
     return;

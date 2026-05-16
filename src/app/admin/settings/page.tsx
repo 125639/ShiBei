@@ -19,7 +19,7 @@ export default async function SettingsPage({
   const [site, modelConfigs, styles, admin, storage] = await Promise.all([
     prisma.siteSettings.findUnique({ where: { id: "site" } }),
     prisma.modelConfig.findMany({ orderBy: { updatedAt: "desc" } }),
-    prisma.summaryStyle.findMany({ orderBy: { updatedAt: "desc" } }),
+    prisma.contentStyle.findMany({ orderBy: { updatedAt: "desc" } }),
     prisma.adminUser.findFirst({ orderBy: { createdAt: "asc" } }),
     reportStorage().catch(() => null)
   ]);

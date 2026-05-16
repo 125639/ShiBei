@@ -116,11 +116,11 @@ function isUniqueConflict(error: unknown) {
 export async function seedDefaultTopics(prisma: PrismaClient) {
   for (const topic of DEFAULT_TOPICS) {
     const where = { OR: [{ slug: topic.slug }, { name: topic.name }] };
-    const existing = await prisma.newsTopic.findFirst({ where, select: { id: true } });
+    const existing = await prisma.contentTopic.findFirst({ where, select: { id: true } });
     if (existing) continue;
 
     try {
-      await prisma.newsTopic.create({
+      await prisma.contentTopic.create({
         data: {
           slug: topic.slug,
           name: topic.name,
@@ -135,7 +135,7 @@ export async function seedDefaultTopics(prisma: PrismaClient) {
       });
     } catch (error) {
       if (!isUniqueConflict(error)) throw error;
-      const createdByAnotherProcess = await prisma.newsTopic.findFirst({ where, select: { id: true } });
+      const createdByAnotherProcess = await prisma.contentTopic.findFirst({ where, select: { id: true } });
       if (!createdByAnotherProcess) throw error;
     }
   }

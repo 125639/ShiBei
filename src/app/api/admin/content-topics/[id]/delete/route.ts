@@ -8,7 +8,7 @@ export async function POST(_request: Request, context: { params: Promise<{ id: s
   const { id } = await context.params;
 
   await removeScheduleByTopicId(id);
-  await prisma.newsTopic.delete({ where: { id } }).catch(() => undefined);
+  await prisma.contentTopic.delete({ where: { id } }).catch(() => undefined);
 
   return redirectTo("/admin/auto-curation");
 }

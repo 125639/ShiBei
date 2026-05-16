@@ -1,5 +1,6 @@
 import { Marked } from "marked";
 import DOMPurify from "isomorphic-dompurify";
+import { escapeHtml, hostFromUrl as hostFromUrlOrNull } from "./html";
 import { shouldRenderVideoAsLink, VIDEO_SHORTCODE_RE } from "./video-display";
 
 // GFM 默认开启；breaks: 软换行转 <br>，更贴近写作直觉。
@@ -45,15 +46,6 @@ function isAllowedEmbedUrl(url: string): boolean {
   return EMBED_HOST_WHITELIST.some((re) => re.test(url));
 }
 
-function escapeHtml(input: string): string {
-  return input
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#39;");
-}
-
 function formatDuration(sec: number) {
   if (sec < 60) return `${sec}s`;
   const m = Math.floor(sec / 60);
@@ -62,11 +54,7 @@ function formatDuration(sec: number) {
 }
 
 function hostFromUrl(url: string): string {
-  try {
-    return new URL(url).hostname.replace(/^www\./, "");
-  } catch {
-    return "来源页面";
-  }
+  return hostFromUrlOrNull(url) || "来源页面";
 }
 
 /**

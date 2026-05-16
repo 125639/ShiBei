@@ -25,22 +25,22 @@ export function parseTopicKeywords(raw: string): string[] {
 }
 
 /**
- * Enqueue one run of a NewsTopic.
+ * Enqueue one run of a ContentTopic.
  *
  * - SINGLE_ARTICLE: one keyword-research FetchJob per keyword (reuses processKeywordResearch).
  * - DAILY_DIGEST / WEEKLY_ROUNDUP: one digest FetchJob covering the full topic.
  */
 export async function enqueueTopicRun(topicId: string) {
-  const topic = await prisma.newsTopic.findUnique({ where: { id: topicId } });
+  const topic = await prisma.contentTopic.findUnique({ where: { id: topicId } });
   if (!topic) return { enqueued: 0, reason: "topic-not-found" as const };
 
-  const modelConfig = await getModelConfigForUse("news");
+  const modelConfig = await getModelConfigForUse("content");
   const style = topic.styleId
-    ? await prisma.summaryStyle.findUnique({ where: { id: topic.styleId } })
+    ? await prisma.contentStyle.findUnique({ where: { id: topic.styleId } })
     : null;
   const fallbackStyle = style
-    || await prisma.summaryStyle.findFirst({ where: { isDefault: true } })
-    || await prisma.summaryStyle.findFirst();
+    || await prisma.contentStyle.findFirst({ where: { isDefault: true } })
+    || await prisma.contentStyle.findFirst();
 
   const scope: ResearchScope = isResearchScope(topic.scope) ? topic.scope : "all";
   const depth: ResearchDepth = isResearchDepth(topic.depth) ? topic.depth : "long";
@@ -61,8 +61,8 @@ export async function enqueueTopicRun(topicId: string) {
             sourceUrl: buildKeywordResearchUrl(keyword, scope, topic.articleCount, depth),
             sourceType: "WEB",
             modelConfigId: modelConfig?.id,
-            summaryStyleId: fallbackStyle?.id,
-            newsTopicId: topic.id
+            contentStyleId: fallbackStyle?.id,
+            contentTopicId: topic.id
           }
         });
         await queue.add("topic-keyword", { fetchJobId: job.id }, { priority: 2 });
@@ -74,8 +74,8 @@ export async function enqueueTopicRun(topicId: string) {
           sourceUrl: buildDigestUrl(topic.id, topic.compileKind),
           sourceType: "WEB",
           modelConfigId: modelConfig?.id,
-          summaryStyleId: fallbackStyle?.id,
-          newsTopicId: topic.id
+          contentStyleId: fallbackStyle?.id,
+          contentTopicId: topic.id
         }
       });
       await queue.add("topic-digest", { fetchJobId: job.id }, { priority: 2 });

@@ -25,7 +25,7 @@ export async function PublicShell({ children }: { children: React.ReactNode }) {
           </span>
         </Link>
         <nav className="nav">
-          <Link href="/news"><I18nText zh="新闻总结" en="News" /></Link>
+          <Link href="/posts"><I18nText zh="文章" en="Posts" /></Link>
           <Link href="/videos"><I18nText zh="视频资源" en="Videos" /></Link>
           <Link href="/write"><I18nText zh="写作" en="Write" /></Link>
           <Link href="/stats"><I18nText zh="数据" en="Stats" /></Link>
@@ -37,8 +37,8 @@ export async function PublicShell({ children }: { children: React.ReactNode }) {
       {children}
       <footer className="site-footer muted">
         <I18nText
-          zh="由管理员审核发布。AI 总结仅作为信息整理辅助，具体事实请以原始来源为准。"
-          en="Published after admin review. AI summaries are for information organization only; verify facts with original sources."
+          zh="由管理员审核发布。AI 生成内容仅作为信息整理与写作辅助，具体事实请以原始来源为准。"
+          en="Published after admin review. AI-generated content is for information organization and writing assistance; verify facts with original sources."
         />
       </footer>
       <MusicPlayer />

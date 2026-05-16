@@ -1,7 +1,7 @@
 import { revalidateTag } from "next/cache";
 import { requireAdmin } from "@/lib/auth";
 import { encryptSecret } from "@/lib/crypto";
-import { isLanguageKey, isNewsLanguageMode } from "@/lib/language";
+import { isLanguageKey, isContentLanguageMode } from "@/lib/language";
 import { prisma } from "@/lib/prisma";
 import { redirectTo } from "@/lib/redirect";
 import { isFontKey, isThemeKey } from "@/lib/themes";
@@ -26,15 +26,15 @@ export async function POST(request: Request) {
   const themeRaw = String(form.get("defaultTheme") || "apple");
   const fontRaw = String(form.get("defaultFont") || "sans-cjk");
   const languageRaw = String(form.get("defaultLanguage") || "zh");
-  const newsLanguageModeRaw = String(form.get("newsLanguageMode") || "default-language");
+  const contentLanguageModeRaw = String(form.get("contentLanguageMode") || "default-language");
   const defaultSettingsUIRaw = String(form.get("defaultSettingsUI") || "classic");
   const defaultTheme = isThemeKey(themeRaw) ? themeRaw : "apple";
   const defaultFont = isFontKey(fontRaw) ? fontRaw : "sans-cjk";
   const defaultLanguage = isLanguageKey(languageRaw) ? languageRaw : "zh";
-  const newsLanguageMode = isNewsLanguageMode(newsLanguageModeRaw) ? newsLanguageModeRaw : "default-language";
+  const contentLanguageMode = isContentLanguageMode(contentLanguageModeRaw) ? contentLanguageModeRaw : "default-language";
   const defaultSettingsUI = ["classic", "cyber", "dynamic"].includes(defaultSettingsUIRaw) ? defaultSettingsUIRaw : "classic";
 
-  const newsModelConfigId = normalizeOptionalId(form.get("newsModelConfigId"));
+  const contentModelConfigId = normalizeOptionalId(form.get("contentModelConfigId"));
   const assistantModelConfigId = normalizeOptionalId(form.get("assistantModelConfigId"));
   const writingModelConfigId = normalizeOptionalId(form.get("writingModelConfigId"));
   const translationModelConfigId = normalizeOptionalId(form.get("translationModelConfigId"));
@@ -55,7 +55,7 @@ export async function POST(request: Request) {
     defaultTheme,
     defaultFont,
     defaultLanguage,
-    newsLanguageMode,
+    contentLanguageMode,
     defaultSettingsUI,
     maxStorageMb,
     cleanupAfterDays,
@@ -63,7 +63,7 @@ export async function POST(request: Request) {
     autoImageSearchEnabled,
     exaEnabled,
     musicEnabledDefault,
-    newsModelConfigId,
+    contentModelConfigId,
     assistantModelConfigId,
     writingModelConfigId,
     translationModelConfigId,

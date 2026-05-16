@@ -154,7 +154,7 @@ export function DonutChart({
   ariaLabel?: string;
 }) {
   const total = slices.reduce((acc, s) => acc + s.count, 0);
-  if (!total) return <p className="muted">该时间段内无新闻分类数据</p>;
+  if (!total) return <p className="muted">该时间段内无文章分类数据</p>;
 
   const size = 220;
   const radius = 90;
@@ -200,7 +200,7 @@ export function DonutChart({
   );
 }
 
-/* ================= Stack/comparison bar (news vs videos by day) ================= */
+/* ================= Stack/comparison bar (posts vs videos by day) ================= */
 
 export function StackedBarChart({
   primary,
@@ -208,7 +208,7 @@ export function StackedBarChart({
   height = 200,
   primaryColor = "var(--chart-1)",
   secondaryColor = "var(--chart-2)",
-  primaryLabel = "新闻",
+  primaryLabel = "文章",
   secondaryLabel = "视频",
   ariaLabel = "堆叠柱状图"
 }: {

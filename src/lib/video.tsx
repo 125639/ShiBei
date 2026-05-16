@@ -1,4 +1,5 @@
 import type { Video } from "@prisma/client";
+import { hostFromUrl as hostFromUrlOrNull } from "./html";
 import { shouldRenderVideoAsLink } from "./video-display";
 
 type VideoAttribution = Pick<Video, "title" | "type" | "url"> & {
@@ -69,11 +70,7 @@ export function VideoEmbed({ video }: { video: VideoAttribution }) {
 }
 
 function hostFromUrl(url: string) {
-  try {
-    return new URL(url).hostname.replace(/^www\./, "");
-  } catch {
-    return "来源页面";
-  }
+  return hostFromUrlOrNull(url) || "来源页面";
 }
 
 function formatDuration(sec: number) {

@@ -10,7 +10,7 @@ export const dynamic = "force-dynamic";
 type JobRow = Prisma.FetchJobGetPayload<{
   include: {
     source: { select: { id: true; name: true; url: true; status: true } };
-    newsTopic: { select: { id: true; name: true; slug: true } };
+    contentTopic: { select: { id: true; name: true; slug: true } };
     _count: { select: { rawItems: true } };
   };
 }>;
@@ -28,8 +28,8 @@ function formatDateTime(value: Date | null | undefined) {
 
 function getJobTitle(job: JobRow) {
   const keywordResearch = parseKeywordResearchUrl(job.sourceUrl);
-  if (keywordResearch) return `关键词写新闻：${keywordResearch.keyword}`;
-  return job.newsTopic?.name || job.source?.name || job.sourceUrl;
+  if (keywordResearch) return `关键词生成：${keywordResearch.keyword}`;
+  return job.contentTopic?.name || job.source?.name || job.sourceUrl;
 }
 
 function getJobKind(job: JobRow) {
@@ -75,7 +75,7 @@ export default async function AdminJobsPage({
       take: 80,
       include: {
         source: { select: { id: true, name: true, url: true, status: true } },
-        newsTopic: { select: { id: true, name: true, slug: true } },
+        contentTopic: { select: { id: true, name: true, slug: true } },
         _count: { select: { rawItems: true } }
       }
     }),
@@ -159,6 +159,7 @@ export default async function AdminJobsPage({
                         <input type="hidden" name="tempType" value={job.sourceType} />
                       </>
                     )}
+                    {job.contentStyleId ? <input type="hidden" name="contentStyleId" value={job.contentStyleId} /> : null}
                     <button className="button secondary" type="submit">重跑</button>
                   </form>
                 </div>

@@ -34,20 +34,20 @@ export default async function AdminStatsPage({
       </div>
 
       <div className="admin-grid-3">
-        <Metric label="新闻 · 当天" value={stats.todayNews} />
-        <Metric label="新闻 · 本周" value={stats.weekNews} />
-        <Metric label="新闻 · 总计" value={stats.totals.news} />
+        <Metric label="文章 · 当天" value={stats.todayNews} />
+        <Metric label="文章 · 本周" value={stats.weekNews} />
+        <Metric label="文章 · 总计" value={stats.totals.news} />
         <Metric label="视频 · 当天" value={stats.todayVideos} />
         <Metric label="视频 · 本周" value={stats.weekVideos} />
         <Metric label="视频 · 总计" value={stats.totals.videos} />
         <Metric label="信息源" value={stats.totals.sources} />
-        <Metric label="Topic 数" value={stats.totals.topics} />
+        <Metric label="主题数" value={stats.totals.topics} />
         <Metric label="待审核草稿" value={stats.totals.draftNews} />
       </div>
 
       <div className="chart-grid" style={{ marginTop: 18 }}>
         <div className="chart-card">
-          <h3>新闻每日数量</h3>
+          <h3>文章每日数量</h3>
           <BarChart buckets={stats.newsBuckets} />
         </div>
         <div className="chart-card">
@@ -55,7 +55,7 @@ export default async function AdminStatsPage({
           <LineChart buckets={stats.videoBuckets} />
         </div>
         <div className="chart-card">
-          <h3>新闻 vs 视频 堆叠</h3>
+          <h3>文章 vs 视频 堆叠</h3>
           <StackedBarChart primary={stats.newsBuckets} secondary={stats.videoBuckets} />
         </div>
         <div className="chart-card">

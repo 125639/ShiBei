@@ -25,7 +25,7 @@ export default async function StatsPage({
           <p className="eyebrow">Statistics</p>
           <h1 className="page-title">数据看板</h1>
           <p className="muted-block">
-            实时统计 ShiBei 收录的新闻与视频。该数据每分钟刷新一次缓存。
+            实时统计 ShiBei 收录的文章与视频。该数据每分钟刷新一次缓存。
           </p>
         </section>
 
@@ -48,9 +48,9 @@ export default async function StatsPage({
         </div>
 
         <div className="bento-grid stats-metric-bento">
-          <Metric label="新闻 · 当天" value={stats.todayNews} />
-          <Metric label="新闻 · 本周" value={stats.weekNews} />
-          <Metric label="新闻 · 总数" value={stats.totals.news} />
+          <Metric label="文章 · 当天" value={stats.todayNews} />
+          <Metric label="文章 · 本周" value={stats.weekNews} />
+          <Metric label="文章 · 总数" value={stats.totals.news} />
           <Metric label="视频 · 当天" value={stats.todayVideos} />
           <Metric label="视频 · 本周" value={stats.weekVideos} />
           <Metric label="视频 · 总数" value={stats.totals.videos} />
@@ -58,38 +58,38 @@ export default async function StatsPage({
 
         <div className="bento-grid chart-bento">
           <div className="chart-card bento-card bento-wide">
-            <h3>新闻数量（按日，近 {stats.newsBuckets.length} 天）</h3>
-            <BarChart buckets={stats.newsBuckets} ariaLabel="按日新闻柱状图" />
+            <h3>文章数量（按日，近 {stats.newsBuckets.length} 天）</h3>
+            <BarChart buckets={stats.newsBuckets} ariaLabel="按日文章柱状图" />
           </div>
           <div className="chart-card bento-card bento-wide">
             <h3>视频数量（按日，近 {stats.videoBuckets.length} 天）</h3>
             <LineChart buckets={stats.videoBuckets} ariaLabel="按日视频折线图" />
           </div>
           <div className="chart-card bento-card bento-wide">
-            <h3>新闻 vs 视频（堆叠对比）</h3>
+            <h3>文章 vs 视频（堆叠对比）</h3>
             <StackedBarChart
               primary={stats.newsBuckets}
               secondary={stats.videoBuckets}
-              ariaLabel="新闻视频对比"
+              ariaLabel="文章视频对比"
             />
           </div>
           <div className="chart-card bento-card">
-            <h3>新闻分类占比（{labelOf(window)}）</h3>
-            <DonutChart slices={stats.topicSlices} ariaLabel="新闻分类环形图" />
+            <h3>文章分类占比（{labelOf(window)}）</h3>
+            <DonutChart slices={stats.topicSlices} ariaLabel="文章分类环形图" />
           </div>
           <div className="chart-card bento-card">
             <h3>当天 24 小时分布</h3>
             <BarChart
               buckets={stats.hourBuckets}
               showAllLabels={false}
-              ariaLabel="今天每小时新闻分布"
+              ariaLabel="今天每小时文章分布"
               color="var(--chart-3)"
             />
           </div>
           <div className="chart-card bento-card">
             <h3>分类详情</h3>
             {stats.topicSlices.length === 0 ? (
-              <p className="muted">暂无分类数据。先在管理后台添加 NewsTopic 与已发布文章。</p>
+              <p className="muted">暂无分类数据。先在管理后台添加 ContentTopic 与已发布文章。</p>
             ) : (
               <ul className="news-list">
                 {stats.topicSlices.map((s) => (

@@ -1,6 +1,7 @@
 import Link from "next/link";
 import type { Prisma } from "@prisma/client";
 import { AdminShell } from "@/components/AdminShell";
+import { ContentStyleSelect } from "@/components/ContentStyleSelect";
 import { requireAdmin } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { parseKeywordResearchUrl, researchScopeLabel } from "@/lib/research";
@@ -9,7 +10,7 @@ type DashboardJob = Prisma.FetchJobGetPayload<{ include: { source: true } }>;
 
 function getJobTitle(job: DashboardJob) {
   const keywordResearch = parseKeywordResearchUrl(job.sourceUrl);
-  if (keywordResearch) return `关键词写新闻：${keywordResearch.keyword}`;
+  if (keywordResearch) return `关键词生成：${keywordResearch.keyword}`;
   return job.source?.name || job.sourceUrl;
 }
 
@@ -24,7 +25,7 @@ function getJobMeta(job: DashboardJob) {
 export default async function AdminDashboardPage() {
   await requireAdmin();
   const since = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
-  const [sources, defaultSources, drafts, published, videos, jobs, jobStatusSummary, postsCreated7d, published7d, failed7d, runningJobs] = await Promise.all([
+  const [sources, defaultSources, drafts, published, videos, jobs, jobStatusSummary, postsCreated7d, published7d, failed7d, runningJobs, contentStyles] = await Promise.all([
     prisma.source.count(),
     prisma.source.count({ where: { isDefault: true, status: "ACTIVE" } }),
     prisma.post.count({ where: { status: "DRAFT" } }),
@@ -35,7 +36,12 @@ export default async function AdminDashboardPage() {
     prisma.post.count({ where: { createdAt: { gte: since } } }),
     prisma.post.count({ where: { status: "PUBLISHED", publishedAt: { gte: since } } }),
     prisma.fetchJob.count({ where: { status: "FAILED", updatedAt: { gte: since } } }),
-    prisma.fetchJob.count({ where: { status: "RUNNING" } })
+    prisma.fetchJob.count({ where: { status: "RUNNING" } }),
+    prisma.contentStyle.findMany({
+      orderBy: [{ isDefault: "desc" }, { updatedAt: "desc" }],
+      select: { id: true, name: true, contentMode: true, isDefault: true },
+      take: 100
+    })
   ]);
   const jobStats = jobStatusSummary.map((item) => ({ status: item.status, count: item._count._all }));
   const maxMetric = Math.max(postsCreated7d, published7d, failed7d, 1);
@@ -66,12 +72,13 @@ export default async function AdminDashboardPage() {
         <section className="admin-panel">
           <h2>默认来源抓取</h2>
           <form className="form-stack" action="/api/admin/run" method="post">
-            <button className="button" type="submit">抓取默认信息源并总结</button>
+            <ContentStyleSelect styles={contentStyles} id="defaultContentStyleId" />
+            <button className="button" type="submit">抓取默认信息源并生成草稿</button>
             <p className="muted">当前会从 {defaultSources} 个启用的默认来源创建任务。</p>
           </form>
         </section>
         <section className="admin-panel">
-          <h2>关键词写新闻</h2>
+          <h2>关键词生成文章</h2>
           <form className="form-stack" action="/api/admin/run" method="post">
             <div className="field">
               <label htmlFor="keyword">关键词或选题</label>
@@ -92,14 +99,15 @@ export default async function AdminDashboardPage() {
               </div>
             </div>
             <div className="field">
-              <label htmlFor="articleDepth">报道长度</label>
+              <label htmlFor="articleDepth">文章长度</label>
               <select id="articleDepth" name="articleDepth" defaultValue="long">
-                <option value="standard">标准报道（至少 1100 字，目标 1200）</option>
-                <option value="long">长报道（至少 1900 字，目标 2000）</option>
-                <option value="deep">深度报道（至少 3000 字，目标 3200）</option>
+                <option value="standard">标准文章（至少 1100 字，目标 1200）</option>
+                <option value="long">长文章（至少 1900 字，目标 2000）</option>
+                <option value="deep">深度长文（至少 3000 字，目标 3200）</option>
               </select>
             </div>
-            <button className="button" type="submit">搜索资料并写新闻草稿</button>
+            <ContentStyleSelect styles={contentStyles} id="keywordContentStyleId" />
+            <button className="button" type="submit">搜索资料并生成文章草稿</button>
           </form>
         </section>
       </div>

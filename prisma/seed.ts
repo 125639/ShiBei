@@ -32,17 +32,18 @@ async function main() {
     buildAdminUpsertArgs(process.env as Record<string, string | undefined>, passwordHash)
   );
 
-  await prisma.summaryStyle.upsert({
+  await prisma.contentStyle.upsert({
     where: { id: "default-style" },
     update: {},
     create: {
       id: "default-style",
       name: "默认博客文章",
-      tone: "客观新闻",
+      contentMode: "analysis",
+      tone: "客观",
       length: "中",
       focus: "核心事实, 行业影响, 背景脉络, 多方观点",
       outputStructure: "标题 → 导语 → 正文分章节叙述 → 背景分析 → 参考来源",
-      promptTemplate: "写一篇有深度的中文博客文章，要求正式标题、导语段落、分章节连贯叙述，禁止写成摘要或要点列表。",
+      customInstructions: "写一篇有深度的中文博客文章，要求正式标题、导语段落、分章节连贯叙述，禁止写成摘要或要点列表。",
       isDefault: true
     }
   });

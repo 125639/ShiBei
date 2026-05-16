@@ -66,8 +66,8 @@ model SiteSettings {
   ownerName            String   @default("管理员")
   autoPublish          Boolean  @default(false)
   autoCurationEnabled  Boolean  @default(false)
-  newsDisplayMode      String   @default("grid")
-  newsLanguageMode     String   @default("default-language")
+  contentDisplayMode   String   @default("grid")
+  contentLanguageMode  String   @default("default-language")
   defaultLanguage      String   @default("zh")
   defaultTheme         String   @default("apple")
   defaultFont          String   @default("sans-cjk")
@@ -80,7 +80,7 @@ model SiteSettings {
   exaApiKeyEnc         String?
   musicEnabledDefault  Boolean  @default(false)
   defaultMusicId       String?
-  newsModelConfigId    String?
+  contentModelConfigId String?
   assistantModelConfigId String?
   writingModelConfigId String?
   translationModelConfigId String?
@@ -108,18 +108,19 @@ model ModelConfig {
   updatedAt   DateTime @updatedAt
 }
 
-model SummaryStyle {
-  id              String   @id @default(cuid())
-  name            String
-  tone            String   @default("客观新闻")
-  length          String   @default("中")
-  focus           String   @default("事实, 影响, 技术细节")
-  outputStructure String   @default("标题, 摘要, 关键点, 背景, 来源, 相关视频")
-  promptTemplate  String   @db.Text
-  isDefault       Boolean  @default(false)
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
-  topics          NewsTopic[]
+model ContentStyle {
+  id                 String   @id @default(cuid())
+  name               String
+  contentMode        String   @default("report")
+  tone               String   @default("客观")
+  length             String   @default("中")
+  focus              String   @default("事实, 背景, 影响")
+  outputStructure    String   @default("标题, 导语, 正文分章节叙述, 参考来源")
+  customInstructions String   @db.Text
+  isDefault          Boolean  @default(false)
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+  topics             ContentTopic[]
 }
 
 model Source {
@@ -151,7 +152,7 @@ model SourceModule {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
   sources     Source[] @relation("SourceToModule")
-  topics      NewsTopic[] @relation("TopicToModule")
+  topics      ContentTopic[] @relation("ContentTopicToModule")
 }
 
 model FetchJob {
@@ -162,9 +163,9 @@ model FetchJob {
   sourceUrl      String
   sourceType     SourceType
   modelConfigId  String?
-  summaryStyleId String?
-  newsTopicId    String?
-  newsTopic      NewsTopic?  @relation(fields: [newsTopicId], references: [id], onDelete: SetNull)
+  contentStyleId String?
+  contentTopicId String?
+  contentTopic   ContentTopic? @relation(fields: [contentTopicId], references: [id], onDelete: SetNull)
   error          String?     @db.Text
   createdAt      DateTime    @default(now())
   updatedAt      DateTime    @updatedAt
@@ -205,7 +206,7 @@ model Post {
   rawItem   RawItem?   @relation(fields: [rawItemId], references: [id], onDelete: SetNull)
   videos    Video[]
   tags      Tag[]      @relation("PostTags")
-  topics    NewsTopic[] @relation("PostTopics")
+  topics    ContentTopic[] @relation("PostContentTopics")
   createdAt DateTime   @default(now())
   updatedAt DateTime   @updatedAt
   publishedAt DateTime?
@@ -253,7 +254,7 @@ model Tag {
   posts Post[] @relation("PostTags")
 }
 
-model NewsTopic {
+model ContentTopic {
   id           String          @id @default(cuid())
   name         String          @unique
   slug         String          @unique
@@ -265,11 +266,11 @@ model NewsTopic {
   depth        String          @default("long")
   articleCount Int             @default(1)
   useExa       Boolean         @default(false)
-  modules      SourceModule[]  @relation("TopicToModule")
+  modules      SourceModule[]  @relation("ContentTopicToModule")
   styleId      String?
-  style        SummaryStyle?   @relation(fields: [styleId], references: [id], onDelete: SetNull)
+  style        ContentStyle?   @relation(fields: [styleId], references: [id], onDelete: SetNull)
   schedule     AutoSchedule?
-  posts        Post[]          @relation("PostTopics")
+  posts        Post[]          @relation("PostContentTopics")
   fetchJobs    FetchJob[]
   createdAt    DateTime        @default(now())
   updatedAt    DateTime        @updatedAt
@@ -278,7 +279,7 @@ model NewsTopic {
 model AutoSchedule {
   id          String    @id @default(cuid())
   topicId     String    @unique
-  topic       NewsTopic @relation(fields: [topicId], references: [id], onDelete: Cascade)
+  topic       ContentTopic @relation(fields: [topicId], references: [id], onDelete: Cascade)
   cron        String
   isEnabled   Boolean   @default(true)
   lastRunAt   DateTime?

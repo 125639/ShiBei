@@ -12,7 +12,7 @@ export const dynamic = "force-dynamic";
 type JobDetail = Prisma.FetchJobGetPayload<{
   include: {
     source: true;
-    newsTopic: true;
+    contentTopic: true;
     rawItems: {
       include: {
         post: {
@@ -41,8 +41,8 @@ function getDuration(job: JobDetail) {
 
 function getJobTitle(job: JobDetail) {
   const keywordResearch = parseKeywordResearchUrl(job.sourceUrl);
-  if (keywordResearch) return `关键词写新闻：${keywordResearch.keyword}`;
-  return job.newsTopic?.name || job.source?.name || job.sourceUrl;
+  if (keywordResearch) return `关键词生成：${keywordResearch.keyword}`;
+  return job.contentTopic?.name || job.source?.name || job.sourceUrl;
 }
 
 function getJobKind(job: JobDetail) {
@@ -73,7 +73,7 @@ export default async function AdminJobDetailPage({
     where: { id },
     include: {
       source: true,
-      newsTopic: true,
+      contentTopic: true,
       rawItems: {
         include: {
           post: {
@@ -118,6 +118,7 @@ export default async function AdminJobDetailPage({
                 <input type="hidden" name="tempType" value={job.sourceType} />
               </>
             )}
+            {job.contentStyleId ? <input type="hidden" name="contentStyleId" value={job.contentStyleId} /> : null}
             <button className="button" type="submit">重跑任务</button>
           </form>
         </div>
@@ -140,8 +141,8 @@ export default async function AdminJobDetailPage({
           <Info label="完成时间" value={formatDateTime(job.completedAt)} />
           <Info label="耗时" value={getDuration(job)} />
           <Info label="模型配置" value={job.modelConfigId || "使用默认"} mono={Boolean(job.modelConfigId)} />
-          <Info label="总结风格" value={job.summaryStyleId || "使用默认"} mono={Boolean(job.summaryStyleId)} />
-          <Info label="自动主题" value={job.newsTopic?.name || "无"} />
+          <Info label="内容风格" value={job.contentStyleId || "使用默认"} mono={Boolean(job.contentStyleId)} />
+          <Info label="自动主题" value={job.contentTopic?.name || "无"} />
         </div>
         {job.error ? (
           <div className="diagnostic-error">
@@ -174,7 +175,7 @@ export default async function AdminJobDetailPage({
                       <p className="muted">{shortText(rawItem.post.summary, 220)}</p>
                       <div className="meta-row">
                         <Link className="text-link" href={`/admin/posts/${rawItem.post.id}`}>编辑文章</Link>
-                        <Link className="text-link" href={`/news/${rawItem.post.slug}`}>查看前台</Link>
+                        <Link className="text-link" href={`/posts/${rawItem.post.slug}`}>查看前台</Link>
                         {rawItem.post.videos.length ? <span>视频 {rawItem.post.videos.length}</span> : null}
                         {rawItem.post.tags.length ? <span>标签 {rawItem.post.tags.map((tag) => tag.name).join(" / ")}</span> : null}
                       </div>
