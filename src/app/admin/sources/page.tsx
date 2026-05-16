@@ -1,5 +1,6 @@
 import { AdminShell } from "@/components/AdminShell";
 import { BulkSourceActions, type ListSource } from "@/components/BulkSourceActions";
+import { ContentStyleSelect } from "@/components/ContentStyleSelect";
 import { requireAdmin } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 
@@ -21,14 +22,15 @@ export default async function SourcesPage({
   const params = await searchParams;
   const filterModule = typeof params.module === "string" ? params.module : null;
 
-  const [allSources, modulesRaw] = await Promise.all([
+  const [allSources, modulesRaw, contentStyles] = await Promise.all([
     prisma.source.findMany({
       orderBy: [{ popularity: "desc" }, { createdAt: "desc" }],
       include: { modules: { select: { id: true, name: true, slug: true, color: true } } } as never
     }),
     (prisma as unknown as {
       sourceModule: { findMany: (args: unknown) => Promise<ModuleRow[]> };
-    }).sourceModule.findMany({ orderBy: [{ sortOrder: "asc" }, { name: "asc" }] }).catch(() => [])
+    }).sourceModule.findMany({ orderBy: [{ sortOrder: "asc" }, { name: "asc" }] }).catch(() => []),
+    prisma.contentStyle.findMany({ orderBy: [{ isDefault: "desc" }, { updatedAt: "desc" }] })
   ]);
 
   const modules: ModuleRow[] = Array.isArray(modulesRaw) ? modulesRaw : [];
@@ -111,7 +113,7 @@ export default async function SourcesPage({
           <h2>添加信息源</h2>
           <div className="field">
             <label htmlFor="name">名称</label>
-            <input id="name" name="name" required placeholder="例如：某新闻站 RSS" />
+            <input id="name" name="name" required placeholder="例如：某博客 RSS / 行业站点" />
           </div>
           <div className="field">
             <label htmlFor="url">URL</label>
@@ -162,7 +164,7 @@ export default async function SourcesPage({
           <p>不保存为默认来源，也可以临时添加到本次任务。</p>
           <div className="field">
             <label htmlFor="tempUrl">临时 URL</label>
-            <input id="tempUrl" name="tempUrl" type="url" placeholder="https://example.com/news" />
+            <input id="tempUrl" name="tempUrl" type="url" placeholder="https://example.com/posts" />
           </div>
           <div className="field">
             <label htmlFor="tempType">类型</label>
@@ -173,12 +175,13 @@ export default async function SourcesPage({
             </select>
           </div>
           <label><input type="checkbox" name="saveTemp" value="true" /> 保存为默认来源</label>
+          <ContentStyleSelect styles={contentStyles} id="tempContentStyleId" />
           <button className="button" type="submit">抓取临时来源</button>
         </form>
 
         <form className="form-card form-stack" action="/api/admin/run" method="post">
-          <h2>关键词写新闻</h2>
-          <p>输入选题后，系统会先搜索资料，再生成新闻草稿。</p>
+          <h2>关键词生成文章</h2>
+          <p>输入选题后，系统会先搜索资料，再按选定风格生成文章草稿。</p>
           <div className="field">
             <label htmlFor="keyword">关键词或选题</label>
             <input id="keyword" name="keyword" required placeholder="例如：电动汽车价格战 / OpenAI 新模型" />
@@ -196,14 +199,15 @@ export default async function SourcesPage({
             <input id="articleCount" name="articleCount" type="number" min="1" max="5" defaultValue="1" />
           </div>
           <div className="field">
-            <label htmlFor="articleDepth">报道长度</label>
+            <label htmlFor="articleDepth">文章长度</label>
             <select id="articleDepth" name="articleDepth" defaultValue="long">
-              <option value="standard">标准报道（至少 1100 字，目标 1200）</option>
-              <option value="long">长报道（至少 1900 字，目标 2000）</option>
-              <option value="deep">深度报道（至少 3000 字，目标 3200）</option>
+              <option value="standard">标准文章（至少 1100 字，目标 1200）</option>
+              <option value="long">长文章（至少 1900 字，目标 2000）</option>
+              <option value="deep">深度长文（至少 3000 字，目标 3200）</option>
             </select>
           </div>
-          <button className="button" type="submit">搜索资料并写新闻草稿</button>
+          <ContentStyleSelect styles={contentStyles} id="sourceKeywordContentStyleId" />
+          <button className="button" type="submit">搜索资料并生成文章草稿</button>
         </form>
       </div>
 

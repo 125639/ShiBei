@@ -1,4 +1,5 @@
 import { decryptSecret } from "./crypto";
+import { hostFromUrl as hostFromUrlOrNull } from "./html";
 import { prisma } from "./prisma";
 
 export type ExaResult = {
@@ -98,9 +99,5 @@ function safeDate(input: string): Date | null {
 }
 
 function hostFromUrl(url: string): string {
-  try {
-    return new URL(url).hostname.replace(/^www\./, "");
-  } catch {
-    return "";
-  }
+  return hostFromUrlOrNull(url) || "";
 }

@@ -3,7 +3,8 @@
 
 import { useState, useEffect } from "react";
 import { I18nText } from "@/components/I18nText";
-import { LANGUAGE_OPTIONS, NEWS_LANGUAGE_MODE_OPTIONS } from "@/lib/language";
+import { CONTENT_MODE_OPTIONS, contentModeLabel } from "@/lib/content-style";
+import { LANGUAGE_OPTIONS, CONTENT_LANGUAGE_MODE_OPTIONS } from "@/lib/language";
 import { MODEL_PROVIDER_PRESETS, providerLabel } from "@/lib/model-providers";
 import { FONTS, THEMES } from "@/lib/themes";
 
@@ -155,9 +156,9 @@ export function SettingsClient({
               </label>
             </div>
             <div className="field">
-              <label htmlFor="newsLanguageMode"><I18nText zh="新闻语言模式" en="News Language Mode" /></label>
-              <select id="newsLanguageMode" name="newsLanguageMode" defaultValue={String(s?.newsLanguageMode ?? "default-language")}>
-                {NEWS_LANGUAGE_MODE_OPTIONS.map((option) => (
+              <label htmlFor="contentLanguageMode"><I18nText zh="内容语言模式" en="Content Language Mode" /></label>
+              <select id="contentLanguageMode" name="contentLanguageMode" defaultValue={String(s?.contentLanguageMode ?? "default-language")}>
+                {CONTENT_LANGUAGE_MODE_OPTIONS.map((option) => (
                   <option key={option.value} value={option.value}>{option.label}</option>
                 ))}
               </select>
@@ -170,7 +171,7 @@ export function SettingsClient({
               <textarea
                 id="globalPromptPrefix"
                 name="globalPromptPrefix"
-                placeholder="例如：以严肃新闻语气；不臆测；引用要附上链接。"
+                placeholder="例如：不臆测；引用要附上链接；事实和观点分开写。"
                 defaultValue={String(s?.globalPromptPrefix ?? "")}
               />
               <small className="muted">
@@ -182,7 +183,7 @@ export function SettingsClient({
           <section style={{ display: activeTab === "models" ? "block" : "none" }}>
             <SectionTitle title={<I18nText zh="各任务使用的模型" en="Task Models" />} />
             <div className="field-row">
-              <ModelSelect id="newsModelConfigId" label={<I18nText zh="新闻整理模型" en="News Model" />} value={String(s?.newsModelConfigId ?? "")} configs={modelConfigs} />
+              <ModelSelect id="contentModelConfigId" label={<I18nText zh="内容生成模型" en="Content Model" />} value={String(s?.contentModelConfigId ?? "")} configs={modelConfigs} />
               <ModelSelect id="assistantModelConfigId" label={<I18nText zh="前台助手模型" en="Assistant Model" />} value={String(s?.assistantModelConfigId ?? "")} configs={modelConfigs} />
             </div>
             <div className="field-row">
@@ -352,22 +353,33 @@ export function SettingsClient({
 
       {activeTab === "prompts" ? (
         <div className="settings-two-column">
-          <form className="form-card form-stack" action="/api/admin/summary-styles" method="post">
-            <h2 style={{ marginTop: 0 }}><I18nText zh="新增总结风格" en="New Summary Style" /></h2>
+          <form className="form-card form-stack" action="/api/admin/content-styles" method="post">
+            <h2 style={{ marginTop: 0 }}><I18nText zh="新增内容风格" en="New Content Style" /></h2>
             <div className="field">
               <label htmlFor="styleName"><I18nText zh="名称" en="Name" /></label>
-              <input id="styleName" name="name" required placeholder="例如：深度分析" />
+              <input id="styleName" name="name" required placeholder="例如：教程指南 / 深度分析" />
             </div>
             <div className="field-row">
               <div className="field">
+                <label htmlFor="contentMode"><I18nText zh="内容体裁" en="Content Mode" /></label>
+                <select id="contentMode" name="contentMode" defaultValue="analysis">
+                  {CONTENT_MODE_OPTIONS.map((mode) => (
+                    <option key={mode.value} value={mode.value}>{mode.label} - {mode.description}</option>
+                  ))}
+                </select>
+              </div>
+              <div className="field">
                 <label htmlFor="tone"><I18nText zh="输出风格" en="Tone" /></label>
-                <select id="tone" name="tone" defaultValue="客观新闻">
-                  <option>客观新闻</option>
+                <select id="tone" name="tone" defaultValue="客观">
+                  <option>客观</option>
                   <option>深度分析</option>
                   <option>科普解读</option>
                   <option>个人评论</option>
+                  <option>实用指南</option>
                 </select>
               </div>
+            </div>
+            <div className="field-row">
               <div className="field">
                 <label htmlFor="length"><I18nText zh="篇幅偏好" en="Length" /></label>
                 <select id="length" name="length" defaultValue="中">
@@ -376,33 +388,82 @@ export function SettingsClient({
                   <option>长</option>
                 </select>
               </div>
-            </div>
-            <div className="field">
-              <label htmlFor="focus"><I18nText zh="关注重点" en="Focus" /></label>
-              <input id="focus" name="focus" defaultValue="核心事实, 行业影响, 背景脉络, 多方观点" />
+              <div className="field">
+                <label htmlFor="focus"><I18nText zh="关注重点" en="Focus" /></label>
+                <input id="focus" name="focus" defaultValue="核心事实, 行业影响, 背景脉络, 多方观点" />
+              </div>
             </div>
             <div className="field">
               <label htmlFor="outputStructure"><I18nText zh="输出结构" en="Output Structure" /></label>
               <input id="outputStructure" name="outputStructure" defaultValue="标题 -> 导语 -> 正文分章节叙述 -> 背景分析 -> 参考来源" />
             </div>
             <div className="field">
-              <label htmlFor="promptTemplate"><I18nText zh="自定义提示词模板" en="Prompt Template" /></label>
-              <textarea id="promptTemplate" name="promptTemplate" defaultValue="写一篇有深度的中文博客文章，要求正式标题、导语段落、分章节连贯叙述，禁止写成摘要或要点列表。" />
+              <label htmlFor="customInstructions"><I18nText zh="自定义提示词" en="Custom Instructions" /></label>
+              <textarea id="customInstructions" name="customInstructions" defaultValue="写一篇有深度的中文博客文章，要求正式标题、导语段落、分章节连贯叙述，禁止写成摘要或要点列表。" />
             </div>
             <label><input type="checkbox" name="isDefault" value="true" /> <I18nText zh="设为默认风格" en="Set as Default Style" /></label>
-            <button className="button" type="submit"><I18nText zh="保存总结风格" en="Save Summary Style" /></button>
+            <button className="button" type="submit"><I18nText zh="保存内容风格" en="Save Content Style" /></button>
           </form>
 
           <section className="admin-panel">
-            <h2 style={{ marginTop: 0 }}><I18nText zh="已有总结风格" en="Existing Styles" /></h2>
+            <h2 style={{ marginTop: 0 }}><I18nText zh="已有内容风格" en="Existing Styles" /></h2>
             <div className="table-list">
               {styles.map((style) => (
-                <div className="table-item" key={style.id}>
-                  <div>
-                    <strong>{style.name}</strong>
-                    <div className="muted">{style.tone} · {style.length} · {style.focus}</div>
-                  </div>
-                  <span className="tag">{style.isDefault ? <I18nText zh="默认" en="Default" /> : <I18nText zh="备用" en="Backup" />}</span>
+                <div className="table-item" key={style.id} style={{ display: "block" }}>
+                  <form className="form-stack" action={`/api/admin/content-styles/${style.id}`} method="post">
+                    <div className="meta-row" style={{ alignItems: "center", justifyContent: "space-between" }}>
+                      <div>
+                        <strong>{style.name}</strong>
+                        <div className="muted">{contentModeLabel(style.contentMode)} · {style.tone} · {style.length} · {style.focus}</div>
+                      </div>
+                      <span className="tag">{style.isDefault ? <I18nText zh="默认" en="Default" /> : <I18nText zh="备用" en="Backup" />}</span>
+                    </div>
+                    <div className="field-row">
+                      <div className="field">
+                        <label htmlFor={`style-name-${style.id}`}>名称</label>
+                        <input id={`style-name-${style.id}`} name="name" defaultValue={style.name} required />
+                      </div>
+                      <div className="field">
+                        <label htmlFor={`style-mode-${style.id}`}>内容体裁</label>
+                        <select id={`style-mode-${style.id}`} name="contentMode" defaultValue={style.contentMode || "report"}>
+                          {CONTENT_MODE_OPTIONS.map((mode) => (
+                            <option key={mode.value} value={mode.value}>{mode.label}</option>
+                          ))}
+                        </select>
+                      </div>
+                    </div>
+                    <div className="field-row">
+                      <div className="field">
+                        <label htmlFor={`style-tone-${style.id}`}>输出风格</label>
+                        <input id={`style-tone-${style.id}`} name="tone" defaultValue={style.tone} />
+                      </div>
+                      <div className="field">
+                        <label htmlFor={`style-length-${style.id}`}>篇幅</label>
+                        <select id={`style-length-${style.id}`} name="length" defaultValue={style.length || "中"}>
+                          <option>短</option>
+                          <option>中</option>
+                          <option>长</option>
+                        </select>
+                      </div>
+                    </div>
+                    <div className="field">
+                      <label htmlFor={`style-focus-${style.id}`}>关注重点</label>
+                      <input id={`style-focus-${style.id}`} name="focus" defaultValue={style.focus} />
+                    </div>
+                    <div className="field">
+                      <label htmlFor={`style-output-${style.id}`}>输出结构</label>
+                      <input id={`style-output-${style.id}`} name="outputStructure" defaultValue={style.outputStructure} />
+                    </div>
+                    <div className="field">
+                      <label htmlFor={`style-custom-${style.id}`}>自定义提示词</label>
+                      <textarea id={`style-custom-${style.id}`} name="customInstructions" defaultValue={style.customInstructions || ""} />
+                    </div>
+                    <div className="meta-row" style={{ alignItems: "center" }}>
+                      <label><input type="checkbox" name="isDefault" value="true" defaultChecked={style.isDefault} /> 设为默认</label>
+                      <button className="button secondary" type="submit">更新风格</button>
+                      <button className="danger-button" type="submit" name="_intent" value="delete">删除</button>
+                    </div>
+                  </form>
                 </div>
               ))}
               {styles.length === 0 ? <p className="muted"><I18nText zh="暂无风格。" en="No styles." /></p> : null}

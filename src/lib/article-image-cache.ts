@@ -3,11 +3,11 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { assertSafeFetchUrl } from "./url-safety";
 
-const DEFAULT_MAX_IMAGE_BYTES = 8 * 1024 * 1024;
-const DEFAULT_IMAGE_DIR = path.join(process.cwd(), "public", "uploads", "image");
-const DEFAULT_PUBLIC_PREFIX = "/uploads/image";
+export const DEFAULT_MAX_IMAGE_BYTES = 8 * 1024 * 1024;
+export const DEFAULT_IMAGE_DIR = path.join(process.cwd(), "public", "uploads", "image");
+export const DEFAULT_PUBLIC_PREFIX = "/uploads/image";
 
-const IMAGE_TYPES: Record<string, string> = {
+export const IMAGE_TYPES: Record<string, string> = {
   "image/jpeg": ".jpg",
   "image/jpg": ".jpg",
   "image/png": ".png",

@@ -11,7 +11,7 @@ export default async function AdminPostsPage() {
     <AdminShell>
       <p className="eyebrow">Posts</p>
       <h1>草稿与文章</h1>
-      <form className="form-card form-stack" action="/api/admin/posts" method="post" style={{ marginBottom: 18 }}>
+      <form className="form-card form-stack" action="/api/admin/posts" method="post" encType="multipart/form-data" style={{ marginBottom: 18 }}>
         <h2>手动上传 / 新建博客内容</h2>
         <div className="field-row">
           <div className="field">
@@ -30,6 +30,30 @@ export default async function AdminPostsPage() {
         <div className="field">
           <label htmlFor="content">正文 Markdown</label>
           <textarea id="content" name="content" required style={{ minHeight: 260 }} />
+        </div>
+        <div className="field-row">
+          <div className="field">
+            <label htmlFor="imageFile">正文配图（可选）</label>
+            <input id="imageFile" name="imageFile" type="file" accept="image/png,image/jpeg,image/webp,image/gif,.png,.jpg,.jpeg,.webp,.gif" />
+          </div>
+          <div className="field">
+            <label htmlFor="imageCaption">图片说明</label>
+            <input id="imageCaption" name="imageCaption" placeholder="留空使用文件名" />
+          </div>
+        </div>
+        <div className="field-row">
+          <div className="field">
+            <label htmlFor="imageInsertPlacement">图片插入位置</label>
+            <select id="imageInsertPlacement" name="imageInsertPlacement" defaultValue="after-intro">
+              <option value="after-intro">导语后</option>
+              <option value="before-references">参考来源前</option>
+              <option value="end">文末</option>
+            </select>
+          </div>
+          <div className="field">
+            <label htmlFor="imageSourcePageUrl">图片来源链接（可选）</label>
+            <input id="imageSourcePageUrl" name="imageSourcePageUrl" type="url" placeholder="https://..." />
+          </div>
         </div>
         <div className="field-row">
           <div className="field">

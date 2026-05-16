@@ -6,7 +6,7 @@ import { markdownToHtml, type VideoForShortcode } from "@/lib/markdown";
 import { useUserPrefs } from "./useUserPrefs";
 import { I18nText } from "./I18nText";
 
-type NewsText = {
+type PostText = {
   title: string;
   summary: string;
   content: string;
@@ -23,15 +23,15 @@ type TranslationState = {
   error?: string;
 };
 
-export function LanguageAwareNews({
+export function LanguageAwarePost({
   postId,
   post,
-  newsLanguageMode,
+  contentLanguageMode,
   videos
 }: {
   postId: string;
-  post: NewsText;
-  newsLanguageMode: string;
+  post: PostText;
+  contentLanguageMode: string;
   // 文章关联的视频。当正文里出现 [[video:ID]] 短代码时，对应位置渲染播放器。
   videos?: VideoForShortcode[];
 }) {
@@ -43,7 +43,7 @@ export function LanguageAwareNews({
     status: post.contentEn ? "ready" : "idle"
   }));
   const wantsEnglish = hydrated && prefs.language === "en";
-  const showBilingual = newsLanguageMode === "bilingual";
+  const showBilingual = contentLanguageMode === "bilingual";
   const shouldLoadEnglish = wantsEnglish || showBilingual;
 
   const videosById = useMemo(() => {

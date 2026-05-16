@@ -74,6 +74,44 @@ export default async function AdminPostEditPage({ params }: { params: Promise<{ 
       </form>
 
       <section className="form-card form-stack" style={{ marginTop: 24 }}>
+        <h2 style={{ marginTop: 0 }}>上传图片并插入正文</h2>
+        <form action={`/api/admin/posts/${post.id}/images`} method="post" encType="multipart/form-data" className="form-stack">
+          <input type="hidden" name="redirect" value={`/admin/posts/${post.id}`} />
+          <div className="field-row">
+            <div className="field">
+              <label htmlFor="image-file">图片文件</label>
+              <input id="image-file" type="file" name="file" accept="image/png,image/jpeg,image/webp,image/gif,.png,.jpg,.jpeg,.webp,.gif" required />
+            </div>
+            <div className="field">
+              <label htmlFor="image-caption">图片说明</label>
+              <input id="image-caption" name="caption" placeholder="留空使用文件名" />
+            </div>
+          </div>
+          <div className="field-row">
+            <div className="field">
+              <label htmlFor="image-insert-placement">插入位置</label>
+              <select id="image-insert-placement" name="insertPlacement" defaultValue="after-intro">
+                <option value="after-intro">导语后</option>
+                <option value="before-references">参考来源前</option>
+                <option value="end">文末</option>
+              </select>
+            </div>
+            <div className="field">
+              <label htmlFor="image-source-page">图片来源链接（可选）</label>
+              <input id="image-source-page" name="sourcePageUrl" type="url" placeholder="https://..." />
+            </div>
+          </div>
+          {(post as { contentEn?: string | null }).contentEn ? (
+            <label>
+              <input type="checkbox" name="mirrorToEnglish" value="true" defaultChecked /> 同步插入英文正文
+            </label>
+          ) : null}
+          <button className="button" type="submit">上传并插入图片</button>
+        </form>
+        <p className="hint">支持 JPG / PNG / WebP / GIF，单文件上限 8MB；重复上传同一图片只会复用同一个本地文件。</p>
+      </section>
+
+      <section className="form-card form-stack" style={{ marginTop: 24 }}>
         <h2 style={{ marginTop: 0 }}>已挂载视频</h2>
         {post.videos.length === 0 ? (
           <p className="muted-block">暂无视频。可在下方上传或在 <a className="text-link" href="/admin/videos">视频管理</a> 把已有视频挂到本文章。</p>

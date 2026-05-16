@@ -87,42 +87,42 @@ export const FONTS: Array<{
     key: "serif-cjk",
     label: "中文衬线",
     desc: "Source Han / Noto Serif，新闻阅读首选（默认）",
-    preview: "新闻总结",
+    preview: "内容文章",
     family: "ui-serif, 'Source Han Serif SC', 'Noto Serif CJK SC', 'Songti SC', 'Noto Sans SC Variable', Georgia, serif"
   },
   {
     key: "sans-cjk",
     label: "中文无衬线",
     desc: "PingFang / Noto Sans，更清爽的现代感",
-    preview: "新闻总结",
+    preview: "内容文章",
     family: "ui-sans-serif, 'Noto Sans SC Variable', 'PingFang SC', 'Source Han Sans SC', 'Noto Sans CJK SC', sans-serif"
   },
   {
     key: "kaiti",
     label: "霞鹜文楷",
     desc: "LXGW WenKai 风格，手写楷体韵味",
-    preview: "新闻总结",
+    preview: "内容文章",
     family: "'LXGW WenKai', 'KaiTi', 'STKaiti', 'Source Han Serif SC', 'Noto Sans SC Variable', serif"
   },
   {
     key: "fangsong",
     label: "仿宋",
     desc: "正式典雅，适合公文与长文",
-    preview: "新闻总结",
+    preview: "内容文章",
     family: "'FangSong', 'STFangsong', 'Source Han Serif SC', 'Noto Sans SC Variable', serif"
   },
   {
     key: "system",
     label: "系统默认",
     desc: "使用操作系统默认字体，加载最快",
-    preview: "新闻总结",
+    preview: "内容文章",
     family: "system-ui, -apple-system, 'Noto Sans SC Variable', 'PingFang SC', 'Microsoft YaHei', sans-serif"
   },
   {
     key: "mono",
     label: "等宽",
     desc: "JetBrains Mono / 等宽中文，技术风格",
-    preview: "新闻总结",
+    preview: "内容文章",
     family: "ui-monospace, 'JetBrains Mono', 'Liberation Mono', 'Noto Sans SC Variable', monospace"
   }
 ];

@@ -1,5 +1,6 @@
 import type { ResearchDepth } from "./research";
 import type { SourceType } from "@prisma/client";
+import { contentModeLabel, normalizeContentMode, type ContentMode } from "./content-style";
 import { decryptSecret } from "./crypto";
 import { prisma } from "./prisma";
 
@@ -77,11 +78,12 @@ export type ChatModelConfig = {
 };
 
 export type StyleConfig = {
+  contentMode: string;
   tone: string;
   length: string;
   focus: string;
   outputStructure: string;
-  promptTemplate: string;
+  customInstructions: string;
 };
 
 export type EvidenceItem = {
@@ -102,7 +104,7 @@ type GenerateSummaryInput = {
   };
 };
 
-type GenerateNewsArticleInput = {
+type GenerateContentArticleInput = {
   modelConfig: ChatModelConfig;
   style: StyleConfig;
   keyword: string;
@@ -125,15 +127,65 @@ type GenerateDigestInput = {
 
 // ── 共享 prompt 构建辅助 ──────────────────────────────────
 
-/** 拼装管理员配置的风格参数，作为 prompt 的 metadata 段落 */
-function formatStyleBlock(style: StyleConfig): string {
+/** 拼装管理员配置的体裁和风格参数，作为所有内容生成 prompt 的稳定入口。 */
+export function formatStyleBlock(style: StyleConfig): string {
+  const mode = normalizeContentMode(style.contentMode);
   return [
     "【风格设定】",
-    style.promptTemplate,
+    `- 内容体裁：${contentModeLabel(mode)}`,
     `- 语气风格：${style.tone}`,
     `- 目标篇幅：${style.length}`,
     `- 侧重方向：${style.focus}`,
-    `- 期望结构：${style.outputStructure}`
+    `- 期望结构：${style.outputStructure}`,
+    "",
+    "【管理员自定义要求】",
+    style.customInstructions || "无"
+  ].join("\n");
+}
+
+export function modeInstruction(modeValue: string) {
+  const mode = normalizeContentMode(modeValue);
+  const map: Record<ContentMode, string[]> = {
+    report: [
+      "体裁目标：报道。用清晰的事实线索推进全文，优先回答发生了什么、涉及谁、为何重要。",
+      "结构建议：导语 -> 核心事实 -> 背景 -> 影响 -> 未确认问题。"
+    ],
+    analysis: [
+      "体裁目标：深度分析。不要只罗列材料，要解释背景、因果链、利益相关方和可能影响。",
+      "结构建议：问题定义 -> 关键变化 -> 原因分析 -> 影响评估 -> 后续观察。"
+    ],
+    explainer: [
+      "体裁目标：科普解读。用读者容易理解的语言拆解概念、机制和上下文。",
+      "结构建议：先说明为什么值得理解，再分层解释术语、流程、例子和常见误解。"
+    ],
+    tutorial: [
+      "体裁目标：教程指南。把来源材料转化为可执行的步骤、检查项和注意事项。",
+      "结构建议：适用场景 -> 准备条件 -> 操作步骤 -> 风险提醒 -> 延伸资料。"
+    ],
+    opinion: [
+      "体裁目标：观点评论。可以形成明确判断，但必须把事实、推论和价值判断分开。",
+      "结构建议：核心观点 -> 事实依据 -> 反方或限制 -> 判断理由 -> 结论。"
+    ],
+    roundup: [
+      "体裁目标：合集/周报。把多条材料按主题串联，提炼共同趋势，不逐条机械摘要。",
+      "结构建议：总览 -> 分主题小节 -> 共同趋势 -> 值得继续关注的问题。"
+    ],
+    essay: [
+      "体裁目标：随笔专栏。保持叙述性和可读性，但不能牺牲事实边界。",
+      "结构建议：以一个清晰切入点开头，再展开背景、观察和收束性的结尾。"
+    ]
+  };
+  return map[mode].join("\n");
+}
+
+export function sourceBoundaryRules() {
+  return [
+    "事实边界：",
+    "- 只能使用来源材料中明确出现的信息。",
+    "- 来源不足以确认时，明确写出「来源未提及」「资料不足以确认」或「仍需进一步确认」。",
+    "- 不编造数据、引语、时间线、因果关系、人物态度或未给出的背景。",
+    "- 不复制粘贴原文长段落，要用自己的语言重组。",
+    "- 文末必须保留「## 参考来源」，用 Markdown 链接列出使用到的来源。"
   ].join("\n");
 }
 
@@ -156,7 +208,7 @@ function formatEvidenceText(evidence: EvidenceItem[], summaryLimit = 1000): stri
 
 /**
  * 根据篇幅偏好返回对应的字数指导。
- * generateSummary 用；generateNewsArticle 有自己的 depthConfig。
+ * generateSummary 用；generateContentArticle 有自己的 depthConfig。
  */
 function lengthGuide(length: string): string {
   switch (length) {
@@ -168,100 +220,98 @@ function lengthGuide(length: string): string {
 
 
 export async function generateSummary(input: GenerateSummaryInput) {
+  const mode = normalizeContentMode(input.style.contentMode);
   const prompt = [
     formatStyleBlock(input.style),
     "",
-    "\u3010\u4efb\u52a1\u3011",
-    "\u8bf7\u57fa\u4e8e\u4e0b\u9762\u7684\u6765\u6e90\u6750\u6599\uff0c\u5199\u4e00\u7bc7\u53ef\u4ee5\u76f4\u63a5\u4f5c\u4e3a\u535a\u5ba2\u6587\u7ae0\u53d1\u5e03\u7684\u4e2d\u6587\u6df1\u5ea6\u62a5\u9053\u6216\u89e3\u8bfb\u6587\u7ae0\u3002",
+    "【任务】",
+    `请基于下面的来源材料，写一篇可以作为博客文章草稿发布的中文${contentModeLabel(mode)}。`,
     "",
-    "\u3010\u5199\u4f5c\u89c4\u8303\u3011",
-    "1. \u6807\u9898\uff1a\u50cf\u6b63\u5f0f\u5a92\u4f53\u6807\u9898\uff0c\u4f53\u73b0\u6838\u5fc3\u4e8b\u4ef6\u6216\u89c2\u70b9\uff0c\u7981\u6b62\u51fa\u73b0\u300c\u603b\u7ed3\u300d\u300c\u6458\u8981\u300d\u300c\u8981\u70b9\u6574\u7406\u300d\u300c\u76d8\u70b9\u300d\u7b49\u5b57\u773c\u3002",
-    "2. \u5bfc\u8bed\uff08\u7b2c\u4e00\u6bb5\uff09\uff1a\u7528 2-3 \u53e5\u8bdd\u4ea4\u4ee3\u6700\u6838\u5fc3\u7684\u4e8b\u5b9e\u2014\u2014\u8c01\u505a\u4e86\u4ec0\u4e48\u3001\u4e3a\u4ec0\u4e48\u503c\u5f97\u5173\u6ce8\u3001\u5bf9\u8bfb\u8005\u6709\u4ec0\u4e48\u5f71\u54cd\u3002",
-    "3. \u6b63\u6587\u7ed3\u6784\uff1a",
-    "   - \u81f3\u5c11\u4f7f\u7528 3 \u4e2a ## \u4e8c\u7ea7\u6807\u9898\u5212\u5206\u7ae0\u8282",
-    "   - \u6bcf\u4e2a\u7ae0\u8282\u5fc5\u987b\u662f\u8fde\u8d2f\u7684\u53d9\u8ff0\u6bb5\u843d\uff083-5 \u53e5\uff09\uff0c\u4e0d\u8981\u9000\u5316\u4e3a bullet \u5217\u8868",
-    "   - \u7ae0\u8282\u4e4b\u95f4\u8981\u6709\u8fc7\u6e21\u53e5\uff0c\u8ba9\u5168\u6587\u8bfb\u8d77\u6765\u50cf\u4e00\u7bc7\u5b8c\u6574\u6587\u7ae0\u800c\u4e0d\u662f\u62fc\u51d1\u7684\u7247\u6bb5",
-    `4. \u76ee\u6807\u7bc7\u5e45\uff1a${lengthGuide(input.style.length)}\u3002\u5373\u4f7f\u7bc7\u5e45\u504f\u77ed\u4e5f\u5fc5\u987b\u4fdd\u6301\u5b8c\u6574\u7684\u53d9\u8ff0\u7ed3\u6784\u3002`,
-    "5. \u4e8b\u5b9e\u7eaa\u5f8b\uff1a",
-    "   - \u53ea\u80fd\u4f7f\u7528\u6765\u6e90\u6750\u6599\u4e2d\u660e\u786e\u51fa\u73b0\u7684\u4fe1\u606f",
-    "   - \u6765\u6e90\u4e0d\u8db3\u4ee5\u786e\u8ba4\u7684\u5185\u5bb9\uff0c\u5199\u300c\u6765\u6e90\u672a\u63d0\u53ca\u300d\u6216\u300c\u5c1a\u5f85\u8fdb\u4e00\u6b65\u786e\u8ba4\u300d",
-    "   - \u4e0d\u8981\u7f16\u9020\u6570\u636e\u3001\u5f15\u8a00\u3001\u65f6\u95f4\u7ebf\u6216\u56e0\u679c\u5173\u7cfb",
-    "6. \u6587\u672b\u5217\u51fa\u300c## \u53c2\u8003\u6765\u6e90\u300d\u7ae0\u8282\uff0c\u7528 Markdown \u94fe\u63a5\u683c\u5f0f\u6807\u6ce8\u3002",
-    "7. \u5168\u6587\u8f93\u51fa Markdown \u683c\u5f0f\uff0c\u6807\u9898\u7528 #\uff0c\u6b63\u6587\u7ae0\u8282\u7528 ##\u3002",
+    "【体裁要求】",
+    modeInstruction(mode),
     "",
-    "\u3010\u6765\u6e90\u6750\u6599\u3011",
-    `\u6807\u9898\uff1a${input.item.title}`,
-    `\u94fe\u63a5\uff1a${input.item.url}`,
-    "\u6b63\u6587\u5185\u5bb9\uff1a",
+    "【写作规范】",
+    "1. 标题用 #，不能出现「总结」「摘要」「资料整理」等流水账字眼。",
+    "2. 第一段直接进入主题，交代读者为什么要看这篇文章。",
+    "3. 正文至少使用 3 个 ## 二级标题，段落要连贯，不要退化成 bullet 列表。",
+    `4. 目标篇幅：${lengthGuide(input.style.length)}。篇幅偏短时也必须保持完整结构。`,
+    `5. ${sourceBoundaryRules()}`,
+    "6. 全文输出 Markdown，不要解释写作过程。",
+    "",
+    "【来源材料】",
+    `标题：${input.item.title}`,
+    `链接：${input.item.url}`,
+    "正文内容：",
     input.item.markdown.slice(0, 24000)
   ].join("\n");
 
   const system = [
-    "\u4f60\u662f\u300c\u62fe\u8d1d\u300d\u535a\u5ba2\u5e73\u53f0\u7684\u8d44\u6df1\u4e2d\u6587\u7f16\u8f91\u3002",
-    "\u4f60\u7684\u804c\u8d23\u662f\u628a\u6765\u6e90\u6750\u6599\u6539\u5199\u6210\u4e00\u7bc7\u7ed3\u6784\u5b8c\u6574\u3001\u4e8b\u5b9e\u51c6\u786e\u3001\u9002\u5408\u76f4\u63a5\u53d1\u5e03\u7684\u535a\u5ba2\u6587\u7ae0\u3002",
-    "\u4e25\u683c\u7981\u6b62\uff1a\u7f16\u9020\u4e8b\u5b9e\u3001\u5199\u6210\u6458\u8981\u6216\u8981\u70b9\u5217\u8868\u3001\u590d\u5236\u7c98\u8d34\u539f\u6587\u3001\u5728\u6807\u9898\u4e2d\u4f7f\u7528\u300c\u603b\u7ed3\u300d\u7b49\u8bcd\u3002",
-    "\u4f60\u5fc5\u987b\u7528\u81ea\u5df1\u7684\u8bed\u8a00\u91cd\u65b0\u7ec4\u7ec7\u4fe1\u606f\uff0c\u50cf\u8bb0\u8005\u5199\u7a3f\u4e00\u6837\u53d9\u8ff0\u4e8b\u5b9e\u3002"
+    "你是「拾贝」博客平台的资深中文内容编辑。",
+    `你要把来源材料改写成结构完整、事实准确、适合发布的中文${contentModeLabel(mode)}。`,
+    "严格禁止编造事实、复制粘贴原文、输出写作过程或把文章写成机械摘要列表。"
   ].join("\n");
 
   return requestChatCompletion(input.modelConfig, prompt, system);
 }
 
-export async function generateNewsArticle(input: GenerateNewsArticleInput) {
+export async function generateContentArticle(input: GenerateContentArticleInput) {
   const depthConfig = getDepthConfig(input.depth);
+  const mode = normalizeContentMode(input.style.contentMode);
 
   const prompt = [
     formatStyleBlock(input.style),
     "",
-    "\u3010\u4efb\u52a1\u4fe1\u606f\u3011",
-    `\u9009\u9898\u5173\u952e\u8bcd\uff1a${input.keyword}`,
-    `\u62a5\u9053\u8303\u56f4\uff1a${input.scopeLabel}`,
-    `\u672c\u6b21\u4efb\u52a1\u8ba1\u5212\u751f\u6210 ${input.articleCount} \u7bc7\uff0c\u8fd9\u662f\u7b2c ${input.articleIndex} \u7bc7\u3002`,
-    `\u62a5\u9053\u957f\u5ea6\uff1a${depthConfig.label}\uff0c\u76ee\u6807\u6b63\u6587\u7ea6 ${depthConfig.words} \u4e2a\u4e2d\u6587\u5b57\u7b26\u3002`,
+    "【任务信息】",
+    `选题关键词：${input.keyword}`,
+    `资料范围：${input.scopeLabel}`,
+    `本次任务计划生成 ${input.articleCount} 篇，这是第 ${input.articleIndex} 篇。`,
+    `内容体裁：${contentModeLabel(mode)}`,
+    `文章长度：${depthConfig.label}，目标正文约 ${depthConfig.words} 个中文字符。`,
     "",
-    "\u3010\u5199\u4f5c\u89c4\u8303\u3011",
-    "\u8bf7\u57fa\u4e8e\u4e0b\u9762\u591a\u6761\u6765\u6e90\u8d44\u6599\uff0c\u5199\u4e00\u7bc7\u53ef\u4f5c\u4e3a\u535a\u5ba2\u8349\u7a3f\u53d1\u5e03\u7684\u4e2d\u6587\u62a5\u9053\u3002\u8981\u6c42\u5982\u4e0b\uff1a",
-    "1. \u6807\u9898\uff1a\u50cf\u6b63\u5f0f\u65b0\u95fb\u62a5\u9053\u6807\u9898\uff0c\u7981\u6b62\u51fa\u73b0\u300c\u603b\u7ed3\u300d\u300c\u6458\u8981\u300d\u300c\u8d44\u6599\u6574\u7406\u300d\u7b49\u5b57\u773c\u3002",
-    "2. \u5bfc\u8bed\uff1a\u7528\u4e00\u6bb5\u8bdd\u5199\u6e05\u695a\u6700\u65b0\u4e8b\u5b9e\u3001\u4e3b\u4f53\u3001\u65f6\u95f4\u3001\u5730\u70b9\u3001\u5f71\u54cd\u548c\u4e3a\u4ec0\u4e48\u91cd\u8981\u3002",
-    "3. \u6b63\u6587\u91c7\u7528\u62a5\u9053\u7ed3\u6784\uff1a\u5bfc\u8bed\u2192\u6838\u5fc3\u4e8b\u5b9e\u2192\u80cc\u666f\u8109\u7edc\u2192\u591a\u65b9\u4fe1\u606f\u2192\u5f71\u54cd\u5206\u6790\u2192\u5f85\u786e\u8ba4\u95ee\u9898\u3002",
-    "4. \u81f3\u5c11\u4f7f\u7528 4 \u4e2a ## \u4e8c\u7ea7\u6807\u9898\u7ec4\u7ec7\u6b63\u6587\uff1b\u6bcf\u4e2a\u7ae0\u8282\u5fc5\u987b\u662f\u8fde\u8d2f\u53d9\u8ff0\u6bb5\u843d\uff0c\u4e0d\u8981\u53ea\u5199 bullet\u3002",
-    "5. \u4e0d\u8981\u9010\u6761\u8f6c\u8ff0\u6bcf\u6761\u8d44\u6599\uff0c\u800c\u662f\u628a\u591a\u6761\u8d44\u6599\u878d\u5408\u3001\u7efc\u5408\u53d9\u8ff0\uff0c\u50cf\u8bb0\u8005\u5199\u7a3f\u4e00\u6837\u3002",
-    "6. \u53ea\u80fd\u4f7f\u7528\u8d44\u6599\u4e2d\u51fa\u73b0\u7684\u4fe1\u606f\uff1b\u8d44\u6599\u4e0d\u8db3\u65f6\u660e\u786e\u5199\u51fa\u300c\u4e0d\u8db3\u4ee5\u786e\u8ba4\u300d\u3002",
-    "7. \u4e0d\u540c\u6765\u6e90\u8bf4\u6cd5\u4e0d\u4e00\u81f4\u65f6\uff0c\u8981\u6807\u51fa\u5206\u6b67\uff0c\u4e0d\u8981\u66ff\u6765\u6e90\u4e0b\u7ed3\u8bba\u3002",
-    "8. \u540c\u4e00\u4efb\u52a1\u591a\u7bc7\u65f6\uff0c\u8bf7\u9009\u62e9\u72ec\u7acb\u89d2\u5ea6\uff0c\u907f\u514d\u548c\u5176\u4ed6\u7bc7\u5b8c\u5168\u91cd\u590d\u3002",
-    "9. \u6587\u672b\u5217\u51fa\u300c## \u53c2\u8003\u6765\u6e90\u300d\uff0c\u7528 Markdown \u94fe\u63a5\u5217\u51fa\u7528\u5230\u7684\u6765\u6e90\u3002",
-    `10. \u8f93\u51fa Markdown\uff1b\u6b63\u6587\u4e0d\u8981\u77ed\u4e8e ${depthConfig.minWords} \u4e2a\u4e2d\u6587\u5b57\u7b26\u3002`,
+    "【体裁要求】",
+    modeInstruction(mode),
     "",
-    "\u3010\u6765\u6e90\u8d44\u6599\u3011",
+    "【写作规范】",
+    `请基于下面多条来源资料，写一篇可作为博客草稿发布的中文${contentModeLabel(mode)}。要求如下：`,
+    "1. 标题用 #，要体现核心主题或观点，禁止出现「总结」「摘要」「资料整理」等字眼。",
+    "2. 开头用一段话给出文章切入点，说明这组资料为什么值得读。",
+    "3. 正文至少使用 4 个 ## 二级标题；每个章节必须是连贯段落，不要只写 bullet。",
+    "4. 不要逐条转述每条资料，要融合多来源信息并组织成一篇完整文章。",
+    `5. ${sourceBoundaryRules()}`,
+    "6. 同一任务多篇时，请选择独立角度，避免和其他篇完全重复。",
+    `7. 输出 Markdown；正文不要短于 ${depthConfig.minWords} 个中文字符。`,
+    "",
+    "【来源资料】",
     formatEvidenceText(input.evidence).slice(0, 12000)
   ].join("\n");
 
   const system = [
-    "\u4f60\u662f\u300c\u62fe\u8d1d\u300d\u535a\u5ba2\u5e73\u53f0\u7684\u8d44\u6df1\u4e2d\u6587\u65b0\u95fb\u7f16\u8f91\u3002",
-    "\u4f60\u7684\u804c\u8d23\u662f\u628a\u591a\u6765\u6e90\u8d44\u6599\u6574\u5408\u6210\u4e00\u7bc7\u6709\u4e8b\u5b9e\u4f9d\u636e\u3001\u53ef\u5ba1\u6838\u53d1\u5e03\u7684\u65b0\u95fb\u7a3f\u3002",
-    "\u4e25\u683c\u7981\u6b62\uff1a\u7f16\u9020\u4e8b\u5b9e\u3001\u5199\u6210\u6458\u8981\u5217\u8868\u3001\u9010\u6761\u590d\u8ff0\u6bcf\u6761\u8d44\u6599\u3002",
-    "\u4f60\u5fc5\u987b\u878d\u5408\u591a\u6765\u6e90\u4fe1\u606f\uff0c\u7528\u81ea\u5df1\u7684\u8bed\u8a00\u7f16\u7ec7\u53d9\u8ff0\u3002"
+    "你是「拾贝」博客平台的资深中文内容编辑。",
+    `你的职责是把多来源资料整合成一篇有事实依据、可审核发布的中文${contentModeLabel(mode)}。`,
+    "严格禁止编造事实、写成机械摘要列表、逐条复述每条资料。"
   ].join("\n");
 
   const generated = await requestChatCompletion(input.modelConfig, prompt, system);
-  return expandNewsArticleIfTooShort(input, generated, depthConfig);
+  return expandContentArticleIfTooShort(input, generated, depthConfig);
 }
 
 function getDepthConfig(depth: ResearchDepth) {
-  if (depth === "standard") return { label: "标准报道", words: 1200, minWords: 1100 };
-  if (depth === "deep") return { label: "深度报道", words: 3200, minWords: 3000 };
-  return { label: "长报道", words: 2000, minWords: 1900 };
+  if (depth === "standard") return { label: "标准文章", words: 1200, minWords: 1100 };
+  if (depth === "deep") return { label: "深度长文", words: 3200, minWords: 3000 };
+  return { label: "长文章", words: 2000, minWords: 1900 };
 }
 
-async function expandNewsArticleIfTooShort(
-  input: GenerateNewsArticleInput,
+async function expandContentArticleIfTooShort(
+  input: GenerateContentArticleInput,
   generated: string,
   depthConfig: ReturnType<typeof getDepthConfig>
 ) {
   const currentChars = countArticleBodyChars(generated);
   if (currentChars >= depthConfig.minWords) return generated;
+  const mode = normalizeContentMode(input.style.contentMode);
 
   const prompt = [
-    "下面是一篇已经生成的中文新闻草稿，但它没有达到后台选择的报道长度要求。",
+    `下面是一篇已经生成的中文${contentModeLabel(mode)}草稿，但它没有达到后台选择的长度要求。`,
     "",
     "【硬性长度要求】",
     `- 当前正文有效字符数约 ${currentChars}。`,
@@ -271,7 +321,7 @@ async function expandNewsArticleIfTooShort(
     "【扩写规则】",
     "1. 保留原有 Markdown 结构和参考来源章节。",
     "2. 只能基于来源资料和原草稿已经出现的事实扩写，不得新增来源资料之外的事实、日期、数字或引用。",
-    "3. 优先扩写背景脉络、影响分析、竞争格局、待确认问题和来源分歧。",
+    "3. 根据体裁优先扩写背景脉络、影响分析、操作细节、概念解释、反方限制或待确认问题。",
     "4. 输出完整 Markdown 正文，不要解释你做了什么。",
     "",
     "【原草稿】",
@@ -284,7 +334,7 @@ async function expandNewsArticleIfTooShort(
   return requestChatCompletion(
     input.modelConfig,
     prompt,
-    "你是严格的中文新闻编辑。你的任务是把短稿扩写到指定字数，同时保持事实边界，不编造任何来源资料之外的信息。"
+    "你是严格的中文内容编辑。你的任务是把短稿扩写到指定字数，同时保持事实边界，不编造任何来源资料之外的信息。"
   );
 }
 
@@ -301,37 +351,41 @@ function countArticleBodyChars(markdown: string) {
 
 export async function generateDigest(input: GenerateDigestInput) {
   const isWeekly = input.digestKind === "WEEKLY_ROUNDUP";
-  const formatLabel = isWeekly ? "\u5468\u62a5\u7efc\u8ff0" : "\u6bcf\u65e5\u8981\u95fb";
+  const formatLabel = isWeekly ? "周报/合集" : "每日合集";
   const wordTarget = isWeekly ? "2200" : "1500";
   const minWords = isWeekly ? "1700" : "1100";
+  const mode = normalizeContentMode(input.style.contentMode || "roundup");
 
   const prompt = [
     formatStyleBlock(input.style),
     "",
-    "\u3010\u4efb\u52a1\u4fe1\u606f\u3011",
-    `\u4e3b\u9898\uff1a${input.topicName}`,
-    `\u62a5\u9053\u8303\u56f4\uff1a${input.scopeLabel}`,
-    `\u65f6\u95f4\u7a97\u53e3\uff1a${input.windowLabel}`,
-    `\u4ea7\u51fa\u5f62\u5f0f\uff1a${formatLabel}`,
+    "【任务信息】",
+    `主题：${input.topicName}`,
+    `资料范围：${input.scopeLabel}`,
+    `时间窗口：${input.windowLabel}`,
+    `产出形式：${formatLabel}`,
+    `内容体裁：${contentModeLabel(mode)}`,
     "",
-    "\u3010\u5199\u4f5c\u89c4\u8303\u3011",
-    `\u8bf7\u57fa\u4e8e\u4e0b\u9762\u591a\u6761\u540c\u4e3b\u9898\u3001\u540c\u65f6\u95f4\u7a97\u53e3\u7684\u6765\u6e90\u8d44\u6599\uff0c\u5199\u4e00\u7bc7\u53ef\u4f5c\u4e3a\u535a\u5ba2\u53d1\u5e03\u7684\u4e2d\u6587 ${formatLabel}\u3002`,
-    `1. \u8fd9\u662f ${formatLabel}\uff0c\u4e0d\u662f\u9010\u6761\u65b0\u95fb\u603b\u7ed3\uff0c\u4e5f\u4e0d\u662f\u5355\u4e00\u4e8b\u4ef6\u62a5\u9053\u3002`,
-    `2. \u6807\u9898\u5e94\u50cf${isWeekly ? "\u5468\u62a5" : "\u65e5\u62a5"}\u6807\u9898\uff08\u4f8b\u5982\u300c\u672c\u5468\u79d1\u6280\u8981\u95fb\uff1a\u2026\u2026\u300d\u3001\u300c\u4eca\u65e5\u7ecf\u6d4e\u89c2\u5bdf\uff1a\u2026\u2026\u300d\uff09\uff0c\u7981\u6b62\u7528\u300c\u6458\u8981\u300d\u300c\u8d44\u6599\u6574\u7406\u300d\u3002`,
-    "3. \u5f00\u5934\u5199\u4e00\u6bb5\u5f15\u8a00\uff0c\u6982\u62ec\u672c\u671f\u8986\u76d6\u7684\u4e3b\u8981\u4e8b\u4ef6\u548c\u5171\u540c\u8d8b\u52bf\u3002",
-    "4. \u6b63\u6587\u6309\u4e3b\u9898/\u4e8b\u4ef6\u5206\u5757\u7ec4\u7ec7\uff0c\u6bcf\u4e2a\u4e8b\u4ef6\u7528 ## \u4e8c\u7ea7\u6807\u9898\uff0c\u4e0b\u9762 1-2 \u6bb5\u53d9\u8ff0\uff08\u5fc5\u987b\u662f\u8fde\u7eed\u6bb5\u843d\uff0c\u4e0d\u8981 bullet\uff09\u3002",
-    "5. \u4e8b\u4ef6\u4e4b\u95f4\u53ef\u4ee5\u505a\u5bf9\u6bd4\u3001\u4e32\u8054\u6216\u8d8b\u52bf\u5206\u6790\uff1b\u53ea\u80fd\u57fa\u4e8e\u8d44\u6599\u4e2d\u7684\u4fe1\u606f\uff0c\u4e0d\u5f97\u51ed\u7a7a\u53d1\u6325\u3002",
-    "6. \u8d44\u6599\u4e0d\u8db3\u4ee5\u786e\u8ba4\u65f6\uff0c\u660e\u786e\u5199\u51fa\u300c\u8d44\u6599\u4e2d\u672a\u63d0\u53ca\u300d\u3002",
-    "7. \u6587\u672b\u5217\u51fa\u300c## \u53c2\u8003\u6765\u6e90\u300d\uff0c\u7528 Markdown \u94fe\u63a5\u5217\u51fa\u672c\u671f\u7528\u5230\u7684\u6765\u6e90\u3002",
-    `8. \u8f93\u51fa Markdown\uff1b\u6b63\u6587\u4e0d\u5c11\u4e8e ${minWords} \u4e2a\u4e2d\u6587\u5b57\u7b26\uff0c\u76ee\u6807\u7ea6 ${wordTarget} \u4e2a\u3002`,
+    "【体裁要求】",
+    modeInstruction(mode === "report" ? "roundup" : mode),
     "",
-    "\u3010\u6765\u6e90\u8d44\u6599\u3011",
+    "【写作规范】",
+    `请基于下面多条同主题、同时间窗口的来源资料，写一篇可作为博客发布的中文${formatLabel}。`,
+    `1. 这是 ${formatLabel}，不是逐条材料摘要，也不应写成单一事件稿。`,
+    `2. 标题应体现本期主题或共同线索，禁止使用「摘要」「资料整理」。`,
+    "3. 开头写一段引言，概括本期覆盖的主要材料和共同趋势。",
+    "4. 正文按主题/事件/问题分块组织，每个小节用 ## 二级标题，下方必须是连续段落。",
+    "5. 材料之间可以做对比、串联或趋势分析；只能基于资料中的信息，不得凭空发挥。",
+    `6. ${sourceBoundaryRules()}`,
+    `7. 输出 Markdown；正文不少于 ${minWords} 个中文字符，目标约 ${wordTarget} 个。`,
+    "",
+    "【来源资料】",
     formatEvidenceText(input.evidence, 800).slice(0, 14000)
   ].join("\n");
 
   const system = [
-    `\u4f60\u662f\u300c\u62fe\u8d1d\u300d\u535a\u5ba2\u5e73\u53f0\u7684\u8d44\u6df1\u4e2d\u6587\u65b0\u95fb\u7f16\u8f91\uff0c\u8d1f\u8d23\u628a\u540c\u4e00\u4e3b\u9898\u3001\u540c\u4e00\u65f6\u95f4\u7a97\u53e3\u7684\u591a\u6761\u6765\u6e90\u6574\u5408\u6210\u4e00\u4efd${formatLabel}\u3002`,
-    "\u8981\u6c42\u4e8b\u5b9e\u6709\u4f9d\u636e\u3001\u53ef\u5ba1\u6838\u53d1\u5e03\u3002\u4e0d\u8981\u5199\u6210 bullet \u6458\u8981\uff0c\u4e0d\u8981\u9010\u6761\u590d\u8ff0\u8d44\u6599\u3002"
+    `你是「拾贝」博客平台的资深中文内容编辑，负责把同一主题、同一时间窗口的多条来源整合成一份${formatLabel}。`,
+    "要求事实有依据、可审核发布。不要写成 bullet 摘要，不要逐条复述资料。"
   ].join("\n");
 
   return requestChatCompletion(input.modelConfig, prompt, system);
@@ -476,7 +530,7 @@ export async function translatePostToEnglish(input: {
   content: string;
 }) {
   const prompt = [
-    "Translate the following Chinese blog/news post into natural, publication-quality English.",
+    "Translate the following Chinese blog/posts post into natural, publication-quality English.",
     "",
     "Rules:",
     "1. Return strict JSON only with keys: title, summary, content.",
@@ -498,7 +552,7 @@ export async function translatePostToEnglish(input: {
   const raw = await requestChatCompletion(
     input.modelConfig,
     prompt,
-    "You are a professional bilingual news translator (Chinese \u2192 English). Produce natural, publication-ready English while preserving meaning, names, numbers, citations, and Markdown structure. Output strict JSON only."
+    "You are a professional bilingual blog translator (Chinese \u2192 English). Produce natural, publication-ready English while preserving meaning, names, numbers, citations, and Markdown structure. Output strict JSON only."
   );
   const parsed = parseJsonObject(raw) as { title?: string; summary?: string; content?: string };
   return {
@@ -519,7 +573,7 @@ export async function generateAssistantReply(input: {
     "",
     "【角色】",
     "你是「拾贝」博客的 AI 助手，嵌入在文章页面中。你可以：",
-    "- 解释当前页面的新闻内容、背景和影响",
+    "- 解释当前页面的文章内容、背景和影响",
     "- 回答用户关于文章的追问和对比",
     "- 给出写作建议和内容延伸",
     "",

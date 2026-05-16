@@ -19,7 +19,7 @@ export default async function VideoDetailPage({ params }: { params: Promise<{ sl
           <VideoEmbed video={video} />
           {video.post ? (
             <p>
-              <Link className="text-link" href={`/news/${video.post.slug}`}>
+              <Link className="text-link" href={`/posts/${video.post.slug}`}>
                 阅读关联文章：{video.post.title}
               </Link>
             </p>

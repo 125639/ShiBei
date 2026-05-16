@@ -80,7 +80,7 @@ export async function loadStats(window: StatsWindow = "week"): Promise<StatsPayl
     prisma.post.count({ where: { status: "DRAFT" } }),
     prisma.video.count(),
     prisma.source.count(),
-    prisma.newsTopic.count(),
+    prisma.contentTopic.count(),
     prisma.post.count({ where: { createdAt: { gte: todayStart } } }),
     prisma.post.count({ where: { createdAt: { gte: weekStart } } }),
     prisma.video.count({ where: { createdAt: { gte: todayStart } } }),
@@ -162,7 +162,7 @@ function bucketByHour(dates: Date[]): StatsBucket[] {
 }
 
 async function loadTopicCounts(since: Date): Promise<TopicSlice[]> {
-  const topics = await prisma.newsTopic.findMany({
+  const topics = await prisma.contentTopic.findMany({
     select: {
       id: true,
       name: true,

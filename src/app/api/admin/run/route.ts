@@ -27,10 +27,12 @@ export async function POST(request: Request) {
   const sourceId = String(form.get("sourceId") || "");
   const tempUrl = String(form.get("tempUrl") || "");
   const redirectTarget = normalizeRedirect(String(form.get("redirectTo") || "/admin/jobs"));
-  const modelConfig = await getModelConfigForUse("news");
-  const style =
-    (await prisma.summaryStyle.findFirst({ where: { isDefault: true } })) ||
-    (await prisma.summaryStyle.findFirst());
+  const contentStyleId = String(form.get("contentStyleId") || "").trim();
+  const modelConfig = await getModelConfigForUse("content");
+  const style = contentStyleId
+    ? await prisma.contentStyle.findUnique({ where: { id: contentStyleId } })
+    : (await prisma.contentStyle.findFirst({ where: { isDefault: true } })) ||
+      (await prisma.contentStyle.findFirst());
 
   if (keyword) {
     const queue = getResearchQueue();
@@ -40,7 +42,7 @@ export async function POST(request: Request) {
           sourceUrl: buildKeywordResearchUrl(keyword, keywordScope, articleCount, articleDepth),
           sourceType: "WEB",
           modelConfigId: modelConfig?.id,
-          summaryStyleId: style?.id
+          contentStyleId: style?.id
         }
       });
       await queue.add("fetch", { fetchJobId: job.id }, { priority: 1 });
@@ -62,7 +64,7 @@ export async function POST(request: Request) {
           sourceUrl: tempUrl,
           sourceType: type,
           modelConfigId: modelConfig?.id,
-          summaryStyleId: style?.id
+          contentStyleId: style?.id
         }
       });
       await queue.add("fetch", { fetchJobId: job.id });
@@ -77,7 +79,7 @@ export async function POST(request: Request) {
           sourceUrl: source.url,
           sourceType: source.type,
           modelConfigId: modelConfig?.id,
-          summaryStyleId: style?.id
+          contentStyleId: style?.id
         }
       });
       await queue.add("fetch", { fetchJobId: job.id });
@@ -93,7 +95,7 @@ export async function POST(request: Request) {
             sourceUrl: source.url,
             sourceType: source.type,
             modelConfigId: modelConfig?.id,
-            summaryStyleId: style?.id
+            contentStyleId: style?.id
           }
         });
         await queue.add("fetch", { fetchJobId: job.id });

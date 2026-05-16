@@ -70,9 +70,15 @@ export function isResearchScope(value: string): value is ResearchScope {
   return value === "all" || value === "domestic" || value === "international";
 }
 
-function isResearchDepth(value: string): value is ResearchDepth {
+export function isResearchDepth(value: string): value is ResearchDepth {
   return value === "standard" || value === "long" || value === "deep";
 }
+
+export function isCompileKind(value: string): value is CompileKind {
+  return value === "SINGLE_ARTICLE" || value === "DAILY_DIGEST" || value === "WEEKLY_ROUNDUP";
+}
+
+export type CompileKind = "SINGLE_ARTICLE" | DigestKind;
 
 function clampArticleCount(value: number) {
   if (!Number.isFinite(value)) return 1;

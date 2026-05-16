@@ -135,8 +135,8 @@ async function upsertPost(payload: SyncPostPayload): Promise<"upserted" | "skipp
 
   const topicConnects: { id: string }[] = [];
   for (const t of payload.topics) {
-    // Topic 表(NewsTopic)在 frontend 模式下大概率为空。我们按 slug 查；找不到就跳过该 topic 关联（避免在前端创建空 Topic）。
-    const existingTopic = await prisma.newsTopic.findUnique({ where: { slug: t.slug }, select: { id: true } });
+    // Topic 表(ContentTopic)在 frontend 模式下大概率为空。我们按 slug 查；找不到就跳过该 topic 关联（避免在前端创建空 Topic）。
+    const existingTopic = await prisma.contentTopic.findUnique({ where: { slug: t.slug }, select: { id: true } });
     if (existingTopic) topicConnects.push({ id: existingTopic.id });
   }
 

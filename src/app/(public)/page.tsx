@@ -4,6 +4,9 @@ import { I18nText } from "@/components/I18nText";
 import { PublicShell } from "@/components/PublicShell";
 import { prisma } from "@/lib/prisma";
 
+const HOME_POST_VARIANTS = ["bento-large", "bento-wide"] as const;
+const HOME_VIDEO_VARIANTS = ["bento-wide"] as const;
+
 export default async function HomePage() {
   const [posts, videos, settings, publishedPostCount, videoCount] = await Promise.all([
     prisma.post.findMany({
@@ -35,8 +38,8 @@ export default async function HomePage() {
             <I18nText zh={description} en="The backend gathers and prepares articles; the frontend presents them with calm typography and breathing room." />
           </p>
           <div className="cta-row">
-            <Link className="button" href="/news">
-              <I18nText zh="阅读最新总结" en="Read the latest" />
+            <Link className="button" href="/posts">
+              <I18nText zh="阅读最新文章" en="Read the latest" />
             </Link>
             <Link className="button secondary" href="/write">
               <I18nText zh="开始写作" en="Start writing" />
@@ -45,9 +48,9 @@ export default async function HomePage() {
         </section>
 
         <section className="apple-section kpi-belt" aria-label="Overview stats">
-          <Link className="bento-card kpi-tile" href="/news">
+          <Link className="bento-card kpi-tile" href="/posts">
             <span className="kpi-value">{publishedPostCount}</span>
-            <span className="kpi-label"><I18nText zh="已发布总结" en="Published posts" /></span>
+            <span className="kpi-label"><I18nText zh="已发布文章" en="Published posts" /></span>
           </Link>
           <Link className="bento-card kpi-tile" href="/videos">
             <span className="kpi-value">{videoCount}</span>
@@ -75,7 +78,7 @@ export default async function HomePage() {
               prompts: [
                 "按重要性给这些内容排序",
                 "整理一个 5 分钟快速了解版本",
-                "这些报道之间有什么关联？"
+                "这些文章之间有什么关联？"
               ]
             }
           ]}
@@ -87,8 +90,8 @@ export default async function HomePage() {
 
         <section className="apple-section">
           <div className="apple-section-head">
-            <p className="eyebrow-apple"><I18nText zh="新闻总结" en="News" /></p>
-            <h2><I18nText zh="最近整理的报道" en="Recently curated stories" /></h2>
+            <p className="eyebrow-apple"><I18nText zh="内容文章" en="Posts" /></p>
+            <h2><I18nText zh="最近生成与整理的文章" en="Recently curated posts" /></h2>
             <p className="lead">
               <I18nText
                 zh="精选近期发布的文章，跨越事实、影响与背景。"
@@ -99,7 +102,7 @@ export default async function HomePage() {
           <div className="bento-grid content-bento">
             {posts.length ? (
               posts.map((post, index) => (
-                <Link className={`bento-card post-card ${index === 0 ? "bento-large" : index === 1 ? "bento-wide" : ""}`} key={post.id} href={`/news/${post.slug}`}>
+                <Link className={`bento-card post-card ${HOME_POST_VARIANTS[index] || ""}`} key={post.id} href={`/posts/${post.slug}`}>
                   <div>
                     <div className="meta-row">
                       <span>{post.publishedAt?.toLocaleDateString("zh-CN") || "未发布"}</span>
@@ -116,14 +119,14 @@ export default async function HomePage() {
             ) : (
               <div className="bento-card bento-wide">
                 <h3><I18nText zh="还没有发布内容" en="No published content yet" /></h3>
-                <p><I18nText zh="进入后台添加信息源，运行抓取与总结任务，审核后即可出现在这里。" en="Add sources in the admin area, run fetch and summarization jobs, then publish reviewed drafts here." /></p>
+                <p><I18nText zh="进入后台添加信息源，运行资料搜索与内容生成任务，审核后即可出现在这里。" en="Add sources in the admin area, run research and generation jobs, then publish reviewed drafts here." /></p>
                 <Link className="text-link" href="/admin"><I18nText zh="进入后台" en="Admin" /></Link>
               </div>
             )}
           </div>
           <div style={{ display: "flex", justifyContent: "center", marginTop: "32px" }}>
-            <Link className="button secondary" href="/news">
-              <I18nText zh="查看全部新闻" en="View all news" />
+            <Link className="button secondary" href="/posts">
+              <I18nText zh="查看全部文章" en="View all posts" />
             </Link>
           </div>
         </section>
@@ -142,7 +145,7 @@ export default async function HomePage() {
           <div className="bento-grid compact-bento">
             {videos.length ? (
               videos.map((video, index) => (
-                <Link className={`bento-card video-card ${index === 0 ? "bento-wide" : ""}`} key={video.id} href={`/videos/${video.id}`}>
+                <Link className={`bento-card video-card ${HOME_VIDEO_VARIANTS[index] || ""}`} key={video.id} href={`/videos/${video.id}`}>
                   <div>
                     <div className="meta-row"><span>{video.type}</span></div>
                     <h3>{video.title}</h3>
