@@ -1,0 +1,55 @@
+"use client";
+
+import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useUnsavedChangesGuard } from "./useUnsavedChangesGuard";
+
+type Props = {
+  children: ReactNode;
+  action: string;
+  method?: "post" | "POST";
+  className?: string;
+  encType?: string;
+  /** 已保存提示消失的毫秒数,默认 2500ms。 */
+  savedHintMs?: number;
+};
+
+/**
+ * 包裹 admin form 的 client wrapper:
+ * - 检测内部字段变更,挂 beforeunload 警告
+ * - submit 时清除 dirty 标记(submit 成功后页面会跳转,自然不再 dirty)
+ *
+ * 当 form 内部还有更精细的 client logic(autosave 等)时,可以替换为更专门
+ * 的 wrapper;此组件只解决"误关页面丢稿"这一条最关键的体验问题。
+ */
+export function DirtyAwareForm({
+  children,
+  action,
+  method = "post",
+  className,
+  encType,
+  savedHintMs = 2500
+}: Props) {
+  const [dirty, setDirty] = useState(false);
+  const formRef = useRef<HTMLFormElement | null>(null);
+  useUnsavedChangesGuard(dirty);
+
+  useEffect(() => {
+    return () => {
+      if (savedHintMs <= 0) return;
+    };
+  }, [savedHintMs]);
+
+  return (
+    <form
+      ref={formRef}
+      action={action}
+      method={method}
+      className={className}
+      encType={encType}
+      onChange={() => setDirty(true)}
+      onSubmit={() => setDirty(false)}
+    >
+      {children}
+    </form>
+  );
+}

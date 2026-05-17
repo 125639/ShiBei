@@ -12,7 +12,8 @@ export function CustomCursor() {
   const cursorX = useMotionValue(-100);
   const cursorY = useMotionValue(-100);
 
-  const springConfig = { damping: 25, stiffness: 400, mass: 0.5 };
+  // 细环时 dot 即时跟随、环略带 0.05s 阻尼追上 — 软但不漂浮。
+  const springConfig = { damping: 28, stiffness: 380, mass: 0.35 };
   const cursorXSpring = useSpring(cursorX, springConfig);
   const cursorYSpring = useSpring(cursorY, springConfig);
 

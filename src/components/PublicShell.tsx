@@ -17,6 +17,9 @@ export async function PublicShell({ children }: { children: React.ReactNode }) {
 
   return (
     <div className="site-shell">
+      <a href="#site-main" className="skip-link">
+        <I18nText zh="跳到主要内容" en="Skip to main content" />
+      </a>
       <header className="site-header site-header-glass">
         <Link className="brand-mark" href="/">
           <strong>{settings?.name || "ShiBei"}</strong>
@@ -24,7 +27,7 @@ export async function PublicShell({ children }: { children: React.ReactNode }) {
             <I18nText zh={settings?.description || "抓取、整理、发布信息"} en="Automated Info Curation & Publishing" />
           </span>
         </Link>
-        <nav className="nav">
+        <nav className="nav" aria-label="Primary">
           <Link href="/posts"><I18nText zh="文章" en="Posts" /></Link>
           <Link href="/videos"><I18nText zh="视频资源" en="Videos" /></Link>
           <Link href="/write"><I18nText zh="写作" en="Write" /></Link>
@@ -34,7 +37,7 @@ export async function PublicShell({ children }: { children: React.ReactNode }) {
           <Link href="/admin"><I18nText zh="管理" en="Admin" /></Link>
         </nav>
       </header>
-      {children}
+      <div id="site-main" tabIndex={-1}>{children}</div>
       <footer className="site-footer muted">
         <I18nText
           zh="由管理员审核发布。AI 生成内容仅作为信息整理与写作辅助，具体事实请以原始来源为准。"

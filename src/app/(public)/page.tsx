@@ -7,6 +7,17 @@ import { prisma } from "@/lib/prisma";
 const HOME_POST_VARIANTS = ["bento-large", "bento-wide"] as const;
 const HOME_VIDEO_VARIANTS = ["bento-wide"] as const;
 
+function postVariant(index: number, total: number): string {
+  // 网格促位只在 ≥4 条时生效,否则 1-2 条会留下大片空白。
+  if (total < 4) return "";
+  return HOME_POST_VARIANTS[index] || "";
+}
+
+function videoVariant(index: number, total: number): string {
+  if (total < 3) return "";
+  return HOME_VIDEO_VARIANTS[index] || "";
+}
+
 export default async function HomePage() {
   const [posts, videos, settings, publishedPostCount, videoCount] = await Promise.all([
     prisma.post.findMany({
@@ -102,7 +113,7 @@ export default async function HomePage() {
           <div className="bento-grid content-bento">
             {posts.length ? (
               posts.map((post, index) => (
-                <Link className={`bento-card post-card ${HOME_POST_VARIANTS[index] || ""}`} key={post.id} href={`/posts/${post.slug}`}>
+                <article className={`bento-card post-card linked-card ${postVariant(index, posts.length)}`} key={post.id}>
                   <div>
                     <div className="meta-row">
                       <span>{post.publishedAt?.toLocaleDateString("zh-CN") || "未发布"}</span>
@@ -110,17 +121,20 @@ export default async function HomePage() {
                         <span className="tag" key={tag.id}>{tag.name}</span>
                       ))}
                     </div>
-                    <h3><I18nText zh={post.title} en={(post as { titleEn?: string | null }).titleEn || post.title} /></h3>
+                    <h3>
+                      <Link className="card-link" href={`/posts/${post.slug}`}>
+                        <I18nText zh={post.title} en={(post as { titleEn?: string | null }).titleEn || post.title} />
+                      </Link>
+                    </h3>
                     <p><I18nText zh={post.summary} en={(post as { summaryEn?: string | null }).summaryEn || post.summary} /></p>
                   </div>
-                  <span className="text-link"><I18nText zh="阅读全文" en="Read more" /></span>
-                </Link>
+                  <span className="text-link" aria-hidden="true"><I18nText zh="阅读全文" en="Read more" /></span>
+                </article>
               ))
             ) : (
-              <div className="bento-card bento-wide">
-                <h3><I18nText zh="还没有发布内容" en="No published content yet" /></h3>
-                <p><I18nText zh="进入后台添加信息源，运行资料搜索与内容生成任务，审核后即可出现在这里。" en="Add sources in the admin area, run research and generation jobs, then publish reviewed drafts here." /></p>
-                <Link className="text-link" href="/admin"><I18nText zh="进入后台" en="Admin" /></Link>
+              <div className="bento-card empty-grid-card">
+                <h3><I18nText zh="内容即将上线" en="Coming soon" /></h3>
+                <p><I18nText zh="我们正在整理最新内容，请稍后再来。" en="We're preparing fresh content — please check back shortly." /></p>
               </div>
             )}
           </div>
@@ -145,19 +159,21 @@ export default async function HomePage() {
           <div className="bento-grid compact-bento">
             {videos.length ? (
               videos.map((video, index) => (
-                <Link className={`bento-card video-card ${HOME_VIDEO_VARIANTS[index] || ""}`} key={video.id} href={`/videos/${video.id}`}>
+                <article className={`bento-card video-card linked-card ${videoVariant(index, videos.length)}`} key={video.id}>
                   <div>
                     <div className="meta-row"><span>{video.type}</span></div>
-                    <h3>{video.title}</h3>
+                    <h3>
+                      <Link className="card-link" href={`/videos/${video.id}`}>{video.title}</Link>
+                    </h3>
                     <p>{video.summary}</p>
                   </div>
-                  <span className="text-link"><I18nText zh="查看视频" en="View video" /></span>
-                </Link>
+                  <span className="text-link" aria-hidden="true"><I18nText zh="查看视频" en="View video" /></span>
+                </article>
               ))
             ) : (
-              <div className="bento-card bento-wide">
-                <h3><I18nText zh="等待关联视频" en="Waiting for videos" /></h3>
-                <p><I18nText zh="抓取页面时识别到的视频链接，会作为文章关联资源展示。" en="Video links found during fetching will appear as related resources for articles." /></p>
+              <div className="bento-card empty-grid-card">
+                <h3><I18nText zh="还没有视频内容" en="No videos yet" /></h3>
+                <p><I18nText zh="后续整理到的相关视频会在这里展示。" en="Curated video resources will appear here." /></p>
               </div>
             )}
           </div>

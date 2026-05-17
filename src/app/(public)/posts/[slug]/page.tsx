@@ -30,7 +30,11 @@ export default async function PostDetailPage({ params }: { params: Promise<{ slu
           in: getSlugCandidates(slug)
         }
       },
-      include: { tags: true, videos: true }
+      include: {
+        tags: true,
+        videos: true,
+        topics: { select: { id: true, name: true, slug: true } }
+      }
     }),
     prisma.siteSettings.findUnique({ where: { id: "site" } })
   ]);
@@ -52,9 +56,28 @@ export default async function PostDetailPage({ params }: { params: Promise<{ slu
   const articleVideos = [...articleVideosById.values()];
   const trailingVideos = post.videos.filter((video) => !inlineVideoIds.has(video.id));
 
+  const topicIds = post.topics.map((t) => t.id);
+  const relatedPosts = topicIds.length
+    ? await prisma.post.findMany({
+        where: {
+          status: "PUBLISHED",
+          id: { not: post.id },
+          topics: { some: { id: { in: topicIds } } }
+        },
+        orderBy: [{ publishedAt: "desc" }],
+        take: 3,
+        select: { id: true, slug: true, title: true, titleEn: true, summary: true, summaryEn: true, publishedAt: true }
+      })
+    : [];
+
   return (
     <PublicShell>
       <main className="container-narrow">
+        <p style={{ marginBottom: 12 }}>
+          <Link className="text-link" href="/posts">
+            ← <I18nText zh="返回文章列表" en="Back to posts" />
+          </Link>
+        </p>
         <header className="apple-article-header">
           <p className="eyebrow-apple">
             {post.tags.length ? post.tags[0].name : <I18nText zh="内容文章" en="Posts" />}
@@ -69,6 +92,9 @@ export default async function PostDetailPage({ params }: { params: Promise<{ slu
           ) : null}
           <div className="meta-row">
             <span>{post.publishedAt?.toLocaleDateString("zh-CN") || <I18nText zh="已发布" en="Published" />}</span>
+            {post.topics.map((topic) => (
+              <Link key={topic.id} className="tag" href={`/posts?topic=${encodeURIComponent(topic.slug)}`}>{topic.name}</Link>
+            ))}
             {post.tags.slice(1).map((tag) => <span className="tag" key={tag.id}>{tag.name}</span>)}
             {post.sourceUrl ? (
               <Link className="text-link" href={post.sourceUrl} target="_blank"><I18nText zh="原始来源" en="Original source" /></Link>
@@ -108,7 +134,7 @@ export default async function PostDetailPage({ params }: { params: Promise<{ slu
             contextLabel={<I18nText zh="当前文章" en="Current Post" />}
             suggestionGroups={[
               {
-                title: <I18nText zh="近期热点" en="Key Points" />,
+                title: <I18nText zh="核心要点" en="Key Points" />,
                 prompts: [
                   "用三句话概括这篇文章",
                   "这篇文章最重要的事实是什么？",
@@ -116,7 +142,7 @@ export default async function PostDetailPage({ params }: { params: Promise<{ slu
                 ]
               },
               {
-                title: <I18nText zh="推荐分析角度" en="Analysis Angles" />,
+                title: <I18nText zh="深入阅读" en="Go Deeper" />,
                 prompts: [
                   "这件事的争议点是什么？",
                   "列出事实、观点和推测的区别",
@@ -139,6 +165,36 @@ export default async function PostDetailPage({ params }: { params: Promise<{ slu
               ))}
             </section>
           ) : null}
+
+          {relatedPosts.length ? (
+            <section style={{ marginTop: 72 }}>
+              <h2><I18nText zh="相关文章" en="Related posts" /></h2>
+              <div className="news-list">
+                {relatedPosts.map((rp) => (
+                  <article className="news-list-item linked-card" key={rp.id}>
+                    <span className="timeline-dot" aria-hidden />
+                    <div>
+                      <div className="meta-row">
+                        <span>{rp.publishedAt?.toLocaleDateString("zh-CN")}</span>
+                      </div>
+                      <h3>
+                        <Link className="card-link" href={`/posts/${rp.slug}`}>
+                          <I18nText zh={rp.title} en={rp.titleEn || rp.title} />
+                        </Link>
+                      </h3>
+                      <p className="muted"><I18nText zh={rp.summary} en={rp.summaryEn || rp.summary} /></p>
+                    </div>
+                  </article>
+                ))}
+              </div>
+            </section>
+          ) : null}
+
+          <p style={{ marginTop: 56 }}>
+            <Link className="text-link" href="/posts">
+              ← <I18nText zh="返回文章列表" en="Back to posts" />
+            </Link>
+          </p>
         </div>
       </main>
     </PublicShell>

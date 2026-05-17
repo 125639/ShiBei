@@ -2,6 +2,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import { ConfirmButton } from "@/components/ConfirmButton";
 import { I18nText } from "@/components/I18nText";
 import { CONTENT_MODE_OPTIONS, contentModeLabel } from "@/lib/content-style";
 import { LANGUAGE_OPTIONS, CONTENT_LANGUAGE_MODE_OPTIONS } from "@/lib/language";
@@ -66,21 +67,51 @@ export function SettingsClient({
 
   return (
     <div className="settings-layout">
-      <aside className="settings-side-nav" aria-label="Settings sections">
+      <aside
+        className="settings-side-nav"
+        aria-label="Settings sections"
+        role="tablist"
+        aria-orientation="vertical"
+        onKeyDown={(event) => {
+          const order: SettingsTab[] = SETTINGS_TABS.map((t) => t.key);
+          const idx = order.indexOf(activeTab);
+          if (event.key === "ArrowDown" || event.key === "ArrowRight") {
+            event.preventDefault();
+            setActiveTab(order[(idx + 1) % order.length]);
+          } else if (event.key === "ArrowUp" || event.key === "ArrowLeft") {
+            event.preventDefault();
+            setActiveTab(order[(idx - 1 + order.length) % order.length]);
+          } else if (event.key === "Home") {
+            event.preventDefault();
+            setActiveTab(order[0]);
+          } else if (event.key === "End") {
+            event.preventDefault();
+            setActiveTab(order[order.length - 1]);
+          }
+        }}
+      >
         <div className="settings-side-nav-header">
           <I18nText zh="导航" en="Sections" />
         </div>
-        {SETTINGS_TABS.map((tab) => (
-          <button
-            key={tab.key}
-            type="button"
-            className={activeTab === tab.key ? "active" : ""}
-            onClick={() => setActiveTab(tab.key)}
-          >
-            <span className="settings-side-nav-icon" aria-hidden="true">{tab.icon}</span>
-            <I18nText zh={tab.zh} en={tab.en} />
-          </button>
-        ))}
+        {SETTINGS_TABS.map((tab) => {
+          const isActive = activeTab === tab.key;
+          return (
+            <button
+              key={tab.key}
+              type="button"
+              role="tab"
+              id={`settings-tab-${tab.key}`}
+              aria-controls={`settings-panel-${tab.key}`}
+              aria-selected={isActive}
+              tabIndex={isActive ? 0 : -1}
+              className={isActive ? "active" : ""}
+              onClick={() => setActiveTab(tab.key)}
+            >
+              <span className="settings-side-nav-icon" aria-hidden="true">{tab.icon}</span>
+              <I18nText zh={tab.zh} en={tab.en} />
+            </button>
+          );
+        })}
       </aside>
 
       <main className="settings-content-pane">
@@ -95,7 +126,7 @@ export function SettingsClient({
         <form className="form-card form-stack" action="/api/admin/settings/site" method="post">
           <input type="hidden" name="settingsTab" value={activeTab} />
 
-          <section style={{ display: activeTab === "site" ? "block" : "none" }}>
+          <section id="settings-panel-site" role="tabpanel" aria-labelledby="settings-tab-site" hidden={activeTab !== "site"}>
             <SectionTitle title={<I18nText zh="站点基础信息" en="Site Basics" />} />
             <div className="field">
               <label htmlFor="name"><I18nText zh="站点名称" en="Site Name" /></label>
@@ -147,7 +178,7 @@ export function SettingsClient({
             </div>
           </section>
 
-          <section style={{ display: activeTab === "content" ? "block" : "none" }}>
+          <section id="settings-panel-content" role="tabpanel" aria-labelledby="settings-tab-content" hidden={activeTab !== "content"}>
             <SectionTitle title={<I18nText zh="内容生产策略" en="Content Production" />} />
             <div className="settings-check-list">
               <label>
@@ -175,12 +206,12 @@ export function SettingsClient({
                 defaultValue={String(s?.globalPromptPrefix ?? "")}
               />
               <small className="muted">
-                <I18nText zh="放跨所有写作风格都必须遵守的硬规则。" en="Use this for hard rules shared by all writing styles." />
+                <I18nText zh="在此填写所有写作风格都必须遵守的通用规则,如来源引用、口径要求等。" en="Hard rules every writing style must follow (e.g. citation, tone constraints)." />
               </small>
             </div>
           </section>
 
-          <section style={{ display: activeTab === "models" ? "block" : "none" }}>
+          <section role="group" aria-label="模型基础配置" hidden={activeTab !== "models"}>
             <SectionTitle title={<I18nText zh="各任务使用的模型" en="Task Models" />} />
             <div className="field-row">
               <ModelSelect id="contentModelConfigId" label={<I18nText zh="内容生成模型" en="Content Model" />} value={String(s?.contentModelConfigId ?? "")} configs={modelConfigs} />
@@ -192,7 +223,7 @@ export function SettingsClient({
             </div>
           </section>
 
-          <section style={{ display: activeTab === "media" ? "block" : "none" }}>
+          <section id="settings-panel-media" role="tabpanel" aria-labelledby="settings-tab-media" hidden={activeTab !== "media"}>
             <SectionTitle title={<I18nText zh="媒体与视频策略" en="Media & Video" />} />
             <div className="settings-check-list">
               <label>
@@ -217,7 +248,7 @@ export function SettingsClient({
             </p>
           </section>
 
-          <section style={{ display: activeTab === "storage" ? "block" : "none" }}>
+          <section role="group" aria-label="存储清理基础配置" hidden={activeTab !== "storage"}>
             <SectionTitle title={<I18nText zh="存储与清理规则" en="Storage Cleanup Rules" />} />
             <div className="field-row">
               <div className="field">
@@ -235,7 +266,7 @@ export function SettingsClient({
             </label>
           </section>
 
-          <section style={{ display: activeTab === "external" ? "block" : "none" }}>
+          <section id="settings-panel-external" role="tabpanel" aria-labelledby="settings-tab-external" hidden={activeTab !== "external"}>
             <SectionTitle title={<I18nText zh="外部研究服务" en="External Research Services" />} />
             <label>
               <input type="checkbox" name="exaEnabled" value="true" defaultChecked={Boolean(s?.exaEnabled)} />{" "}
@@ -254,7 +285,7 @@ export function SettingsClient({
       ) : null}
 
       {activeTab === "models" ? (
-        <div className="settings-two-column">
+        <div className="settings-two-column" id="settings-panel-models" role="tabpanel" aria-labelledby="settings-tab-models">
           <form className="form-card form-stack" action="/api/admin/model-configs" method="post">
             <h2 style={{ marginTop: 0 }}><I18nText zh="新增模型配置" en="New Model Config" /></h2>
             <div className="field">
@@ -352,7 +383,7 @@ export function SettingsClient({
       ) : null}
 
       {activeTab === "prompts" ? (
-        <div className="settings-two-column">
+        <div className="settings-two-column" id="settings-panel-prompts" role="tabpanel" aria-labelledby="settings-tab-prompts">
           <form className="form-card form-stack" action="/api/admin/content-styles" method="post">
             <h2 style={{ marginTop: 0 }}><I18nText zh="新增内容风格" en="New Content Style" /></h2>
             <div className="field">
@@ -461,7 +492,13 @@ export function SettingsClient({
                     <div className="meta-row" style={{ alignItems: "center" }}>
                       <label><input type="checkbox" name="isDefault" value="true" defaultChecked={style.isDefault} /> 设为默认</label>
                       <button className="button secondary" type="submit">更新风格</button>
-                      <button className="danger-button" type="submit" name="_intent" value="delete">删除</button>
+                      <ConfirmButton
+                        message={`确定删除写作风格「${style.name}」?此操作无法撤销。`}
+                        name="_intent"
+                        value="delete"
+                      >
+                        删除
+                      </ConfirmButton>
                     </div>
                   </form>
                 </div>
@@ -473,7 +510,7 @@ export function SettingsClient({
       ) : null}
 
       {activeTab === "storage" && storage ? (
-        <section className="admin-panel" style={{ marginTop: 18 }}>
+        <section className="admin-panel" id="settings-panel-storage" role="tabpanel" aria-labelledby="settings-tab-storage" style={{ marginTop: 18 }}>
           <h2 style={{ marginTop: 0 }}><I18nText zh="当前存储占用" en="Current Storage Usage" /></h2>
           <div className="admin-grid-3" style={{ marginTop: 10 }}>
             <Stat label={<I18nText zh="上传目录总和" en="Uploads Total" />} value={String(storage.uploadsBytes)} />
@@ -494,7 +531,7 @@ export function SettingsClient({
       ) : null}
 
       {activeTab === "account" ? (
-        <form className="form-card form-stack" action="/api/admin/settings/admin" method="post" style={{ maxWidth: 720 }}>
+        <form className="form-card form-stack" id="settings-panel-account" role="tabpanel" aria-labelledby="settings-tab-account" action="/api/admin/settings/admin" method="post" style={{ maxWidth: 720 }}>
           <h2 style={{ marginTop: 0 }}><I18nText zh="管理员账号" en="Admin Account" /></h2>
           <div className="field">
             <label htmlFor="username"><I18nText zh="用户名" en="Username" /></label>

@@ -1,4 +1,5 @@
 import { redirect } from "next/navigation";
+import { SubmitButton } from "@/components/SubmitButton";
 import { getSession } from "@/lib/auth";
 
 export default async function LoginPage({ searchParams }: { searchParams: Promise<{ error?: string }> }) {
@@ -8,9 +9,9 @@ export default async function LoginPage({ searchParams }: { searchParams: Promis
 
   const errorMsg =
     params.error === "db"
-      ? "数据库连接失败，请检查 DATABASE_URL 配置后重启应用。"
+      ? "暂时无法登录,请稍后再试。若问题持续,请联系系统管理员。"
       : params.error === "1"
-        ? "用户名或密码错误，请重试。"
+        ? "用户名或密码不正确。"
         : null;
 
   return (
@@ -19,18 +20,18 @@ export default async function LoginPage({ searchParams }: { searchParams: Promis
         <div>
           <p className="eyebrow">管理员入口</p>
           <h1>登录后台</h1>
-          <p>第一版使用账号密码登录，登录后可在设置页修改用户名与密码。</p>
+          <p>使用管理员账号登录。</p>
         </div>
-        {errorMsg && <p className="form-error">{errorMsg}</p>}
+        {errorMsg && <p className="form-error" role="alert">{errorMsg}</p>}
         <div className="field">
-          <label htmlFor="username">用户名</label>
+          <label htmlFor="username">用户名<span aria-hidden="true" className="req">*</span></label>
           <input id="username" name="username" required autoComplete="username" />
         </div>
         <div className="field">
-          <label htmlFor="password">密码</label>
+          <label htmlFor="password">密码<span aria-hidden="true" className="req">*</span></label>
           <input id="password" name="password" type="password" required autoComplete="current-password" />
         </div>
-        <button className="button" type="submit">登录</button>
+        <SubmitButton pendingLabel="登录中…">登录</SubmitButton>
       </form>
     </main>
   );

@@ -1,5 +1,8 @@
 import { notFound } from "next/navigation";
 import { AdminShell } from "@/components/AdminShell";
+import { DirtyAwareForm } from "@/components/DirtyAwareForm";
+import { ImageUploadField } from "@/components/ImageUploadField";
+import { SubmitButton } from "@/components/SubmitButton";
 import { requireAdmin } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 
@@ -19,9 +22,9 @@ export default async function AdminPostEditPage({ params }: { params: Promise<{ 
     <AdminShell>
       <p className="eyebrow">Review</p>
       <h1>审核草稿</h1>
-      <form className="form-card form-stack" action={`/api/admin/posts/${post.id}`} method="post">
+      <DirtyAwareForm className="form-card form-stack" action={`/api/admin/posts/${post.id}`}>
         <div className="field">
-          <label htmlFor="title">标题</label>
+          <label htmlFor="title">标题<span aria-hidden="true" className="req">*</span></label>
           <input id="title" name="title" defaultValue={post.title} required />
         </div>
         <div className="field">
@@ -29,7 +32,7 @@ export default async function AdminPostEditPage({ params }: { params: Promise<{ 
           <input id="titleEn" name="titleEn" defaultValue={(post as { titleEn?: string | null }).titleEn || ""} />
         </div>
         <div className="field">
-          <label htmlFor="summary">摘要</label>
+          <label htmlFor="summary">摘要<span aria-hidden="true" className="req">*</span></label>
           <textarea id="summary" name="summary" defaultValue={post.summary} required />
         </div>
         <div className="field">
@@ -37,7 +40,7 @@ export default async function AdminPostEditPage({ params }: { params: Promise<{ 
           <textarea id="summaryEn" name="summaryEn" defaultValue={(post as { summaryEn?: string | null }).summaryEn || ""} />
         </div>
         <div className="field">
-          <label htmlFor="content">正文 Markdown</label>
+          <label htmlFor="content">正文 Markdown<span aria-hidden="true" className="req">*</span></label>
           <textarea id="content" name="content" defaultValue={post.content} style={{ minHeight: 420 }} required />
           <p className="hint" style={{ marginTop: 6 }}>
             可以在正文任意位置插入 <code>[[video:VIDEO_ID]]</code> 短代码，会被替换为对应视频播放器；
@@ -66,26 +69,24 @@ export default async function AdminPostEditPage({ params }: { params: Promise<{ 
           <label htmlFor="status">状态</label>
           <select id="status" name="status" defaultValue={post.status}>
             <option value="DRAFT">草稿</option>
-            <option value="PUBLISHED">发布</option>
-            <option value="ARCHIVED">归档</option>
+            <option value="PUBLISHED">已发布</option>
+            <option value="ARCHIVED">已归档</option>
           </select>
         </div>
-        <button className="button" type="submit">保存</button>
-      </form>
+        <SubmitButton pendingLabel="保存中…">保存草稿</SubmitButton>
+      </DirtyAwareForm>
 
       <section className="form-card form-stack" style={{ marginTop: 24 }}>
         <h2 style={{ marginTop: 0 }}>上传图片并插入正文</h2>
         <form action={`/api/admin/posts/${post.id}/images`} method="post" encType="multipart/form-data" className="form-stack">
           <input type="hidden" name="redirect" value={`/admin/posts/${post.id}`} />
-          <div className="field-row">
-            <div className="field">
-              <label htmlFor="image-file">图片文件</label>
-              <input id="image-file" type="file" name="file" accept="image/png,image/jpeg,image/webp,image/gif,.png,.jpg,.jpeg,.webp,.gif" required />
-            </div>
-            <div className="field">
-              <label htmlFor="image-caption">图片说明</label>
-              <input id="image-caption" name="caption" placeholder="留空使用文件名" />
-            </div>
+          <div className="field">
+            <label htmlFor="image-file">图片文件<span aria-hidden="true" className="req">*</span></label>
+            <ImageUploadField id="image-file" required />
+          </div>
+          <div className="field">
+            <label htmlFor="image-caption">图片说明</label>
+            <input id="image-caption" name="caption" placeholder="留空使用文件名" />
           </div>
           <div className="field-row">
             <div className="field">

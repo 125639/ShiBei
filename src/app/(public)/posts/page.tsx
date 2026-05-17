@@ -72,20 +72,23 @@ export default async function PostsPage({ searchParams }: { searchParams: Promis
           <h1 className="page-title"><I18nText zh="内容文章" en="Posts" /></h1>
           <p className="muted">
             <I18nText
-              zh={<>由抓取材料生成草稿，再经管理员审核或自动发布。{activeTopic ? `当前筛选：${activeTopic.name}。` : null}</>}
-              en={<>Drafts are generated from fetched material, then admin-reviewed or auto-published.{activeTopic ? ` Current filter: ${activeTopic.name}.` : null}</>}
+              zh={<>内容由抓取与生成产出，经过审核后在此呈现。{activeTopic ? `当前筛选：${activeTopic.name}。` : null}</>}
+              en={<>Curated and reviewed before appearing here.{activeTopic ? ` Current filter: ${activeTopic.name}.` : null}</>}
             />
           </p>
         </section>
 
         {mode === "topic-tabs" && topics.length > 0 ? (
           <nav className="topic-tabs" aria-label="主题筛选">
-            <Link href="/posts" className={topicSlug ? "" : "active"}><I18nText zh="全部" en="All" /></Link>
+            <Link href="/posts" className={topicSlug ? "" : "active"} aria-current={topicSlug ? undefined : "page"}>
+              <I18nText zh="全部" en="All" />
+            </Link>
             {topics.map((topic) => (
               <Link
                 key={topic.id}
                 href={`/posts?topic=${encodeURIComponent(topic.slug)}`}
                 className={topicSlug === topic.slug ? "active" : ""}
+                aria-current={topicSlug === topic.slug ? "page" : undefined}
               >
                 {topic.name}
               </Link>
@@ -94,9 +97,19 @@ export default async function PostsPage({ searchParams }: { searchParams: Promis
         ) : null}
 
         {posts.length === 0 ? (
-          <div className="bento-card bento-wide">
-            <h3><I18nText zh={activeTopic ? `${activeTopic.name} 暂无文章` : "还没有发布内容"} en={activeTopic ? `No posts for ${activeTopic.name}` : "No Published Content Yet"} /></h3>
-            <p><I18nText zh="启用一个主题并设置定时表后，自动整理任务会陆续在这里发布文章。" en="Enable a topic and schedule it; curated articles will appear here over time." /></p>
+          <div className="bento-card empty-grid-card">
+            <h3>
+              <I18nText
+                zh={activeTopic ? `${activeTopic.name}：内容即将上线` : "内容即将上线"}
+                en={activeTopic ? `${activeTopic.name}: coming soon` : "Coming soon"}
+              />
+            </h3>
+            <p>
+              <I18nText
+                zh="我们正在整理最新内容，请稍后再来。"
+                en="We're preparing fresh content — please check back shortly."
+              />
+            </p>
           </div>
         ) : (
           <PostsLayout mode={mode} posts={posts} />
@@ -111,24 +124,28 @@ function PostsLayout({ mode, posts }: { mode: DisplayMode; posts: PostListEntry[
     const [hero, ...rest] = posts;
     return (
       <div className="bento-grid news-bento">
-        <Link className="bento-card bento-feature news-magazine-hero" href={`/posts/${hero.slug}`}>
+        <article className="bento-card bento-feature news-magazine-hero linked-card">
           <div>
             <div className="meta-row">
               <span>{hero.publishedAt?.toLocaleDateString("zh-CN")}</span>
               {hero.topics.slice(0, 3).map((topic) => (
-                <span className="tag" key={topic.id}>{topic.name}</span>
+                <Link key={topic.id} className="tag" href={`/posts?topic=${encodeURIComponent(topic.slug)}`}>{topic.name}</Link>
               ))}
               <span className="tag">{COMPILE_KIND_LABELS[hero.kind] || hero.kind}</span>
             </div>
-            <h2><I18nText zh={hero.title} en={hero.titleEn || hero.title} /></h2>
+            <h2>
+              <Link className="card-link" href={`/posts/${hero.slug}`}>
+                <I18nText zh={hero.title} en={hero.titleEn || hero.title} />
+              </Link>
+            </h2>
             <p><I18nText zh={hero.summary} en={hero.summaryEn || hero.summary} /></p>
           </div>
           <div>
-            <span className="text-link"><I18nText zh="阅读封面文章" en="Read Feature" /></span>
+            <span className="text-link" aria-hidden="true"><I18nText zh="阅读封面文章" en="Read feature" /></span>
           </div>
-        </Link>
+        </article>
         {rest.map((post, index) => (
-          <PostCard key={post.id} post={post} variant={index === 0 ? "bento-wide" : ""} />
+          <PostCard key={post.id} post={post} variant={rest.length >= 3 && index === 0 ? "bento-wide" : ""} />
         ))}
       </div>
     );
@@ -138,20 +155,24 @@ function PostsLayout({ mode, posts }: { mode: DisplayMode; posts: PostListEntry[
     return (
       <div className="news-list">
         {posts.map((post) => (
-          <Link className="news-list-item" key={post.id} href={`/posts/${post.slug}`}>
+          <article className="news-list-item linked-card" key={post.id}>
             <span className="timeline-dot" aria-hidden />
             <div>
               <div className="meta-row">
                 <span>{post.publishedAt?.toLocaleDateString("zh-CN")}</span>
                 {post.topics.slice(0, 2).map((topic) => (
-                  <span className="tag" key={topic.id}>{topic.name}</span>
+                  <Link key={topic.id} className="tag" href={`/posts?topic=${encodeURIComponent(topic.slug)}`}>{topic.name}</Link>
                 ))}
                 <span className="tag">{COMPILE_KIND_LABELS[post.kind] || post.kind}</span>
               </div>
-              <h3><I18nText zh={post.title} en={post.titleEn || post.title} /></h3>
+              <h3>
+                <Link className="card-link" href={`/posts/${post.slug}`}>
+                  <I18nText zh={post.title} en={post.titleEn || post.title} />
+                </Link>
+              </h3>
               <p className="muted"><I18nText zh={post.summary} en={post.summaryEn || post.summary} /></p>
             </div>
-          </Link>
+          </article>
         ))}
       </div>
     );
@@ -161,7 +182,11 @@ function PostsLayout({ mode, posts }: { mode: DisplayMode; posts: PostListEntry[
   return (
     <div className="bento-grid news-bento">
       {posts.map((post, index) => (
-        <PostCard key={post.id} post={post} variant={GRID_FEATURED_VARIANTS[index] || ""} />
+        <PostCard
+          key={post.id}
+          post={post}
+          variant={posts.length >= 4 ? GRID_FEATURED_VARIANTS[index] || "" : ""}
+        />
       ))}
     </div>
   );
@@ -169,21 +194,25 @@ function PostsLayout({ mode, posts }: { mode: DisplayMode; posts: PostListEntry[
 
 function PostCard({ post, variant = "" }: { post: PostListEntry; variant?: string }) {
   return (
-    <Link className={`bento-card post-card ${variant}`} href={`/posts/${post.slug}`}>
+    <article className={`bento-card post-card linked-card ${variant}`}>
       <div>
         <div className="meta-row">
           <span>{post.publishedAt?.toLocaleDateString("zh-CN")}</span>
           {post.topics.slice(0, 2).map((topic) => (
-            <span className="tag" key={topic.id}>{topic.name}</span>
+            <Link key={topic.id} className="tag" href={`/posts?topic=${encodeURIComponent(topic.slug)}`}>{topic.name}</Link>
           ))}
           {post.tags.slice(0, 1).map((tag) => (
             <span className="tag" key={tag.id}>{tag.name}</span>
           ))}
         </div>
-        <h3><I18nText zh={post.title} en={post.titleEn || post.title} /></h3>
+        <h3>
+          <Link className="card-link" href={`/posts/${post.slug}`}>
+            <I18nText zh={post.title} en={post.titleEn || post.title} />
+          </Link>
+        </h3>
         <p><I18nText zh={post.summary} en={post.summaryEn || post.summary} /></p>
       </div>
-      <span className="text-link"><I18nText zh="阅读全文" en="Read More" /></span>
-    </Link>
+      <span className="text-link" aria-hidden="true"><I18nText zh="阅读全文" en="Read article" /></span>
+    </article>
   );
 }
