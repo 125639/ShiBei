@@ -234,8 +234,8 @@ export function AiAssistant({
               <AssistantMessageContent content={message.content} />
             </div>
           ))}
-          {loading ? <p className="muted-block"><I18nText zh="AI 正在思考..." en="AI is thinking..." /></p> : null}
-          {error ? <p className="muted-block"><I18nText zh={`请求失败：${error}`} en={`Request failed: ${error}`} /></p> : null}
+          {loading ? <p className="muted-block"><I18nText zh="AI 正在思考…" en="AI is thinking…" /></p> : null}
+          {error ? <p className="muted-block" role="alert"><I18nText zh="暂时无法获取回复,请稍后重试。" en="Couldn't get a reply right now. Please try again shortly." /></p> : null}
         </div>
 
         <form className="assistant-input-row" onSubmit={submit}>
@@ -243,14 +243,14 @@ export function AiAssistant({
             value={input}
             onChange={(event) => setInput(event.target.value)}
             onKeyDown={handleInputKeyDown}
-            placeholder={hydrated && prefs.language === "en" ? "Tell me what you want to know. Shift + Enter for a new line." : "请将您遇到的问题告诉我，使用 Shift + Enter 换行"}
+            placeholder={hydrated && prefs.language === "en" ? "Tell me what you want to know. Shift + Enter for a new line." : "写下你想了解的内容,Shift + Enter 换行"}
             aria-label={hydrated && prefs.language === "en" ? "AI Assistant Input" : "AI 助手输入"}
             rows={3}
           />
           <div className="assistant-input-footer">
             <span><I18nText zh="内容由 AI 生成，仅供参考。" en="AI-generated content is for reference only." /></span>
             <button className="button" type="submit" disabled={loading || !input.trim()} aria-label={hydrated && prefs.language === "en" ? "Send" : "发送"}>
-              ↑
+              <span aria-hidden="true">↑</span>
             </button>
           </div>
         </form>

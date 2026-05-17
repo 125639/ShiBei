@@ -1,5 +1,7 @@
 import Link from "next/link";
 import { AdminShell } from "@/components/AdminShell";
+import { ConfirmButton } from "@/components/ConfirmButton";
+import { CronInput } from "@/components/CronInput";
 import { requireAdmin } from "@/lib/auth";
 import { CONTENT_LANGUAGE_MODE_OPTIONS } from "@/lib/language";
 import { prisma } from "@/lib/prisma";
@@ -39,7 +41,7 @@ export default async function AutoCurationPage() {
       <p className="eyebrow">Content Automation</p>
       <h1>自动内容生产</h1>
       <p className="muted">
-        管理员配置主题、关键词、生成风格和定时表后，worker 会按计划搜索资料并生成博客草稿。可在站点设置开启 *自动发布*，让产物直接上线。
+        管理员配置主题、关键词、生成风格和定时表后,worker 会按计划整理资料并生成博客草稿。可在站点设置开启「自动发布」,让产物直接上线。
       </p>
 
       <div className="admin-grid">
@@ -146,8 +148,7 @@ export default async function AutoCurationPage() {
           </div>
           <div className="field">
             <label htmlFor="topicCron">定时表 cron（5 字段）</label>
-            <input id="topicCron" name="cron" required defaultValue="0 9 * * *" placeholder="例如：0 9 * * * 表示每天 09:00" />
-            <p className="muted">分 时 日 月 周。例：<code>0 9 * * *</code> 每天 09:00；<code>0 */6 * * *</code> 每 6 小时；<code>0 9 * * 1</code> 每周一 09:00。</p>
+            <CronInput id="topicCron" required defaultValue="0 9 * * *" />
           </div>
           <label>
             <input type="checkbox" name="isEnabled" value="true" defaultChecked /> 立即启用此主题
@@ -159,7 +160,7 @@ export default async function AutoCurationPage() {
       <section className="admin-panel" style={{ marginTop: 18 }}>
         <h2>已配置主题</h2>
         {topics.length === 0 ? (
-          <p className="muted">暂无主题。运行 <code>npm run db:seed</code> 可一次性创建 10 个默认主题（默认全部关闭）。</p>
+          <p className="muted">还没有自动主题。可在右侧表单添加,或在服务端运行 <code>npm run db:seed</code> 一次性导入 10 个示例主题(默认全部关闭)。</p>
         ) : (
           <div className="table-list">
             {topics.map((topic) => {
@@ -227,7 +228,7 @@ export default async function AutoCurationPage() {
                     </div>
                     <div className="field">
                       <label>Cron</label>
-                      <input name="cron" defaultValue={topic.schedule?.cron || "0 9 * * *"} required />
+                      <CronInput defaultValue={topic.schedule?.cron || "0 9 * * *"} required />
                     </div>
                     <label>
                       <input type="checkbox" name="isEnabled" value="true" defaultChecked={topic.isEnabled} />{" "}
@@ -235,8 +236,14 @@ export default async function AutoCurationPage() {
                     </label>
                     <div className="meta-row" style={{ gap: 8 }}>
                       <button className="button" type="submit">保存</button>
-                      <button className="button" type="submit" formAction={`/api/admin/content-topics/${topic.id}/run`}>立即试运行</button>
-                      <button className="button" type="submit" formAction={`/api/admin/content-topics/${topic.id}/delete`}>删除主题</button>
+                      <button className="button secondary" type="submit" formAction={`/api/admin/content-topics/${topic.id}/run`}>立即试运行</button>
+                      <span style={{ flex: 1 }} />
+                      <ConfirmButton
+                        message={`确定删除主题「${topic.name}」?此操作无法撤销。`}
+                        formAction={`/api/admin/content-topics/${topic.id}/delete`}
+                      >
+                        删除主题
+                      </ConfirmButton>
                     </div>
                   </form>
                 </div>

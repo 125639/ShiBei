@@ -1,8 +1,17 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { MODEL_PROVIDER_PRESETS } from "@/lib/model-providers";
 import { useUserPrefs } from "./useUserPrefs";
+
+const STORAGE_KEY = "shibei-write-draft-v1";
+
+type StoredDraft = {
+  title: string;
+  draft: string;
+  instruction: string;
+  savedAt: number;
+};
 
 type AssistResult = {
   output: string;
@@ -13,7 +22,7 @@ export function WritingWorkspace() {
   const { prefs, hydrated } = useUserPrefs();
   const [title, setTitle] = useState("");
   const [draft, setDraft] = useState("");
-  const [instruction, setInstruction] = useState("润色当前文稿，并给出可以继续展开的方向。");
+  const [instruction, setInstruction] = useState("润色当前文稿,并给出可以继续展开的方向。");
   const [provider, setProvider] = useState("canopywave");
   const preset = MODEL_PROVIDER_PRESETS.find((item) => item.key === provider) || MODEL_PROVIDER_PRESETS[0];
   const [baseUrl, setBaseUrl] = useState(preset.baseUrl);
@@ -22,6 +31,48 @@ export function WritingWorkspace() {
   const [result, setResult] = useState<AssistResult | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [restored, setRestored] = useState<StoredDraft | null>(null);
+  const restoredRef = useRef(false);
+
+  // 写作页面本身不持久化到数据库;为了避免误关浏览器丢失内容,把 title/draft/instruction
+  // 同步到 localStorage,下次再打开时可一键恢复。
+  useEffect(() => {
+    if (restoredRef.current) return;
+    restoredRef.current = true;
+    try {
+      const raw = window.localStorage.getItem(STORAGE_KEY);
+      if (!raw) return;
+      const data = JSON.parse(raw) as Partial<StoredDraft>;
+      if ((data.title || data.draft) && typeof data.savedAt === "number") {
+        setRestored({
+          title: String(data.title || ""),
+          draft: String(data.draft || ""),
+          instruction: String(data.instruction || ""),
+          savedAt: data.savedAt
+        });
+      }
+    } catch {
+      /* ignore parse errors */
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!title && !draft) return;
+    const id = window.setTimeout(() => {
+      try {
+        const payload: StoredDraft = {
+          title,
+          draft,
+          instruction,
+          savedAt: Date.now()
+        };
+        window.localStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
+      } catch {
+        /* quota errors are non-fatal for the in-memory draft */
+      }
+    }, 400);
+    return () => window.clearTimeout(id);
+  }, [title, draft, instruction]);
 
   function changeProvider(next: string) {
     setProvider(next);
@@ -88,6 +139,37 @@ export function WritingWorkspace() {
     <div className="writing-layout">
       <section className="form-card form-stack writing-editor">
         <h2>我的文稿</h2>
+        {restored ? (
+          <div className="restore-banner" role="status">
+            <span>
+              发现 {new Date(restored.savedAt).toLocaleString("zh-CN")} 的未完成稿件。
+            </span>
+            <div className="row-actions">
+              <button
+                type="button"
+                className="button secondary"
+                onClick={() => {
+                  setTitle(restored.title);
+                  setDraft(restored.draft);
+                  if (restored.instruction) setInstruction(restored.instruction);
+                  setRestored(null);
+                }}
+              >
+                恢复
+              </button>
+              <button
+                type="button"
+                className="button secondary"
+                onClick={() => {
+                  setRestored(null);
+                  window.localStorage.removeItem(STORAGE_KEY);
+                }}
+              >
+                丢弃
+              </button>
+            </div>
+          </div>
+        ) : null}
         <div className="field">
           <label htmlFor="writingTitle">标题</label>
           <input id="writingTitle" value={title} onChange={(event) => setTitle(event.target.value)} placeholder="给你的文稿起个标题" />

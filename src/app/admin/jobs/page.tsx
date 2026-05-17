@@ -1,7 +1,9 @@
 import Link from "next/link";
-import type { JobStatus, Prisma } from "@prisma/client";
+import type { Prisma } from "@prisma/client";
 import { AdminShell } from "@/components/AdminShell";
+import { StatusPill } from "@/components/StatusPill";
 import { requireAdmin } from "@/lib/auth";
+import { JOB_STATUS_LABELS, JOB_STATUS_ORDER, isJobStatus } from "@/lib/job-status";
 import { prisma } from "@/lib/prisma";
 import { parseKeywordResearchUrl, researchScopeLabel } from "@/lib/research";
 
@@ -14,12 +16,6 @@ type JobRow = Prisma.FetchJobGetPayload<{
     _count: { select: { rawItems: true } };
   };
 }>;
-
-const STATUS_OPTIONS: JobStatus[] = ["QUEUED", "RUNNING", "COMPLETED", "FAILED"];
-
-function isJobStatus(value: string | null): value is JobStatus {
-  return STATUS_OPTIONS.includes(value as JobStatus);
-}
 
 function formatDateTime(value: Date | null | undefined) {
   if (!value) return "—";
@@ -46,10 +42,6 @@ function getDuration(job: JobRow) {
   if (seconds < 60) return `${seconds} 秒`;
   if (seconds < 3600) return `${Math.round(seconds / 60)} 分钟`;
   return `${(seconds / 3600).toFixed(1)} 小时`;
-}
-
-function statusClass(status: JobStatus) {
-  return `status-pill status-${status.toLowerCase()}`;
 }
 
 export default async function AdminJobsPage({
@@ -113,14 +105,23 @@ export default async function AdminJobsPage({
       </div>
 
       <div className="topic-tabs" style={{ marginTop: 18 }}>
-        <Link className={!status ? "active" : ""} href={sourceId ? `/admin/jobs?sourceId=${sourceId}` : "/admin/jobs"}>
+        <Link
+          className={!status ? "active" : ""}
+          aria-current={!status ? "page" : undefined}
+          href={sourceId ? `/admin/jobs?sourceId=${sourceId}` : "/admin/jobs"}
+        >
           全部
         </Link>
-        {STATUS_OPTIONS.map((item) => {
+        {JOB_STATUS_ORDER.map((item) => {
           const href = `/admin/jobs?status=${item}${sourceId ? `&sourceId=${sourceId}` : ""}`;
           return (
-            <Link key={item} className={status === item ? "active" : ""} href={href}>
-              {item} ({totalByStatus.get(item) || 0})
+            <Link
+              key={item}
+              className={status === item ? "active" : ""}
+              aria-current={status === item ? "page" : undefined}
+              href={href}
+            >
+              {JOB_STATUS_LABELS[item].zh} ({totalByStatus.get(item) || 0})
             </Link>
           );
         })}
@@ -132,7 +133,13 @@ export default async function AdminJobsPage({
           <span className="muted">显示最新 {jobs.length} 条</span>
         </div>
         {jobs.length === 0 ? (
-          <p className="muted">没有符合条件的任务。</p>
+          <div className="empty-state">
+            <p>暂无符合条件的任务。</p>
+            <div className="row-actions">
+              {(status || sourceId) ? <Link className="button secondary" href="/admin/jobs">清除筛选</Link> : null}
+              <Link className="button" href="/admin">返回仪表盘启动任务</Link>
+            </div>
+          </div>
         ) : (
           <div className="table-list" style={{ marginTop: 12 }}>
             {jobs.map((job) => (
@@ -140,7 +147,7 @@ export default async function AdminJobsPage({
                 <div>
                   <div className="meta-row" style={{ alignItems: "center" }}>
                     <strong>{getJobTitle(job)}</strong>
-                    <span className={statusClass(job.status)}>{job.status}</span>
+                    <StatusPill status={job.status} />
                     {job.source?.status === "PAUSED" ? <span className="tag">来源已暂停</span> : null}
                   </div>
                   <div className="muted">

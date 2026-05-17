@@ -2,6 +2,8 @@ import Link from "next/link";
 import type { Prisma } from "@prisma/client";
 import { AdminShell } from "@/components/AdminShell";
 import { ContentStyleSelect } from "@/components/ContentStyleSelect";
+import { RelativeTime } from "@/components/RelativeTime";
+import { StatusPill } from "@/components/StatusPill";
 import { requireAdmin } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { parseKeywordResearchUrl, researchScopeLabel } from "@/lib/research";
@@ -60,12 +62,12 @@ export default async function AdminDashboardPage() {
       </div>
 
       <div className="admin-grid-3">
-        <MetricCard title={String(drafts)} label="待审核草稿" href="/admin/posts" action="审核" />
-        <MetricCard title={String(runningJobs)} label="运行中任务" href="/admin/jobs?status=RUNNING" action="查看" />
-        <MetricCard title={String(failed7d)} label="近 7 天失败任务" href="/admin/jobs?status=FAILED" action="诊断" danger={failed7d > 0} />
-        <MetricCard title={String(defaultSources)} label={`默认来源 / 总来源 ${sources}`} href="/admin/sources" action="管理" />
-        <MetricCard title={String(published)} label="已发布文章" href="/admin/posts" action="查看" />
-        <MetricCard title={String(videos)} label="视频资源" href="/admin/videos" action="查看" />
+        <MetricCard title={String(drafts)} label="待审核草稿" href="/admin/posts" action="打开" />
+        <MetricCard title={String(runningJobs)} label="运行中任务" href="/admin/jobs?status=RUNNING" action="打开" />
+        <MetricCard title={String(failed7d)} label="近 7 天失败任务" href="/admin/jobs?status=FAILED" action="打开" danger={failed7d > 0} />
+        <MetricCard title={`${defaultSources} / ${sources}`} label="默认 / 总来源" href="/admin/sources" action="打开" />
+        <MetricCard title={String(published)} label="已发布文章" href="/admin/posts" action="打开" />
+        <MetricCard title={String(videos)} label="视频资源" href="/admin/videos" action="打开" />
       </div>
 
       <div className="admin-action-grid" style={{ marginTop: 18 }}>
@@ -73,7 +75,7 @@ export default async function AdminDashboardPage() {
           <h2>默认来源抓取</h2>
           <form className="form-stack" action="/api/admin/run" method="post">
             <ContentStyleSelect styles={contentStyles} id="defaultContentStyleId" />
-            <button className="button" type="submit">抓取默认信息源并生成草稿</button>
+            <button className="button" type="submit">开始抓取</button>
             <p className="muted">当前会从 {defaultSources} 个启用的默认来源创建任务。</p>
           </form>
         </section>
@@ -107,7 +109,7 @@ export default async function AdminDashboardPage() {
               </select>
             </div>
             <ContentStyleSelect styles={contentStyles} id="keywordContentStyleId" />
-            <button className="button" type="submit">搜索资料并生成文章草稿</button>
+            <button className="button" type="submit">生成草稿</button>
           </form>
         </section>
       </div>
@@ -136,15 +138,11 @@ export default async function AdminDashboardPage() {
             <div className="table-item" key={job.id}>
               <div>
                 <strong>{getJobTitle(job)}</strong>
-                <div className="muted">{getJobMeta(job)}</div>
-                <div className="progress-track" aria-label={`任务进度 ${getJobProgress(job)}%`}>
-                  <div className="progress-fill" style={{ width: `${getJobProgress(job)}%` }} />
-                </div>
-                <div className="muted">进度 {getJobProgress(job)}% · {getJobDuration(job)}</div>
+                <div className="muted">{getJobMeta(job)} · <RelativeTime value={job.createdAt} /> · {getJobDuration(job)}</div>
                 {job.error ? <p className="muted">错误：{job.error}</p> : null}
               </div>
               <div className="row-actions">
-                <span className={`status-pill status-${job.status.toLowerCase()}`}>{job.status}</span>
+                <StatusPill status={job.status} />
                 <Link className="button secondary" href={`/admin/jobs/${job.id}`}>详情</Link>
               </div>
             </div>
@@ -161,7 +159,7 @@ function MetricCard({ title, label, href, action, danger = false }: { title: str
       <div style={{ fontSize: 28, fontWeight: 600, fontFamily: "var(--font-display)" }}>{title}</div>
       <div className="muted" style={{ fontSize: 13 }}>{label}</div>
       <Link className="text-link" href={href} style={{ display: "inline-block", marginTop: 10 }}>
-        {action}
+        {action} →
       </Link>
     </div>
   );
@@ -179,13 +177,6 @@ function MetricBar({ label, value, max }: { label: string; value: number; max: n
       </div>
     </div>
   );
-}
-
-function getJobProgress(job: DashboardJob) {
-  if (job.status === "COMPLETED") return 100;
-  if (job.status === "RUNNING") return 60;
-  if (job.status === "FAILED") return 100;
-  return 10;
 }
 
 function getJobDuration(job: DashboardJob) {

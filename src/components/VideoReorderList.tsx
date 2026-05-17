@@ -5,6 +5,7 @@ import {
   DndContext,
   PointerSensor,
   KeyboardSensor,
+  TouchSensor,
   closestCenter,
   useSensor,
   useSensors,
@@ -63,6 +64,7 @@ export function VideoReorderList({
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
+    useSensor(TouchSensor, { activationConstraint: { delay: 200, tolerance: 8 } }),
     useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates })
   );
 
@@ -157,6 +159,22 @@ export function VideoReorderList({
       .finally(() => setSavingId(null));
   }
 
+  function moveBy(postKey: string, videoId: string, delta: -1 | 1) {
+    const group = groupsByPost.get(postKey) || [];
+    if (group.length <= 1) return;
+    const currentIndex = group.findIndex((v) => v.id === videoId);
+    if (currentIndex < 0) return;
+    const targetIndex = currentIndex + delta;
+    if (targetIndex < 0 || targetIndex >= group.length) return;
+    const newGroup = arrayMove(group, currentIndex, targetIndex);
+    const updated = videos.map((v) => {
+      const found = newGroup.find((nv) => nv.id === v.id);
+      return found || v;
+    });
+    setVideos(updated);
+    persistOrder(postKey, newGroup.map((v) => v.id));
+  }
+
   const groupEntries = [...groupsByPost.entries()].sort(([a], [b]) => {
     if (a === "__unattached__") return 1;
     if (b === "__unattached__") return -1;
@@ -195,13 +213,15 @@ export function VideoReorderList({
             >
               <SortableContext items={group.map((v) => v.id)} strategy={verticalListSortingStrategy}>
                 <div style={{ display: "flex", flexDirection: "column", gap: 8, marginTop: 12 }}>
-                  {group.map((video) => (
+                  {group.map((video, index) => (
                     <SortableVideoRow
                       key={video.id}
                       video={video}
                       posts={posts}
                       formattedSize={formatBytes[video.id]}
                       onPlacementChange={updatePlacement}
+                      onMoveUp={index > 0 ? () => moveBy(postKey, video.id, -1) : null}
+                      onMoveDown={index < group.length - 1 ? () => moveBy(postKey, video.id, 1) : null}
                       sortable={postKey !== "__unattached__"}
                     />
                   ))}
@@ -224,12 +244,16 @@ function SortableVideoRow({
   posts,
   formattedSize,
   onPlacementChange,
+  onMoveUp,
+  onMoveDown,
   sortable
 }: {
   video: VideoRow;
   posts: PostOption[];
   formattedSize: string | undefined;
   onPlacementChange: (id: string, placement: VideoPlacement) => void;
+  onMoveUp: (() => void) | null;
+  onMoveDown: (() => void) | null;
   sortable: boolean;
 }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
@@ -255,25 +279,37 @@ function SortableVideoRow({
   return (
     <div ref={setNodeRef} style={style}>
       <div className="meta-row" style={{ alignItems: "center", justifyContent: "space-between", gap: 12 }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 10, minWidth: 0, flex: 1 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 6, minWidth: 0, flex: 1 }}>
           {sortable ? (
-            <button
-              type="button"
-              {...attributes}
-              {...listeners}
-              aria-label="拖动排序"
-              style={{
-                cursor: "grab",
-                background: "transparent",
-                border: "1px solid var(--line)",
-                borderRadius: 6,
-                padding: "2px 8px",
-                fontSize: 14,
-                lineHeight: 1
-              }}
-            >
-              ⠿
-            </button>
+            <div className="video-reorder-handles" role="group" aria-label="顺序控制">
+              <button
+                type="button"
+                {...attributes}
+                {...listeners}
+                aria-label="拖动排序"
+                className="video-reorder-handle"
+              >
+                ⠿
+              </button>
+              <button
+                type="button"
+                aria-label="上移"
+                className="video-reorder-arrow"
+                disabled={!onMoveUp}
+                onClick={() => onMoveUp?.()}
+              >
+                ↑
+              </button>
+              <button
+                type="button"
+                aria-label="下移"
+                className="video-reorder-arrow"
+                disabled={!onMoveDown}
+                onClick={() => onMoveDown?.()}
+              >
+                ↓
+              </button>
+            </div>
           ) : null}
           <div style={{ minWidth: 0 }}>
             <strong style={{ display: "block", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>

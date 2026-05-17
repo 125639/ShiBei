@@ -1,4 +1,6 @@
 import Link from "next/link";
+import { ActiveLink } from "./ActiveLink";
+import { AdminMobileNavToggle } from "./AdminMobileNavToggle";
 import { I18nText } from "./I18nText";
 import { getAppMode } from "@/lib/app-mode";
 
@@ -30,12 +32,12 @@ export function AdminShell({ children }: { children: React.ReactNode }) {
       ]
     },
     {
-      zh: "抓取",
+      zh: "信息采集",
       en: "Curation",
       items: [
         { href: "/admin/sources", zh: "来源库", en: "Sources", modes: ["backend", "full"] },
         { href: "/admin/modules", zh: "来源模块", en: "Modules", modes: ["backend", "full"] },
-        { href: "/admin/auto-curation", zh: "自动主题", en: "Auto Topics", modes: ["backend", "full"] }
+        { href: "/admin/auto-curation", zh: "自动内容", en: "Auto-Curation", modes: ["backend", "full"] }
       ]
     },
     {
@@ -55,41 +57,46 @@ export function AdminShell({ children }: { children: React.ReactNode }) {
 
   return (
     <div className="admin-layout">
-      <aside className="admin-sidebar">
-        <h1 style={{ marginTop: 0 }}>
-          ShiBei Admin
-          {mode !== "full" ? (
-            <span className="tag" style={{ marginLeft: 8, fontSize: 11 }}>
-              {mode}
-            </span>
-          ) : null}
-        </h1>
-        <nav aria-label="Admin">
-          {visibleGroups.map((group) => (
-            <div className="admin-nav-section" key={group.zh}>
-              <div className="admin-nav-heading">
-                <I18nText zh={group.zh} en={group.en} />
+      <a href="#admin-main" className="skip-link">
+        <I18nText zh="跳到主要内容" en="Skip to main content" />
+      </a>
+      <AdminMobileNavToggle>
+        <aside className="admin-sidebar" id="admin-sidebar">
+          <h1 style={{ marginTop: 0 }}>
+            ShiBei Admin
+            {mode !== "full" ? (
+              <span className="tag" style={{ marginLeft: 8, fontSize: 11 }}>
+                {mode}
+              </span>
+            ) : null}
+          </h1>
+          <nav aria-label="Admin">
+            {visibleGroups.map((group) => (
+              <div className="admin-nav-section" key={group.zh}>
+                <h2 className="admin-nav-heading">
+                  <I18nText zh={group.zh} en={group.en} />
+                </h2>
+                {group.items.map((item) => (
+                  <ActiveLink href={item.href} key={item.href} match="prefix">
+                    <I18nText zh={item.zh} en={item.en} />
+                  </ActiveLink>
+                ))}
               </div>
-              {group.items.map((item) => (
-                <Link href={item.href} key={item.href}>
-                  <I18nText zh={item.zh} en={item.en} />
-                </Link>
-              ))}
-            </div>
-          ))}
-        </nav>
-        {showFrontLink ? (
-          <Link href="/">
-            <I18nText zh="返回前台" en="Back to Site" />
-          </Link>
-        ) : null}
-        <form action="/api/admin/logout" method="post">
-          <button type="submit">
-            <I18nText zh="退出登录" en="Logout" />
-          </button>
-        </form>
-      </aside>
-      <main className="admin-main">{children}</main>
+            ))}
+          </nav>
+          {showFrontLink ? (
+            <Link href="/">
+              <I18nText zh="返回前台" en="Back to Site" />
+            </Link>
+          ) : null}
+          <form action="/api/admin/logout" method="post">
+            <button type="submit">
+              <I18nText zh="退出登录" en="Logout" />
+            </button>
+          </form>
+        </aside>
+      </AdminMobileNavToggle>
+      <main className="admin-main" id="admin-main" tabIndex={-1}>{children}</main>
     </div>
   );
 }
