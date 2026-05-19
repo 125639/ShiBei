@@ -1,5 +1,6 @@
 import { AdminShell } from "@/components/AdminShell";
 import { BarChart, DonutChart, LineChart, StackedBarChart } from "@/components/Charts";
+import { MetricCard } from "@/components/MetricCard";
 import { requireAdmin } from "@/lib/auth";
 import { loadStats } from "@/lib/stats";
 
@@ -34,18 +35,18 @@ export default async function AdminStatsPage({
       </div>
 
       <div className="admin-grid-3">
-        <Metric label="文章 · 当天" value={stats.todayNews} />
-        <Metric label="文章 · 本周" value={stats.weekNews} />
-        <Metric label="文章 · 总计" value={stats.totals.news} />
-        <Metric label="视频 · 当天" value={stats.todayVideos} />
-        <Metric label="视频 · 本周" value={stats.weekVideos} />
-        <Metric label="视频 · 总计" value={stats.totals.videos} />
-        <Metric label="信息源" value={stats.totals.sources} />
-        <Metric label="主题数" value={stats.totals.topics} />
-        <Metric label="待审核草稿" value={stats.totals.draftNews} />
+        <MetricCard label="文章 · 当天" value={stats.todayNews} />
+        <MetricCard label="文章 · 本周" value={stats.weekNews} />
+        <MetricCard label="文章 · 总计" value={stats.totals.news} />
+        <MetricCard label="视频 · 当天" value={stats.todayVideos} />
+        <MetricCard label="视频 · 本周" value={stats.weekVideos} />
+        <MetricCard label="视频 · 总计" value={stats.totals.videos} />
+        <MetricCard label="信息源" value={stats.totals.sources} />
+        <MetricCard label="主题数" value={stats.totals.topics} />
+        <MetricCard label="待审核草稿" value={stats.totals.draftNews} />
       </div>
 
-      <div className="chart-grid" style={{ marginTop: 18 }}>
+      <div className="chart-grid" style={{ marginTop: 24 }}>
         <div className="chart-card">
           <h3>文章每日数量</h3>
           <BarChart buckets={stats.newsBuckets} />
@@ -71,13 +72,3 @@ export default async function AdminStatsPage({
   );
 }
 
-function Metric({ label, value }: { label: string; value: number }) {
-  return (
-    <div className="metric-card">
-      <div style={{ fontSize: 28, fontWeight: 500, fontFamily: "var(--font-display)" }}>{value}</div>
-      <div className="muted" style={{ fontSize: 13 }}>
-        {label}
-      </div>
-    </div>
-  );
-}

@@ -111,8 +111,6 @@ export function AiAssistant({
   const logRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
-    const compact = window.matchMedia("(max-width: 720px)").matches;
-    setOpen(!compact);
     setReady(true);
   }, []);
 

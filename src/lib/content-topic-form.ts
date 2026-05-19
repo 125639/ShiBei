@@ -12,6 +12,7 @@ export type ParsedTopicForm = {
   styleId: string | null;
   cron: string;
   isEnabled: boolean;
+  useExa: boolean;
 };
 
 export function clampInt(value: number, min: number, max: number, fallback: number) {
@@ -40,6 +41,7 @@ export function parseTopicForm(form: FormData): ParsedTopicForm | null {
     keywords,
     styleId: styleIdRaw === "" ? null : styleIdRaw,
     cron: String(form.get("cron") || "0 9 * * *").trim(),
-    isEnabled: form.get("isEnabled") === "true"
+    isEnabled: form.get("isEnabled") === "true",
+    useExa: form.get("useExa") === "true"
   };
 }

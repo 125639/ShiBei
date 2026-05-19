@@ -70,7 +70,7 @@ export default async function MusicAdminPage() {
         </button>
       </form>
 
-      <section className="admin-panel" style={{ marginTop: 18 }}>
+      <section className="admin-panel" style={{ marginTop: 24 }}>
         <h2>当前曲目（{tracks.length}）</h2>
         {tracks.length === 0 ? (
           <p className="muted">暂无音乐。上传后用户即可在前台「设置」中启用。</p>

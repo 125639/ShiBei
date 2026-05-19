@@ -20,7 +20,8 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
       depth: parsed.depth,
       articleCount: parsed.articleCount,
       styleId: parsed.styleId,
-      isEnabled: parsed.isEnabled
+      isEnabled: parsed.isEnabled,
+      useExa: parsed.useExa
     }
   });
 

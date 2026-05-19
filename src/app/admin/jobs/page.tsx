@@ -1,6 +1,7 @@
 import Link from "next/link";
 import type { Prisma } from "@prisma/client";
 import { AdminShell } from "@/components/AdminShell";
+import { MetricCard } from "@/components/MetricCard";
 import { StatusPill } from "@/components/StatusPill";
 import { requireAdmin } from "@/lib/auth";
 import { JOB_STATUS_LABELS, JOB_STATUS_ORDER, isJobStatus } from "@/lib/job-status";
@@ -99,12 +100,12 @@ export default async function AdminJobsPage({
       </div>
 
       <div className="admin-grid-3">
-        <Metric label="等待中" value={queued} tone={queued > 0 ? "warn" : "normal"} />
-        <Metric label="运行中" value={running} tone={running > 0 ? "accent" : "normal"} />
-        <Metric label="近 7 天失败" value={recentFailed} tone={recentFailed > 0 ? "danger" : "normal"} />
+        <MetricCard label="等待中" value={queued} tone={queued > 0 ? "warn" : "normal"} />
+        <MetricCard label="运行中" value={running} tone={running > 0 ? "accent" : "normal"} />
+        <MetricCard label="近 7 天失败" value={recentFailed} tone={recentFailed > 0 ? "danger" : "normal"} />
       </div>
 
-      <div className="topic-tabs" style={{ marginTop: 18 }}>
+      <div className="topic-tabs" style={{ marginTop: 24 }}>
         <Link
           className={!status ? "active" : ""}
           aria-current={!status ? "page" : undefined}
@@ -127,7 +128,7 @@ export default async function AdminJobsPage({
         })}
       </div>
 
-      <section className="admin-panel" style={{ marginTop: 18 }}>
+      <section className="admin-panel" style={{ marginTop: 24 }}>
         <div className="meta-row" style={{ justifyContent: "space-between", alignItems: "center" }}>
           <h2 style={{ margin: 0 }}>最近任务</h2>
           <span className="muted">显示最新 {jobs.length} 条</span>
@@ -176,14 +177,5 @@ export default async function AdminJobsPage({
         )}
       </section>
     </AdminShell>
-  );
-}
-
-function Metric({ label, value, tone }: { label: string; value: number; tone: "normal" | "accent" | "warn" | "danger" }) {
-  return (
-    <div className={`metric-card metric-${tone}`}>
-      <div style={{ fontSize: 28, fontWeight: 600, fontFamily: "var(--font-display)" }}>{value}</div>
-      <div className="muted" style={{ fontSize: 13 }}>{label}</div>
-    </div>
   );
 }
