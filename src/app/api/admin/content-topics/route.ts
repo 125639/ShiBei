@@ -21,7 +21,8 @@ export async function POST(request: Request) {
       depth: parsed.depth,
       articleCount: parsed.articleCount,
       styleId: parsed.styleId,
-      isEnabled: parsed.isEnabled
+      isEnabled: parsed.isEnabled,
+      useExa: parsed.useExa
     }
   });
 

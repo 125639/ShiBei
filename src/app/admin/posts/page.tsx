@@ -11,7 +11,7 @@ export default async function AdminPostsPage() {
     <AdminShell>
       <p className="eyebrow">Posts</p>
       <h1>草稿与文章</h1>
-      <form className="form-card form-stack" action="/api/admin/posts" method="post" encType="multipart/form-data" style={{ marginBottom: 18 }}>
+      <form className="form-card form-stack" action="/api/admin/posts" method="post" encType="multipart/form-data" style={{ marginBottom: 24 }}>
         <h2>手动上传 / 新建博客内容</h2>
         <div className="field-row">
           <div className="field">
@@ -83,7 +83,7 @@ export default async function AdminPostsPage() {
         <button className="button" type="submit">创建文章</button>
       </form>
 
-      <form className="form-card form-stack" action="/api/admin/videos" method="post" encType="multipart/form-data" style={{ marginBottom: 18 }}>
+      <form className="form-card form-stack" action="/api/admin/videos" method="post" encType="multipart/form-data" style={{ marginBottom: 24 }}>
         <h2>上传 / 添加视频内容</h2>
         <div className="field-row">
           <div className="field">

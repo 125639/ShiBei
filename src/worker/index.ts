@@ -215,7 +215,7 @@ async function processWeb(fetchJobId: string) {
   const post = await summarizeRawItem(rawItem.id, fetchJob.id);
   if (autoImageSearchEnabled(settings)) {
     // 网页来源已经有 DOM 上下文，直接用来源页图片走统一筛选/缓存/插入链路。
-    await embedArticleImagesInPostContent(post.id, withImageSource(result.images || [], sourcePageUrl));
+    await embedArticleImagesInPostContent(post.id, withImageSource(result.images || [], sourcePageUrl, result.title));
   }
 
   if (textOnly) {
@@ -296,7 +296,7 @@ async function attachImagesFromEvidence(postId: string, evidence: EvidenceItem[]
   const scraped = await Promise.all(
     evidenceItems.map((item) =>
       scrapeWebPage(item.url)
-        .then((result) => ({ result, fallbackUrl: item.url }))
+        .then((result) => ({ result, fallbackUrl: item.url, sourceTitle: item.title }))
         .catch((error) => {
           console.error(`[image-search] evidence page scrape failed ${item.url}:`, error);
           return null;
@@ -316,7 +316,7 @@ async function attachImagesFromEvidence(postId: string, evidence: EvidenceItem[]
       const canonical = canonicalizeArticleImageUrl(image.src);
       if (seen.has(canonical)) continue;
       seen.add(canonical);
-      images.push({ ...image, sourcePageUrl });
+      images.push({ ...image, sourcePageUrl, sourceTitle: entry.sourceTitle });
       if (images.length >= 30) break;
     }
   }
@@ -469,15 +469,25 @@ async function processKeywordResearch(fetchJobId: string, keyword: string, scope
 }
 
 async function collectKeywordEvidence(keyword: string, scope: ResearchScope, opts?: { topicId?: string | null }) {
+  const topic = opts?.topicId
+    ? await prisma.contentTopic.findUnique({ where: { id: opts.topicId }, select: { useExa: true } })
+    : null;
+  const useExa = topic ? topic.useExa : true;
+
   const [savedEvidence, searchEvidence, exaEvidence] = await Promise.all([
     collectFromSavedSources(keyword, scope, opts),
     collectFromSearchFeeds(keyword, scope),
-    collectFromExa(keyword, scope)
+    useExa ? collectFromExa(keyword, scope) : Promise.resolve([])
   ]);
   const seen = new Set<string>();
   const evidence: EvidenceItem[] = [];
 
-  for (const item of [...savedEvidence, ...exaEvidence, ...searchEvidence]) {
+  // Order matters: Exa results are query-specific so they have the highest
+  // expected relevance and should win the top slots (which dominate LLM
+  // attention). RSS search feeds come next. Saved sources are broad topic
+  // feeds and should only fill remaining slots — otherwise a busy general-AI
+  // RSS source can shove unrelated items ahead of focused Exa hits.
+  for (const item of [...exaEvidence, ...searchEvidence, ...savedEvidence]) {
     const key = normalizeEvidenceUrl(item.url);
     if (!item.url || seen.has(key)) continue;
     seen.add(key);
@@ -658,7 +668,21 @@ function matchesKeyword(keyword: string, text: string) {
   const normalizedText = text.toLowerCase();
   const terms = keyword.toLowerCase().split(/[\s,，、]+/).filter(Boolean);
   if (!terms.length) return false;
-  return terms.some((term) => normalizedText.includes(term));
+  // Single-term keywords keep the original substring check. For multi-term
+  // keywords require at least half the terms to match — otherwise a broad
+  // saved RSS source whose articles incidentally mention one term (e.g.
+  // "claude" appearing in unrelated AI-safety posts) floods evidence with
+  // irrelevant hits and starves the more focused Exa/search results.
+  if (terms.length === 1) return normalizedText.includes(terms[0]);
+  const minMatches = Math.ceil(terms.length / 2);
+  let hits = 0;
+  for (const term of terms) {
+    if (normalizedText.includes(term)) {
+      hits++;
+      if (hits >= minMatches) return true;
+    }
+  }
+  return false;
 }
 
 function normalizeEvidenceUrl(url: string) {

@@ -153,11 +153,14 @@ export default async function AutoCurationPage() {
           <label>
             <input type="checkbox" name="isEnabled" value="true" defaultChecked /> 立即启用此主题
           </label>
+          <label>
+            <input type="checkbox" name="useExa" value="true" defaultChecked /> 启用 Exa 网页搜索作为资料源（需在站点设置里配置 API Key）
+          </label>
           <button className="button" type="submit">保存主题</button>
         </form>
       </div>
 
-      <section className="admin-panel" style={{ marginTop: 18 }}>
+      <section className="admin-panel" style={{ marginTop: 24 }}>
         <h2>已配置主题</h2>
         {topics.length === 0 ? (
           <p className="muted">还没有自动主题。可在右侧表单添加,或在服务端运行 <code>npm run db:seed</code> 一次性导入 10 个示例主题(默认全部关闭)。</p>
@@ -234,6 +237,10 @@ export default async function AutoCurationPage() {
                       <input type="checkbox" name="isEnabled" value="true" defaultChecked={topic.isEnabled} />{" "}
                       启用此主题
                     </label>
+                    <label>
+                      <input type="checkbox" name="useExa" value="true" defaultChecked={topic.useExa} />{" "}
+                      使用 Exa 网页搜索
+                    </label>
                     <div className="meta-row" style={{ gap: 8 }}>
                       <button className="button" type="submit">保存</button>
                       <button className="button secondary" type="submit" formAction={`/api/admin/content-topics/${topic.id}/run`}>立即试运行</button>
@@ -253,7 +260,7 @@ export default async function AutoCurationPage() {
         )}
       </section>
 
-      <section className="admin-panel" style={{ marginTop: 18 }}>
+      <section className="admin-panel" style={{ marginTop: 24 }}>
         <h2>最近自动内容任务</h2>
         {recentRuns.length === 0 ? (
           <p className="muted">还没有任务。启用一个主题后，下一次定时点会出现在这里。</p>

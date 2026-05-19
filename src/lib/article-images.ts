@@ -24,6 +24,7 @@ export type ScrapedArticleImage = {
 
 export type ArticleImageCandidate = ScrapedArticleImage & {
   sourcePageUrl: string;
+  sourceTitle?: string | null;
 };
 
 export type ArticleImagePlacement = VideoPlacement;
@@ -69,8 +70,8 @@ export function normalizeArticleImagePlacement(value: unknown): ArticleImagePlac
   return normalizeVideoPlacement(value);
 }
 
-export function withImageSource(images: ScrapedArticleImage[], sourcePageUrl: string): ArticleImageCandidate[] {
-  return images.map((image) => ({ ...image, sourcePageUrl }));
+export function withImageSource(images: ScrapedArticleImage[], sourcePageUrl: string, sourceTitle?: string | null): ArticleImageCandidate[] {
+  return images.map((image) => ({ ...image, sourcePageUrl, sourceTitle: sourceTitle ?? null }));
 }
 
 export function extractPostKeywords(title: string, summary: string): string[] {
@@ -248,7 +249,7 @@ export async function embedArticleImagesInPostContent(
     }
     figures.push(buildArticleImageFigureHtml({
       src: cached.url,
-      caption: image.alt || "原文配图",
+      caption: image.alt || image.sourceTitle || "原文配图",
       sourcePageUrl: image.sourcePageUrl
     }));
     urls.push(cached.url);

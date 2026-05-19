@@ -2,6 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import type { Prisma } from "@prisma/client";
 import { AdminShell } from "@/components/AdminShell";
+import { MetricCard } from "@/components/MetricCard";
 import { requireAdmin } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { parseKeywordResearchUrl, researchScopeLabel } from "@/lib/research";
@@ -125,12 +126,12 @@ export default async function AdminJobDetailPage({
       </div>
 
       <div className="admin-grid-3">
-        <Metric label="原始条目" value={job.rawItems.length} />
-        <Metric label="生成文章" value={rawItemsWithPosts.length} />
-        <Metric label="本地视频" value={`${localVideos.length} / ${formatBytes(totalLocalBytes)}`} />
+        <MetricCard label="原始条目" value={job.rawItems.length} />
+        <MetricCard label="生成文章" value={rawItemsWithPosts.length} />
+        <MetricCard label="本地视频" value={`${localVideos.length} / ${formatBytes(totalLocalBytes)}`} />
       </div>
 
-      <section className="admin-panel" style={{ marginTop: 18 }}>
+      <section className="admin-panel" style={{ marginTop: 24 }}>
         <h2>执行信息</h2>
         <div className="diagnostic-grid">
           <Info label="任务 ID" value={job.id} mono />
@@ -152,7 +153,7 @@ export default async function AdminJobDetailPage({
         ) : null}
       </section>
 
-      <section className="admin-panel" style={{ marginTop: 18 }}>
+      <section className="admin-panel" style={{ marginTop: 24 }}>
         <h2>产物</h2>
         {job.rawItems.length === 0 ? (
           <p className="muted">还没有原始条目。若任务已失败，优先查看上方错误信息。</p>
@@ -199,15 +200,6 @@ export default async function AdminJobDetailPage({
         )}
       </section>
     </AdminShell>
-  );
-}
-
-function Metric({ label, value }: { label: string; value: number | string }) {
-  return (
-    <div className="metric-card">
-      <div style={{ fontSize: 24, fontWeight: 600, fontFamily: "var(--font-display)" }}>{value}</div>
-      <div className="muted" style={{ fontSize: 13 }}>{label}</div>
-    </div>
   );
 }
 

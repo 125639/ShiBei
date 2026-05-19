@@ -4,6 +4,7 @@
 import { useState, useEffect } from "react";
 import { ConfirmButton } from "@/components/ConfirmButton";
 import { I18nText } from "@/components/I18nText";
+import { MetricCard } from "@/components/MetricCard";
 import { CONTENT_MODE_OPTIONS, contentModeLabel } from "@/lib/content-style";
 import { LANGUAGE_OPTIONS, CONTENT_LANGUAGE_MODE_OPTIONS } from "@/lib/language";
 import { MODEL_PROVIDER_PRESETS, providerLabel } from "@/lib/model-providers";
@@ -57,13 +58,6 @@ export function SettingsClient({
   }, [savedFlag]);
 
   const s = site || {};
-
-  const Stat = ({ label, value }: { label: React.ReactNode; value: string }) => (
-    <div className="metric-card">
-      <div style={{ fontSize: 22, fontWeight: 600, fontFamily: "var(--font-display)" }}>{value}</div>
-      <div className="muted" style={{ fontSize: 13 }}>{label}</div>
-    </div>
-  );
 
   return (
     <div className="settings-layout">
@@ -510,21 +504,21 @@ export function SettingsClient({
       ) : null}
 
       {activeTab === "storage" && storage ? (
-        <section className="admin-panel" id="settings-panel-storage" role="tabpanel" aria-labelledby="settings-tab-storage" style={{ marginTop: 18 }}>
+        <section className="admin-panel" id="settings-panel-storage" role="tabpanel" aria-labelledby="settings-tab-storage" style={{ marginTop: 24 }}>
           <h2 style={{ marginTop: 0 }}><I18nText zh="当前存储占用" en="Current Storage Usage" /></h2>
-          <div className="admin-grid-3" style={{ marginTop: 10 }}>
-            <Stat label={<I18nText zh="上传目录总和" en="Uploads Total" />} value={String(storage.uploadsBytes)} />
-            <Stat label={<I18nText zh="图片缓存" en="Image Cache" />} value={String(storage.imageBytes)} />
-            <Stat label={<I18nText zh="音乐占用" en="Music Usage" />} value={String(storage.musicBytes)} />
-            <Stat label={<I18nText zh="视频占用" en="Video Usage" />} value={String(storage.videoBytes)} />
-            <Stat label={<I18nText zh="文章数量" en="Post Count" />} value={String(storage.postCount)} />
-            <Stat label={<I18nText zh="原始素材" en="Raw Items" />} value={String(storage.rawItemCount)} />
-            <Stat label={<I18nText zh="任务数量" en="Fetch Jobs" />} value={String(storage.fetchJobCount)} />
-            <Stat label={<I18nText zh="DB 估算" en="DB Estimate" />} value={String(storage.approxDbBytesEstimate)} />
-            <Stat label={<I18nText zh="空间上限" en="Space Limit" />} value={`${storage.maxStorageMb} MB`} />
-            <Stat label={<I18nText zh="清理阈值" en="Cleanup Threshold" />} value={`> ${storage.cleanupAfterDays} days`} />
+          <div className="admin-grid-3" style={{ marginTop: 16 }}>
+            <MetricCard label={<I18nText zh="上传目录总和" en="Uploads Total" />} value={String(storage.uploadsBytes)} />
+            <MetricCard label={<I18nText zh="图片缓存" en="Image Cache" />} value={String(storage.imageBytes)} />
+            <MetricCard label={<I18nText zh="音乐占用" en="Music Usage" />} value={String(storage.musicBytes)} />
+            <MetricCard label={<I18nText zh="视频占用" en="Video Usage" />} value={String(storage.videoBytes)} />
+            <MetricCard label={<I18nText zh="文章数量" en="Post Count" />} value={String(storage.postCount)} />
+            <MetricCard label={<I18nText zh="原始素材" en="Raw Items" />} value={String(storage.rawItemCount)} />
+            <MetricCard label={<I18nText zh="任务数量" en="Fetch Jobs" />} value={String(storage.fetchJobCount)} />
+            <MetricCard label={<I18nText zh="DB 估算" en="DB Estimate" />} value={String(storage.approxDbBytesEstimate)} />
+            <MetricCard label={<I18nText zh="空间上限" en="Space Limit" />} value={`${storage.maxStorageMb} MB`} />
+            <MetricCard label={<I18nText zh="清理阈值" en="Cleanup Threshold" />} value={`> ${storage.cleanupAfterDays} days`} />
           </div>
-          <form action="/api/admin/storage/cleanup" method="post" style={{ marginTop: 14 }}>
+          <form action="/api/admin/storage/cleanup" method="post" style={{ marginTop: 16 }}>
             <button className="button secondary" type="submit"><I18nText zh="立即按当前规则清理" en="Clean Up Now" /></button>
           </form>
         </section>

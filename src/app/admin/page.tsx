@@ -2,6 +2,7 @@ import Link from "next/link";
 import type { Prisma } from "@prisma/client";
 import { AdminShell } from "@/components/AdminShell";
 import { ContentStyleSelect } from "@/components/ContentStyleSelect";
+import { MetricCard } from "@/components/MetricCard";
 import { RelativeTime } from "@/components/RelativeTime";
 import { StatusPill } from "@/components/StatusPill";
 import { requireAdmin } from "@/lib/auth";
@@ -47,6 +48,7 @@ export default async function AdminDashboardPage() {
   ]);
   const jobStats = jobStatusSummary.map((item) => ({ status: item.status, count: item._count._all }));
   const maxMetric = Math.max(postsCreated7d, published7d, failed7d, 1);
+  const maxJobCount = Math.max(...jobStats.map((stat) => stat.count), 1);
 
   return (
     <AdminShell>
@@ -62,15 +64,15 @@ export default async function AdminDashboardPage() {
       </div>
 
       <div className="admin-grid-3">
-        <MetricCard title={String(drafts)} label="待审核草稿" href="/admin/posts" action="打开" />
-        <MetricCard title={String(runningJobs)} label="运行中任务" href="/admin/jobs?status=RUNNING" action="打开" />
-        <MetricCard title={String(failed7d)} label="近 7 天失败任务" href="/admin/jobs?status=FAILED" action="打开" danger={failed7d > 0} />
-        <MetricCard title={`${defaultSources} / ${sources}`} label="默认 / 总来源" href="/admin/sources" action="打开" />
-        <MetricCard title={String(published)} label="已发布文章" href="/admin/posts" action="打开" />
-        <MetricCard title={String(videos)} label="视频资源" href="/admin/videos" action="打开" />
+        <MetricCard value={drafts} label="待审核草稿" action={{ href: "/admin/posts", label: "打开" }} />
+        <MetricCard value={runningJobs} label="运行中任务" action={{ href: "/admin/jobs?status=RUNNING", label: "打开" }} />
+        <MetricCard value={failed7d} label="近 7 天失败任务" tone={failed7d > 0 ? "danger" : "normal"} action={{ href: "/admin/jobs?status=FAILED", label: "打开" }} />
+        <MetricCard value={`${defaultSources} / ${sources}`} label="默认 / 总来源" action={{ href: "/admin/sources", label: "打开" }} />
+        <MetricCard value={published} label="已发布文章" action={{ href: "/admin/posts", label: "打开" }} />
+        <MetricCard value={videos} label="视频资源" action={{ href: "/admin/videos", label: "打开" }} />
       </div>
 
-      <div className="admin-action-grid" style={{ marginTop: 18 }}>
+      <div className="admin-action-grid" style={{ marginTop: 24 }}>
         <section className="admin-panel">
           <h2>默认来源抓取</h2>
           <form className="form-stack" action="/api/admin/run" method="post">
@@ -114,21 +116,21 @@ export default async function AdminDashboardPage() {
         </section>
       </div>
 
-      <section className="admin-panel" style={{ marginTop: 18 }}>
+      <section className="admin-panel" style={{ marginTop: 24 }}>
         <h2>工作成效</h2>
         <div className="stats-grid">
           <MetricBar label="近 7 天生成文章" value={postsCreated7d} max={maxMetric} />
           <MetricBar label="近 7 天发布文章" value={published7d} max={maxMetric} />
           <MetricBar label="近 7 天失败任务" value={failed7d} max={maxMetric} />
         </div>
-        <div className="stats-grid" style={{ marginTop: 18 }}>
+        <div className="stats-grid" style={{ marginTop: 24 }}>
           {jobStats.map((item) => (
-            <MetricBar key={item.status} label={`任务 ${item.status}`} value={item.count} max={Math.max(...jobStats.map((stat) => stat.count), 1)} />
+            <MetricBar key={item.status} label={`任务 ${item.status}`} value={item.count} max={maxJobCount} />
           ))}
         </div>
       </section>
 
-      <section className="admin-panel" style={{ marginTop: 18 }}>
+      <section className="admin-panel" style={{ marginTop: 24 }}>
         <div className="meta-row" style={{ justifyContent: "space-between", alignItems: "center" }}>
           <h2 style={{ margin: 0 }}>最近任务</h2>
           <Link className="text-link" href="/admin/jobs">查看全部任务</Link>
@@ -150,18 +152,6 @@ export default async function AdminDashboardPage() {
         </div>
       </section>
     </AdminShell>
-  );
-}
-
-function MetricCard({ title, label, href, action, danger = false }: { title: string; label: string; href: string; action: string; danger?: boolean }) {
-  return (
-    <div className={`metric-card ${danger ? "metric-danger" : ""}`}>
-      <div style={{ fontSize: 28, fontWeight: 600, fontFamily: "var(--font-display)" }}>{title}</div>
-      <div className="muted" style={{ fontSize: 13 }}>{label}</div>
-      <Link className="text-link" href={href} style={{ display: "inline-block", marginTop: 10 }}>
-        {action} →
-      </Link>
-    </div>
   );
 }
 

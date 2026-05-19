@@ -265,7 +265,7 @@ model ContentTopic {
   compileKind  CompilationKind @default(SINGLE_ARTICLE)
   depth        String          @default("long")
   articleCount Int             @default(1)
-  useExa       Boolean         @default(false)
+  useExa       Boolean         @default(true)
   modules      SourceModule[]  @relation("ContentTopicToModule")
   styleId      String?
   style        ContentStyle?   @relation(fields: [styleId], references: [id], onDelete: SetNull)
