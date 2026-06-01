@@ -5,6 +5,7 @@ import { prisma } from "@/lib/prisma";
 import { isFrontend } from "@/lib/app-mode";
 import { proxyToBackend } from "@/lib/sync/proxy";
 import { ensureBackendCallerAllowed } from "@/lib/sync/backend-auth";
+import { checkRateLimit } from "@/lib/rate-limit";
 
 export const dynamic = "force-dynamic";
 
@@ -28,6 +29,14 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   // backend 模式暴露在公网时，必须验证共享密钥，否则任何人都能消耗你的模型 Key。
   const denied = await ensureBackendCallerAllowed(request);
   if (denied) return denied;
+
+  const limited = await checkRateLimit({ namespace: "translate", request, limit: 12, windowSec: 60 * 60 });
+  if (!limited.ok) {
+    return NextResponse.json(
+      { error: "翻译请求过于频繁，请稍后再试" },
+      { status: 429, headers: { "Retry-After": String(limited.retryAfterSec) } }
+    );
+  }
 
   const post = await prisma.post.findUnique({ where: { id } });
   if (!post || post.status !== "PUBLISHED") {

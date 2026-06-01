@@ -308,7 +308,7 @@ STUB
   grep -F "PWD=$sandbox" "$log" >/dev/null || {
     echo "    FAIL: docker invoked from wrong dir (expected $sandbox)"; cat "$log"
     rm -rf "$sandbox" "$stub_dir"; return 1; }
-  grep -F "ARGS=compose -f docker-compose.backend.yml up -d" "$log" >/dev/null || {
+  grep -F "ARGS=compose -f docker-compose.backend.yml up -d --build --force-recreate" "$log" >/dev/null || {
     echo "    FAIL: wrong compose args"; cat "$log"
     rm -rf "$sandbox" "$stub_dir"; return 1; }
 

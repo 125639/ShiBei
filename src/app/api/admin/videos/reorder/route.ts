@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
-import { revalidatePath } from "next/cache";
 import { requireAdmin } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { revalidatePublicContent } from "@/lib/revalidate-public";
 import {
   insertVideoShortcode,
   normalizeVideoPlacement,
@@ -46,6 +46,8 @@ export async function POST(request: Request) {
 
   const postId = body.postId ? String(body.postId).trim() : "";
 
+  const revalidatePaths: string[] = items.map((item) => `/videos/${item.id}`);
+
   await prisma.$transaction(async (tx) => {
     for (const item of items) {
       await tx.video.update({
@@ -60,9 +62,10 @@ export async function POST(request: Request) {
     if (postId) {
       const post = await tx.post.findUnique({
         where: { id: postId },
-        select: { id: true, content: true, contentEn: true }
+        select: { id: true, slug: true, content: true, contentEn: true }
       });
       if (post) {
+        revalidatePaths.push(`/posts/${post.slug}`);
         const reorderedContent = rebuildPostContent(post.content, items);
         const reorderedContentEn = post.contentEn ? rebuildPostContent(post.contentEn, items) : null;
         await tx.post.update({
@@ -76,8 +79,7 @@ export async function POST(request: Request) {
     }
   });
 
-  revalidatePath("/admin/videos");
-  if (postId) revalidatePath(`/admin/posts/${postId}`);
+  revalidatePublicContent(revalidatePaths);
 
   return NextResponse.json({ ok: true });
 }

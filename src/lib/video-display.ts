@@ -2,6 +2,16 @@ export type VideoDisplayMode = "embed" | "link";
 export type VideoPlacement = "after-intro" | "before-references" | "end";
 
 export const VIDEO_SHORTCODE_RE = /\[\[video:([A-Za-z0-9_-]+)\]\]/g;
+export const EMBED_IFRAME_SANDBOX = "allow-scripts allow-same-origin allow-presentation allow-popups";
+
+const EMBED_HOST_WHITELIST = [
+  /^https:\/\/www\.youtube\.com\/embed\//,
+  /^https:\/\/youtube\.com\/embed\//,
+  /^https:\/\/player\.bilibili\.com\/player\.html/,
+  /^https:\/\/player\.youku\.com\/embed\//,
+  /^https:\/\/v\.qq\.com\/txp\/iframe\//,
+  /^https:\/\/open\.iqiyi\.com\/developer\/player_js\//,
+];
 
 export function normalizeVideoDisplayMode(value: unknown): VideoDisplayMode {
   return value === "link" ? "link" : "embed";
@@ -14,6 +24,10 @@ export function normalizeVideoPlacement(value: unknown): VideoPlacement {
 
 export function shouldRenderVideoAsLink(video: { displayMode?: string | null; type?: string | null }) {
   return normalizeVideoDisplayMode(video.displayMode) === "link" || video.type === "LINK";
+}
+
+export function isAllowedEmbedUrl(url: string): boolean {
+  return EMBED_HOST_WHITELIST.some((re) => re.test(url));
 }
 
 export function removeVideoShortcode(markdown: string, videoId: string) {

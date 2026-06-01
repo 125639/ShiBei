@@ -4,6 +4,12 @@ import { MODEL_PROVIDER_PRESETS } from "@/lib/model-providers";
 import { prisma } from "@/lib/prisma";
 import { redirectTo } from "@/lib/redirect";
 
+function clampNumber(value: FormDataEntryValue | null, fallback: number, min: number, max: number) {
+  const n = Number(value || fallback);
+  if (!Number.isFinite(n)) return fallback;
+  return Math.min(Math.max(n, min), max);
+}
+
 export async function POST(request: Request) {
   await requireAdmin();
   const form = await request.formData();
@@ -22,8 +28,8 @@ export async function POST(request: Request) {
       baseUrl: String(form.get("baseUrl") || preset?.baseUrl || "https://api.openai.com/v1"),
       model: String(form.get("model") || preset?.model || "gpt-4o-mini"),
       apiKeyEnc: encryptSecret(String(form.get("apiKey") || "")),
-      temperature: Number(form.get("temperature") || 0.3),
-      maxTokens: Number(form.get("maxTokens") || 1600),
+      temperature: clampNumber(form.get("temperature"), 0.3, 0, 2),
+      maxTokens: clampNumber(form.get("maxTokens"), 1600, 1, 200000),
       stream: form.get("stream") === "true",
       isDefault
     }

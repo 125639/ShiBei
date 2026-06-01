@@ -10,6 +10,8 @@ export default async function LoginPage({ searchParams }: { searchParams: Promis
   const errorMsg =
     params.error === "db"
       ? "暂时无法登录,请稍后再试。若问题持续,请联系系统管理员。"
+      : params.error === "rate"
+        ? "登录尝试过于频繁，请稍后再试。"
       : params.error === "1"
         ? "用户名或密码不正确。"
         : null;

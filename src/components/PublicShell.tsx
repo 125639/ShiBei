@@ -1,19 +1,10 @@
 import Link from "next/link";
-import { unstable_cache } from "next/cache";
 import { I18nText } from "@/components/I18nText";
 import { MusicPlayer } from "@/components/MusicPlayer";
-import { prisma } from "@/lib/prisma";
-
-// Cache the rarely-changing site settings used by every public page.
-// Tag-based revalidation: site-settings/* update calls revalidateTag("site-settings").
-const getSiteSettings = unstable_cache(
-  async () => prisma.siteSettings.findUnique({ where: { id: "site" } }),
-  ["public-site-settings"],
-  { revalidate: 60, tags: ["site-settings"] }
-);
+import { getCachedSiteChromeSettings } from "@/lib/site-settings-cache";
 
 export async function PublicShell({ children }: { children: React.ReactNode }) {
-  const settings = await getSiteSettings().catch(() => null);
+  const settings = await getCachedSiteChromeSettings().catch(() => null);
 
   return (
     <div className="site-shell">

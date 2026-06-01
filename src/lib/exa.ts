@@ -21,7 +21,10 @@ export async function searchWithExa(query: string, opts?: {
   domesticOnly?: boolean;
   internationalOnly?: boolean;
 }): Promise<ExaResult[]> {
-  const settings = await prisma.siteSettings.findUnique({ where: { id: "site" } });
+  const settings = await prisma.siteSettings.findUnique({
+    where: { id: "site" },
+    select: { exaEnabled: true, exaApiKeyEnc: true }
+  });
   const enabled = (settings as { exaEnabled?: boolean } | null)?.exaEnabled;
   const enc = (settings as { exaApiKeyEnc?: string | null } | null)?.exaApiKeyEnc;
   if (!enabled || !enc) return [];

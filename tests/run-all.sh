@@ -39,6 +39,8 @@ run_suite "node seed integration" bash -c "cd '$PROJECT_DIR' && [ -d node_module
 run_suite "article image cache" bash -c "cd '$PROJECT_DIR' && npx tsx --test tests/test-article-image-cache.ts"
 run_suite "article image mounting" bash -c "cd '$PROJECT_DIR' && npx tsx --test tests/test-article-images.ts"
 run_suite "content style prompts" bash -c "cd '$PROJECT_DIR' && npx tsx --test tests/test-content-style.ts"
+run_suite "url safety" bash -c "cd '$PROJECT_DIR' && npx tsx --test tests/test-url-safety.ts"
+run_suite "sync limits" bash -c "cd '$PROJECT_DIR' && npx tsx --test tests/test-sync-limits.ts"
 run_suite "video policy + default sources" bash -c "cd '$PROJECT_DIR' && npx tsx --test tests/test-video-policy.ts"
 
 echo

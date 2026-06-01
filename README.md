@@ -4,7 +4,7 @@
 > 既能单机一体，也能拆成前端 + 后端两台服务器分别部署。
 
 [![Node](https://img.shields.io/badge/node-22--bookworm-43853d?logo=node.js)](https://nodejs.org/)
-[![Next.js](https://img.shields.io/badge/Next.js-15.5-black?logo=next.js)](https://nextjs.org/)
+[![Next.js](https://img.shields.io/badge/Next.js-15.x-black?logo=next.js)](https://nextjs.org/)
 [![Postgres](https://img.shields.io/badge/Postgres-16-336791?logo=postgresql&logoColor=white)](https://www.postgresql.org/)
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](#许可)
 
@@ -36,6 +36,7 @@
 - **多字体**：6 种**全部为免费字体**（系统字体或 Source Han / Noto / LXGW WenKai / FangSong），用户可在 `/settings` 自由切换并存入 localStorage。
 - **管理员默认主题/字体**：`/admin/settings` 设置；用户首次访问时使用管理员的默认值，未设置则回退到「简约 + 衬线」。
 - **数据可视化**：`/stats`（公开）+ `/admin/stats`（管理员）共 6 张图，全部 SVG + CSS 实现，零第三方图表库依赖；提供「当天 / 本周 / 全部」3 个时间窗口。
+- **可检索列表**：公开文章 / 视频支持搜索、筛选与分页；后台文章列表支持按标题、摘要、标签和状态快速定位。
 
 ### 业务逻辑
 
@@ -49,8 +50,9 @@
 - **信息源模块化**：`SourceModule` 表，源可关联多个模块（AI / 财经 / 娱乐 …），主题抓取时只用关联模块的源，效率与相关性更高；管理员还可启用 [Exa](https://exa.ai) 作为额外检索引擎。
 - **音乐**：`/admin/music` 上传 MP3/M4A/OGG/WAV（≤30 MB），用户在 `/settings` 启用并选曲，全站浮动播放器（折叠/换曲/音量/关闭）。
 - **多语言**：默认中文；管理员可选「双语模式」或「默认语种模式」。在默认语种模式下，用户切到英文时打开文章会调 AI 自动翻译并写入缓存（`titleEn` / `summaryEn` / `contentEn`），下次复用。
-- **AI 助手**：博客主页 + 文章页内嵌 `AiAssistant`，模型由管理员在 `/admin/settings` 配置；用户可与 AI 探讨页面文章内容。
+- **AI 助手**：博客主页 + 文章页内嵌 `AiAssistant`，模型由管理员在 `/admin/settings` 配置；用户可与 AI 探讨页面文章内容，公开 AI 接口内置限流。
 - **用户写作工作台**：`/write` 提供独立写作区，**不计入博客内容**，用户写完可下载保存。AI 辅助使用管理员预设的「写作模型」；用户也可填入自己的 baseUrl / apiKey / model 走自定义模型。
+- **SEO / 订阅**：文章与视频详情页生成 canonical / Open Graph metadata，并提供 `/sitemap.xml`、`/robots.txt`、`/feed.xml`。
 
 ### 数据访问层
 
@@ -60,9 +62,9 @@
 
 ### 性能
 
-- `PublicShell` 把站点设置走 `unstable_cache`（60s + tag-based revalidation），管理员保存时立即刷新。
+- 站点主题、字体、语言、名称与描述走 `unstable_cache`（60s + tag-based revalidation），管理员保存时立即刷新。
 - `next.config.ts`：`/_next/static/*` 1 年 immutable，`/uploads/*` 1 小时缓存；启用 compress；`optimizePackageImports`。
-- 公开页全部命中缓存，加上 LCP 关键资源直接 inline CSS，1 核 1G 也能轻松扛住几十 QPS。
+- 文章 / 视频变更会刷新公开首页、列表、详情、统计、RSS 与 sitemap；公开统计接口带 60s 缓存。
 
 ---
 
@@ -156,13 +158,12 @@ cp .env.example .env
 ### 访问
 
 ```text
-http://服务器IP             # 公开站（前端/完整版）
-http://服务器IP:3000        # 同上
+http://服务器IP:3000        # 公开站（前端/完整版）
 http://服务器IP:3000/admin  # 管理后台（默认 admin / 你在向导里设的密码）
 http://服务器IP:3000/api/health  # 健康检查（compose 已用它做 healthcheck）
 ```
 
-> 容器内监听 3000；前端/完整版的 compose 同时把 `80:3000` 也映射出来，开了 80 端口的服务器可以直接用 IP 访问。
+> 容器内监听 3000；默认只暴露宿主机 3000，避免和已有 Nginx/Caddy/系统服务抢 80 端口。需要 80/443 时，建议用 Nginx/Caddy 反代到 `127.0.0.1:3000`。
 >
 > 后端 compose **只暴露 3000**——拆分部署时建议给它套一层 Caddy/Nginx 做 HTTPS。
 
@@ -256,7 +257,7 @@ docker compose logs -f app worker
    }
    ```
 
-   把对应 compose 里的 `"80:3000"` 删掉、只保留 `"127.0.0.1:3000:3000"`，让 Caddy 终止 TLS。
+   默认 compose 只暴露宿主机 3000；让 Caddy 监听 80/443，并反代到 `127.0.0.1:3000`。
 
 ### 安全注意
 
@@ -369,9 +370,10 @@ npm run sync-worker
 ### 类型检查 + 构建
 
 ```bash
-npx tsc --noEmit          # 静态类型检查
+npm run typecheck         # 静态类型检查
 npm run build             # 生产构建（含 prisma generate）
 npm run lint              # ESLint
+npm run check             # lint + typecheck
 bash tests/run-all.sh     # 单元测试 / 集成测试 / 图片缓存与挂载测试
 ```
 
@@ -511,10 +513,10 @@ curl -O -J http://backend.example.com:3000/api/admin/sync/export \
 
 按下面顺序排：
 
-1. **端口映射写错**：镜像内监听 3000，所以 `-p 80:3000`、不是 `80:80`。
+1. **端口映射写错或端口被占用**：镜像内监听 3000，默认映射到宿主机 3000；如要让容器直接占用 80，应使用 `80:3000`，不是 `80:80`。
 2. **容器其实退了**：`docker compose ps` 看 `app` 是不是 `Exited`；`docker compose logs app` 看错误。
    - 最常见报错：`Validation Error Count: 1 [Context: getConfig]` → `.env` 漏填 `DATABASE_URL` / `AUTH_SECRET` / `ENCRYPTION_KEY`。重跑 `bash scripts/init.sh` 即可一次性补齐。
-3. **防火墙 / 安全组**：阿里云、腾讯云、DigitalOcean 控制台放行 80 / 3000 入站。
+3. **防火墙 / 安全组**：阿里云、腾讯云、DigitalOcean 控制台放行 3000 入站；如果前置了 Nginx/Caddy，再放行 80/443。
 4. **前端的 backend 入口写成了 localhost**：跨服务器时必须填 backend 的公网 IP / 域名，frontend 容器内的 localhost 是它自己。
 
 ### ❷ 前端没有文章
@@ -562,9 +564,9 @@ curl -O -J http://backend.example.com:3000/api/admin/sync/export \
 
 旧版本 seed 按单字段唯一写默认主题/模块，升级时遇到 `name` 或 `slug` 冲突。当前版本已按 `slug or name` 识别已有数据，重建镜像 + 重启即可。
 
-### ❾ 80 端口被别的服务占用
+### ❾ 想用 80/443 访问
 
-编辑对应 compose，删掉 `"80:3000"` 一行，前置 Caddy/Nginx 反代做端口转发与 TLS。
+默认 compose 不抢 80 端口。前置 Caddy/Nginx，把外部 80/443 反代到 `127.0.0.1:3000` 即可；如果你确实要容器直接占用 80，再手动给对应 compose 增加 `"80:3000"`。
 
 ### ❿ 想换密钥 / 换部署形态
 
@@ -585,6 +587,8 @@ bash scripts/init.sh
 - **AUTH_SECRET / ENCRYPTION_KEY**：每个部署独立，长度 ≥ 32 byte 随机串（向导默认 64 hex）。
 - **SYNC_TOKEN**：跨服务器场景务必 HTTPS，定期轮换；轮换时先在两端同步保存新值再删旧值。
 - **公开 backend**：`backend` 模式下 `/api/public/*` 已要求 SYNC_TOKEN；但建议再加一层 Caddy/Nginx 限速，避开未授权扫描的恶意请求。
+- **AI 接口限流**：助手、翻译、写作辅助默认按客户端 IP 限流；配置 `REDIS_URL` 时跨进程共享计数，否则使用进程内兜底计数。
+- **抓取目标安全**：网页 / RSS / 图片下载会拒绝 file、localhost、私网 IP、链路本地与云 metadata；真实请求前还会解析 DNS，避免域名解析到内网地址。
 - **API Key**：所有外部 API Key（OpenAI / DeepSeek / Exa）都用 `ENCRYPTION_KEY` 加密入库；备份数据库等同备份这些密钥，注意 ACL。
 - **上传体积限制**：图片 8 MB、音乐 30 MB、视频 300 MB、ZIP 同步 512 MB，按需在源码改大但记得给反代也加 `client_max_body_size`。
 

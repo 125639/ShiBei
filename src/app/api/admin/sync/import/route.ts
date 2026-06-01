@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import { requireAdmin } from "@/lib/auth";
+import { revalidatePublicContent } from "@/lib/revalidate-public";
 import { importFromZip } from "@/lib/sync/import";
+import { MAX_SYNC_ZIP_BYTES } from "@/lib/sync/limits";
 import { redirectTo } from "@/lib/redirect";
 
 // POST /api/admin/sync/import
@@ -16,7 +18,7 @@ export async function POST(request: Request) {
   if (!(file instanceof File) || file.size === 0) {
     return NextResponse.json({ error: "请选择一个 ZIP 文件" }, { status: 400 });
   }
-  if (file.size > 512 * 1024 * 1024) {
+  if (file.size > MAX_SYNC_ZIP_BYTES) {
     return NextResponse.json({ error: "ZIP 体积超过 512MB，请拆分同步或改用外链视频" }, { status: 413 });
   }
 
@@ -39,6 +41,7 @@ export async function POST(request: Request) {
       { status: 400 }
     );
   }
+  revalidatePublicContent();
 
   // 如果调用者要 JSON,直接返回 JSON;否则跳回页面。
   const accept = request.headers.get("accept") || "";

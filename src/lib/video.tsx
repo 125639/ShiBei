@@ -1,6 +1,6 @@
 import type { Video } from "@prisma/client";
 import { hostFromUrl as hostFromUrlOrNull } from "./html";
-import { shouldRenderVideoAsLink } from "./video-display";
+import { EMBED_IFRAME_SANDBOX, isAllowedEmbedUrl, shouldRenderVideoAsLink } from "./video-display";
 
 type VideoAttribution = Pick<Video, "title" | "type" | "url"> & {
   displayMode?: string | null;
@@ -11,25 +11,28 @@ type VideoAttribution = Pick<Video, "title" | "type" | "url"> & {
 };
 
 export function VideoEmbed({ video }: { video: VideoAttribution }) {
+  const renderAsLink = shouldRenderVideoAsLink(video) || (video.type === "EMBED" && !isAllowedEmbedUrl(video.url));
+
   return (
     <div className="video-embed">
-      {shouldRenderVideoAsLink(video) && (
+      {renderAsLink && (
         <a className="video-link-card" href={video.url} target="_blank" rel="noreferrer">
           <span>{video.title}</span>
           <strong>打开视频</strong>
         </a>
       )}
-      {!shouldRenderVideoAsLink(video) && video.type === "LOCAL" && <video controls src={video.url} className="video-frame" preload="metadata" />}
-      {!shouldRenderVideoAsLink(video) && video.type === "EMBED" && (
+      {!renderAsLink && video.type === "LOCAL" && <video controls src={video.url} className="video-frame" preload="metadata" />}
+      {!renderAsLink && video.type === "EMBED" && (
         <iframe
           className="video-frame"
           title={video.title}
           src={video.url}
+          sandbox={EMBED_IFRAME_SANDBOX}
           allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
           allowFullScreen
         />
       )}
-      {!shouldRenderVideoAsLink(video) && video.type === "LINK" && (
+      {!renderAsLink && video.type === "LINK" && (
         <a className="text-link" href={video.url} target="_blank" rel="noreferrer">
           打开视频资源
         </a>

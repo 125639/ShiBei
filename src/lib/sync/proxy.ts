@@ -38,6 +38,10 @@ export async function proxyToBackend(request: Request, targetPath: string): Prom
     }
     forwardHeaders.set(key, value);
   }
+  const clientIp = request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || request.headers.get("x-real-ip")?.trim();
+  if (clientIp) forwardHeaders.set("x-forwarded-for", clientIp);
+  forwardHeaders.set("x-forwarded-host", incomingUrl.host);
+  forwardHeaders.set("x-forwarded-proto", incomingUrl.protocol.replace(":", ""));
 
   // 用共享密钥作为统一鉴权。
   const init = backendFetchInitForConfig(cfg, {

@@ -1,4 +1,6 @@
+import { unstable_cache } from "next/cache";
 import { prisma } from "./prisma";
+import { publicVideoWhere } from "./public-video";
 
 export type StatsWindow = "today" | "week" | "total";
 
@@ -52,12 +54,14 @@ function shortLabel(d: Date) {
   return `${d.getMonth() + 1}/${d.getDate()}`;
 }
 
-export async function loadStats(window: StatsWindow = "week"): Promise<StatsPayload> {
+export async function loadStats(window: StatsWindow = "week", opts: { publicOnly?: boolean } = {}): Promise<StatsPayload> {
   const now = new Date();
   const todayStart = startOfDay(now);
   const weekStart = new Date(todayStart.getTime() - 6 * DAY_MS);
 
   const range = window === "today" ? todayStart : window === "week" ? weekStart : new Date(0);
+  const postVisibilityWhere = opts.publicOnly ? { status: "PUBLISHED" as const } : {};
+  const videoVisibilityWhere = opts.publicOnly ? publicVideoWhere : {};
 
   const [
     newsTotal,
@@ -75,31 +79,31 @@ export async function loadStats(window: StatsWindow = "week"): Promise<StatsPayl
     todayHourly,
     topicCounts
   ] = await Promise.all([
-    prisma.post.count(),
+    prisma.post.count({ where: postVisibilityWhere }),
     prisma.post.count({ where: { status: "PUBLISHED" } }),
-    prisma.post.count({ where: { status: "DRAFT" } }),
-    prisma.video.count(),
+    opts.publicOnly ? Promise.resolve(0) : prisma.post.count({ where: { status: "DRAFT" } }),
+    prisma.video.count({ where: videoVisibilityWhere }),
     prisma.source.count(),
     prisma.contentTopic.count(),
-    prisma.post.count({ where: { createdAt: { gte: todayStart } } }),
-    prisma.post.count({ where: { createdAt: { gte: weekStart } } }),
-    prisma.video.count({ where: { createdAt: { gte: todayStart } } }),
-    prisma.video.count({ where: { createdAt: { gte: weekStart } } }),
+    prisma.post.count({ where: { ...postVisibilityWhere, createdAt: { gte: todayStart } } }),
+    prisma.post.count({ where: { ...postVisibilityWhere, createdAt: { gte: weekStart } } }),
+    prisma.video.count({ where: { AND: [videoVisibilityWhere, { createdAt: { gte: todayStart } }] } }),
+    prisma.video.count({ where: { AND: [videoVisibilityWhere, { createdAt: { gte: weekStart } }] } }),
     prisma.post.findMany({
-      where: { createdAt: { gte: new Date(now.getTime() - 29 * DAY_MS) } },
+      where: { ...postVisibilityWhere, createdAt: { gte: new Date(now.getTime() - 29 * DAY_MS) } },
       select: { createdAt: true },
       orderBy: { createdAt: "asc" }
     }),
     prisma.video.findMany({
-      where: { createdAt: { gte: new Date(now.getTime() - 29 * DAY_MS) } },
+      where: { AND: [videoVisibilityWhere, { createdAt: { gte: new Date(now.getTime() - 29 * DAY_MS) } }] },
       select: { createdAt: true },
       orderBy: { createdAt: "asc" }
     }),
     prisma.post.findMany({
-      where: { createdAt: { gte: todayStart } },
+      where: { ...postVisibilityWhere, createdAt: { gte: todayStart } },
       select: { createdAt: true }
     }),
-    loadTopicCounts(range)
+    loadTopicCounts(range, postVisibilityWhere)
   ]);
 
   const newsBuckets = bucketByDay(last30News.map((p) => p.createdAt), now, daysForWindow(window));
@@ -127,6 +131,12 @@ export async function loadStats(window: StatsWindow = "week"): Promise<StatsPayl
     generatedAt: now.toISOString()
   };
 }
+
+export const loadCachedStats = unstable_cache(
+  async (window: StatsWindow = "week") => loadStats(window, { publicOnly: true }),
+  ["stats-payload"],
+  { revalidate: 60, tags: ["stats"] }
+);
 
 function daysForWindow(window: StatsWindow) {
   if (window === "today") return 7; // still show context
@@ -161,20 +171,24 @@ function bucketByHour(dates: Date[]): StatsBucket[] {
   }));
 }
 
-async function loadTopicCounts(since: Date): Promise<TopicSlice[]> {
+async function loadTopicCounts(since: Date, postWhere: { status?: "PUBLISHED" } = {}): Promise<TopicSlice[]> {
   const topics = await prisma.contentTopic.findMany({
     select: {
       id: true,
       name: true,
       slug: true,
-      posts: { where: { createdAt: { gte: since } }, select: { id: true } }
+      _count: {
+        select: {
+          posts: { where: { ...postWhere, createdAt: { gte: since } } }
+        }
+      }
     }
   });
   const slices = topics.map((t) => ({
     id: t.id,
     name: t.name,
     slug: t.slug,
-    count: t.posts.length
+    count: t._count.posts
   }));
   slices.sort((a, b) => b.count - a.count);
   // Combine zero-count topics into a single "其他" slice when there are too many,

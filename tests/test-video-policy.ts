@@ -2,6 +2,7 @@ import { describe, test } from "node:test";
 import assert from "node:assert/strict";
 import { isDomesticVideoCandidate } from "../src/lib/video-policy";
 import { isHlsSegmentUrl, selectVideoLinksForPost } from "../src/lib/video-candidates";
+import { isAllowedEmbedUrl } from "../src/lib/video-display";
 import { DEFAULT_MODULES, seedDefaultModules } from "../src/lib/source-modules";
 
 describe("video region tagging", () => {
@@ -106,6 +107,15 @@ describe("video candidate selection", () => {
       selected.map((item) => item.text),
       ["variant"]
     );
+  });
+});
+
+describe("video embed allowlist", () => {
+  test("allows known player iframe URLs and rejects arbitrary embeds", () => {
+    assert.equal(isAllowedEmbedUrl("https://www.youtube.com/embed/abc123"), true);
+    assert.equal(isAllowedEmbedUrl("https://player.bilibili.com/player.html?bvid=BV123"), true);
+    assert.equal(isAllowedEmbedUrl("https://example.com/embed/abc123"), false);
+    assert.equal(isAllowedEmbedUrl("http://www.youtube.com/embed/abc123"), false);
   });
 });
 

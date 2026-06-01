@@ -2,7 +2,7 @@
  * Exa end-to-end smoke test.
  *
  * Run inside the worker/app container so DATABASE_URL/REDIS_URL resolve:
- *   docker compose exec worker npx tsx scripts/exa-e2e.ts <KEYWORD>
+ *   EXA_API_KEY=... docker compose exec -e EXA_API_KEY worker npx tsx scripts/exa-e2e.ts <KEYWORD>
  *
  * Steps: enable Exa + store key → sanity-check the search API → create/reuse a
  * test ContentTopic → enqueue a topic run → poll the FetchJob → print the
@@ -16,7 +16,7 @@ import { encryptSecret } from "../src/lib/crypto";
 import { searchWithExa } from "../src/lib/exa";
 import { enqueueTopicRun } from "../src/lib/auto-curation";
 
-const EXA_KEY = process.env.EXA_API_KEY || "54c87d1d-1503-466a-9b9e-1b1fc938edcf";
+const EXA_KEY = process.env.EXA_API_KEY?.trim() ?? "";
 const KEYWORD = process.argv.find((a) => !a.startsWith("-") && a !== process.argv[0] && a !== process.argv[1]) || "Claude Opus 4.7 发布";
 const POLL_INTERVAL_MS = 4_000;
 const POLL_TIMEOUT_MS = 8 * 60_000;
@@ -29,6 +29,9 @@ function log(stage: string, msg: string, extra?: unknown) {
 
 async function configureExa() {
   log("1/6", "writing exa key + enabling Exa in SiteSettings");
+  if (!EXA_KEY) {
+    throw new Error("EXA_API_KEY is required. Run with EXA_API_KEY=... npx tsx scripts/exa-e2e.ts <KEYWORD>");
+  }
   const enc = encryptSecret(EXA_KEY);
   await prisma.siteSettings.upsert({
     where: { id: "site" },
@@ -125,7 +128,7 @@ async function main() {
 
   log("6/6", "result");
   console.log("================= FetchJob =================");
-  console.log({ id: job.id, status: job.status, sourceUrl: job.sourceUrl, errorMessage: job.errorMessage });
+  console.log({ id: job.id, status: job.status, sourceUrl: job.sourceUrl, error: job.error });
   if (post) {
     console.log("================= Post =================");
     console.log({ id: post.id, slug: post.slug, status: post.status, title: post.title });

@@ -60,37 +60,37 @@ model AdminUser {
 }
 
 model SiteSettings {
-  id                   String   @id @default("site")
-  name                 String   @default("拾贝 信息博客")
-  description          String   @default("一个可以抓取、整理并发布信息的个人博客。")
-  ownerName            String   @default("管理员")
-  autoPublish          Boolean  @default(false)
-  autoCurationEnabled  Boolean  @default(false)
-  contentDisplayMode   String   @default("grid")
-  contentLanguageMode  String   @default("default-language")
-  defaultLanguage      String   @default("zh")
-  defaultTheme         String   @default("apple")
-  defaultFont          String   @default("sans-cjk")
-  textOnlyMode         Boolean  @default(false)
-  maxStorageMb         Int      @default(2048)
-  cleanupAfterDays     Int      @default(30)
-  cleanupCustomEnabled Boolean  @default(false)
-  autoImageSearchEnabled Boolean @default(true)
-  exaEnabled           Boolean  @default(false)
-  exaApiKeyEnc         String?
-  musicEnabledDefault  Boolean  @default(false)
-  defaultMusicId       String?
-  contentModelConfigId String?
-  assistantModelConfigId String?
-  writingModelConfigId String?
+  id                       String   @id @default("site")
+  name                     String   @default("拾贝 信息博客")
+  description              String   @default("一个可以抓取、整理并发布信息的个人博客。")
+  ownerName                String   @default("管理员")
+  autoPublish              Boolean  @default(false)
+  autoCurationEnabled      Boolean  @default(false)
+  contentDisplayMode       String   @default("grid")
+  contentLanguageMode      String   @default("default-language")
+  defaultLanguage          String   @default("zh")
+  defaultTheme             String   @default("apple")
+  defaultFont              String   @default("sans-cjk")
+  textOnlyMode             Boolean  @default(false)
+  maxStorageMb             Int      @default(2048)
+  cleanupAfterDays         Int      @default(30)
+  cleanupCustomEnabled     Boolean  @default(false)
+  autoImageSearchEnabled   Boolean  @default(true)
+  exaEnabled               Boolean  @default(false)
+  exaApiKeyEnc             String?
+  musicEnabledDefault      Boolean  @default(false)
+  defaultMusicId           String?
+  contentModelConfigId     String?
+  assistantModelConfigId   String?
+  writingModelConfigId     String?
   translationModelConfigId String?
-  globalPromptPrefix   String   @default("")  @db.Text
-  defaultSettingsUI    String   @default("classic")
-  syncMode             String   @default("auto")
-  syncBackendUrl       String   @default("")
-  syncTokenEnc         String?
-  syncIntervalMinutes  Int      @default(15)
-  updatedAt            DateTime @updatedAt
+  globalPromptPrefix       String   @default("") @db.Text
+  defaultSettingsUI        String   @default("classic")
+  syncMode                 String   @default("auto")
+  syncBackendUrl           String   @default("")
+  syncTokenEnc             String?
+  syncIntervalMinutes      Int      @default(15)
+  updatedAt                DateTime @updatedAt
 }
 
 model ModelConfig {
@@ -106,71 +106,81 @@ model ModelConfig {
   isDefault   Boolean  @default(false)
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
+
+  @@index([isDefault])
 }
 
 model ContentStyle {
-  id                 String   @id @default(cuid())
+  id                 String         @id @default(cuid())
   name               String
-  contentMode        String   @default("report")
-  tone               String   @default("客观")
-  length             String   @default("中")
-  focus              String   @default("事实, 背景, 影响")
-  outputStructure    String   @default("标题, 导语, 正文分章节叙述, 参考来源")
-  customInstructions String   @db.Text
-  isDefault          Boolean  @default(false)
-  createdAt          DateTime @default(now())
-  updatedAt          DateTime @updatedAt
+  contentMode        String         @default("report")
+  tone               String         @default("客观")
+  length             String         @default("中")
+  focus              String         @default("事实, 背景, 影响")
+  outputStructure    String         @default("标题, 导语, 正文分章节叙述, 参考来源")
+  customInstructions String         @db.Text
+  isDefault          Boolean        @default(false)
+  createdAt          DateTime       @default(now())
+  updatedAt          DateTime       @updatedAt
   topics             ContentTopic[]
 }
 
 model Source {
-  id          String       @id @default(cuid())
-  name        String
-  url         String
-  type        SourceType
-  status      SourceStatus @default(ACTIVE)
-  isDefault   Boolean      @default(false)
-  isTemporary Boolean      @default(false)
-  region      SourceRegion @default(UNKNOWN)
-  popularity  Int          @default(0)
+  id                  String         @id @default(cuid())
+  name                String
+  url                 String
+  type                SourceType
+  status              SourceStatus   @default(ACTIVE)
+  isDefault           Boolean        @default(false)
+  isTemporary         Boolean        @default(false)
+  region              SourceRegion   @default(UNKNOWN)
+  popularity          Int            @default(0)
   popularityUpdatedAt DateTime?
-  createdAt   DateTime     @default(now())
-  updatedAt   DateTime     @updatedAt
-  modules     SourceModule[] @relation("SourceToModule")
-  rawItems    RawItem[]
-  jobs        FetchJob[]
+  createdAt           DateTime       @default(now())
+  updatedAt           DateTime       @updatedAt
+  modules             SourceModule[] @relation("SourceToModule")
+  rawItems            RawItem[]
+  jobs                FetchJob[]
+
+  @@index([status, isDefault])
 }
 
 model SourceModule {
-  id          String   @id @default(cuid())
-  name        String   @unique
-  slug        String   @unique
+  id          String         @id @default(cuid())
+  name        String         @unique
+  slug        String         @unique
   description String?
-  color       String   @default("#9f4f2f")
+  color       String         @default("#9f4f2f")
   iconKey     String?
-  sortOrder   Int      @default(0)
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-  sources     Source[] @relation("SourceToModule")
+  sortOrder   Int            @default(0)
+  createdAt   DateTime       @default(now())
+  updatedAt   DateTime       @updatedAt
+  sources     Source[]       @relation("SourceToModule")
   topics      ContentTopic[] @relation("ContentTopicToModule")
 }
 
 model FetchJob {
-  id             String      @id @default(cuid())
-  status         JobStatus   @default(QUEUED)
+  id             String        @id @default(cuid())
+  status         JobStatus     @default(QUEUED)
   sourceId       String?
-  source         Source?     @relation(fields: [sourceId], references: [id], onDelete: SetNull)
+  source         Source?       @relation(fields: [sourceId], references: [id], onDelete: SetNull)
   sourceUrl      String
   sourceType     SourceType
   modelConfigId  String?
   contentStyleId String?
   contentTopicId String?
   contentTopic   ContentTopic? @relation(fields: [contentTopicId], references: [id], onDelete: SetNull)
-  error          String?     @db.Text
-  createdAt      DateTime    @default(now())
-  updatedAt      DateTime    @updatedAt
+  error          String?       @db.Text
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
   completedAt    DateTime?
   rawItems       RawItem[]
+
+  @@index([status, updatedAt])
+  @@index([createdAt])
+  @@index([completedAt])
+  @@index([sourceId])
+  @@index([contentTopicId])
 }
 
 model RawItem {
@@ -185,67 +195,82 @@ model RawItem {
   fetchJob    FetchJob? @relation(fields: [fetchJobId], references: [id], onDelete: SetNull)
   publishedAt DateTime?
   createdAt   DateTime  @default(now())
-  post         Post?
+  post        Post?
+
+  @@index([createdAt])
+  @@index([sourceId])
+  @@index([fetchJobId])
 }
 
 model Post {
-  id        String     @id @default(cuid())
-  slug      String     @unique
-  title     String
-  titleEn   String?
-  summary   String     @db.Text
-  summaryEn String?    @db.Text
-  content   String     @db.Text
-  contentEn String?    @db.Text
-  status    PostStatus @default(DRAFT)
-  kind      CompilationKind @default(SINGLE_ARTICLE)
-  sourceUrl String?
-  sortOrder Int        @default(0)
+  id           String          @id @default(cuid())
+  slug         String          @unique
+  title        String
+  titleEn      String?
+  summary      String          @db.Text
+  summaryEn    String?         @db.Text
+  content      String          @db.Text
+  contentEn    String?         @db.Text
+  status       PostStatus      @default(DRAFT)
+  kind         CompilationKind @default(SINGLE_ARTICLE)
+  sourceUrl    String?
+  sortOrder    Int             @default(0)
   translatedAt DateTime?
-  rawItemId String?    @unique
-  rawItem   RawItem?   @relation(fields: [rawItemId], references: [id], onDelete: SetNull)
-  videos    Video[]
-  tags      Tag[]      @relation("PostTags")
-  topics    ContentTopic[] @relation("PostContentTopics")
-  createdAt DateTime   @default(now())
-  updatedAt DateTime   @updatedAt
-  publishedAt DateTime?
+  rawItemId    String?         @unique
+  rawItem      RawItem?        @relation(fields: [rawItemId], references: [id], onDelete: SetNull)
+  videos       Video[]
+  tags         Tag[]           @relation("PostTags")
+  topics       ContentTopic[]  @relation("PostContentTopics")
+  createdAt    DateTime        @default(now())
+  updatedAt    DateTime        @updatedAt
+  publishedAt  DateTime?
+
+  @@index([status, sortOrder, publishedAt])
+  @@index([status, publishedAt])
+  @@index([status, createdAt])
+  @@index([updatedAt])
 }
 
 model Video {
-  id              String    @id @default(cuid())
-  title           String
-  type            VideoType
-  url             String
-  coverUrl        String?
-  summary         String    @db.Text
-  displayMode     String    @default("embed")
-  lastPlacement   String?   @db.VarChar(32)
-  sortOrder       Int       @default(0)
-  durationSec     Int?
-  region          SourceRegion @default(UNKNOWN)
-  sourcePlatform  String?
-  sourcePageUrl   String?
-  localPath       String?
-  fileSizeBytes   Int?
-  attribution     String?   @db.Text
-  postId          String?
-  post            Post?     @relation(fields: [postId], references: [id], onDelete: SetNull)
-  createdAt       DateTime  @default(now())
-  updatedAt       DateTime  @updatedAt
+  id             String       @id @default(cuid())
+  title          String
+  type           VideoType
+  url            String
+  coverUrl       String?
+  summary        String       @db.Text
+  displayMode    String       @default("embed")
+  lastPlacement  String?      @db.VarChar(32)
+  sortOrder      Int          @default(0)
+  durationSec    Int?
+  region         SourceRegion @default(UNKNOWN)
+  sourcePlatform String?
+  sourcePageUrl  String?
+  localPath      String?
+  fileSizeBytes  Int?
+  attribution    String?      @db.Text
+  postId         String?
+  post           Post?        @relation(fields: [postId], references: [id], onDelete: SetNull)
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+
+  @@index([sortOrder, createdAt])
+  @@index([createdAt])
+  @@index([postId, sortOrder])
 }
 
 model Music {
-  id          String   @id @default(cuid())
-  title       String
-  artist      String?
-  filePath    String
+  id            String   @id @default(cuid())
+  title         String
+  artist        String?
+  filePath      String
   fileSizeBytes Int?
-  durationSec Int?
-  isEnabled   Boolean  @default(true)
-  sortOrder   Int      @default(0)
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  durationSec   Int?
+  isEnabled     Boolean  @default(true)
+  sortOrder     Int      @default(0)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@index([isEnabled, sortOrder])
 }
 
 model Tag {
@@ -274,19 +299,24 @@ model ContentTopic {
   fetchJobs    FetchJob[]
   createdAt    DateTime        @default(now())
   updatedAt    DateTime        @updatedAt
+
+  @@index([isEnabled, createdAt])
+  @@index([styleId])
 }
 
 model AutoSchedule {
-  id          String    @id @default(cuid())
-  topicId     String    @unique
-  topic       ContentTopic @relation(fields: [topicId], references: [id], onDelete: Cascade)
-  cron        String
-  isEnabled   Boolean   @default(true)
-  lastRunAt   DateTime?
-  nextRunAt   DateTime?
-  bullJobKey  String?   @unique
-  createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @updatedAt
+  id         String       @id @default(cuid())
+  topicId    String       @unique
+  topic      ContentTopic @relation(fields: [topicId], references: [id], onDelete: Cascade)
+  cron       String
+  isEnabled  Boolean      @default(true)
+  lastRunAt  DateTime?
+  nextRunAt  DateTime?
+  bullJobKey String?      @unique
+  createdAt  DateTime     @default(now())
+  updatedAt  DateTime     @updatedAt
+
+  @@index([isEnabled, nextRunAt])
 }
 
 // Frontend / backend / full 间的同步状态。仅一行（id="sync"）。

@@ -5,6 +5,7 @@ import { NextResponse } from "next/server";
 import { VideoType } from "@prisma/client";
 import { requireAdmin } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { revalidatePublicContent } from "@/lib/revalidate-public";
 import { redirectTo } from "@/lib/redirect";
 import { VIDEO_DIR, ensureUploadDirs } from "@/lib/storage";
 import { insertVideoShortcode, normalizeVideoDisplayMode, normalizeVideoPlacement } from "@/lib/video-display";
@@ -64,6 +65,10 @@ export async function POST(request: Request) {
     await insertVideoIntoPost(postId, video.id, insertPlacement);
   }
 
+  const post = postId
+    ? await prisma.post.findUnique({ where: { id: postId }, select: { slug: true } })
+    : null;
+  revalidatePublicContent([`/videos/${video.id}`, post ? `/posts/${post.slug}` : null]);
   return redirectTo(postId ? `/admin/posts/${postId}` : "/admin/videos");
 }
 

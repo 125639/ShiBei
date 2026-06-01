@@ -1,5 +1,6 @@
 import FeedParser from "feedparser";
 import { Readable } from "node:stream";
+import { safeFetch } from "./url-safety";
 
 type RssItem = {
   title: string;
@@ -46,7 +47,7 @@ function stripHtml(input: string): string {
 export async function fetchRss(url: string): Promise<RssItem[]> {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 20000);
-  const response = await fetch(url, {
+  const response = await safeFetch(url, {
     headers: { "User-Agent": "ShiBeiBlog/0.1" },
     signal: controller.signal
   }).finally(() => clearTimeout(timeout));

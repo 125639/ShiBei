@@ -6,6 +6,8 @@ import { getModelConfigForUse } from "@/lib/model-selection";
 import { isFrontend } from "@/lib/app-mode";
 import { proxyToBackend } from "@/lib/sync/proxy";
 import { ensureBackendCallerAllowed } from "@/lib/sync/backend-auth";
+import { parseJsonBody } from "@/lib/request-validation";
+import { checkRateLimit } from "@/lib/rate-limit";
 
 export const dynamic = "force-dynamic";
 
@@ -36,7 +38,17 @@ export async function POST(request: Request) {
   const denied = await ensureBackendCallerAllowed(request);
   if (denied) return denied;
 
-  const body = BodySchema.parse(await request.json());
+  const limited = await checkRateLimit({ namespace: "writing", request, limit: 20, windowSec: 60 * 60 });
+  if (!limited.ok) {
+    return NextResponse.json(
+      { error: "写作辅助请求过于频繁，请稍后再试" },
+      { status: 429, headers: { "Retry-After": String(limited.retryAfterSec) } }
+    );
+  }
+
+  const parsed = await parseJsonBody(request, BodySchema);
+  if (!parsed.ok) return parsed.response;
+  const body = parsed.data;
   const language = isLanguageKey(body.language) ? body.language : "zh";
   const draft = [body.title.trim() ? `# ${body.title.trim()}` : "", body.draft].filter(Boolean).join("\n\n");
 

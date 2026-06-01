@@ -12,7 +12,16 @@ export default async function VideosAdminPage() {
   const [videos, posts] = await Promise.all([
     prisma.video.findMany({
       orderBy: [{ sortOrder: "asc" }, { createdAt: "desc" }],
-      include: { post: { select: { id: true, title: true, slug: true } } },
+      select: {
+        id: true,
+        title: true,
+        type: true,
+        url: true,
+        displayMode: true,
+        lastPlacement: true,
+        fileSizeBytes: true,
+        post: { select: { id: true, title: true, slug: true } }
+      },
     }),
     prisma.post.findMany({
       where: { status: { in: ["DRAFT", "PUBLISHED"] } },
@@ -27,8 +36,8 @@ export default async function VideosAdminPage() {
     title: video.title,
     type: String(video.type),
     url: video.url,
-    displayMode: (video as { displayMode?: string | null }).displayMode || "embed",
-    lastPlacement: (video as { lastPlacement?: string | null }).lastPlacement || null,
+    displayMode: video.displayMode || "embed",
+    lastPlacement: video.lastPlacement || null,
     fileSizeBytes: video.fileSizeBytes ?? null,
     postId: video.post?.id ?? null,
     postTitle: video.post?.title ?? null,

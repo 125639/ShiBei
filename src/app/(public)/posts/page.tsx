@@ -1,5 +1,7 @@
 import Link from "next/link";
+import type { Prisma } from "@prisma/client";
 import { I18nText } from "@/components/I18nText";
+import { Pagination } from "@/components/Pagination";
 import { PublicShell } from "@/components/PublicShell";
 import { prisma } from "@/lib/prisma";
 import { isDisplayMode, type DisplayMode } from "@/lib/topics";
@@ -11,6 +13,7 @@ const COMPILE_KIND_LABELS: Record<string, string> = {
 };
 
 const GRID_FEATURED_VARIANTS = ["bento-large", "bento-wide"] as const;
+const PAGE_SIZE = 24;
 
 type PostListEntry = {
   id: string;
@@ -25,44 +28,63 @@ type PostListEntry = {
   topics: { id: string; name: string; slug: string }[];
 };
 
-export default async function PostsPage({ searchParams }: { searchParams: Promise<{ topic?: string }> }) {
+export default async function PostsPage({ searchParams }: { searchParams: Promise<{ topic?: string; q?: string; page?: string }> }) {
   const params = await searchParams;
   const topicSlug = params.topic?.trim() || null;
+  const query = params.q?.trim().slice(0, 120) || "";
+  const page = normalizePage(params.page);
 
   const [settings, topics, activeTopic] = await Promise.all([
-    prisma.siteSettings.findUnique({ where: { id: "site" } }),
+    prisma.siteSettings.findUnique({ where: { id: "site" }, select: { contentDisplayMode: true } }),
     prisma.contentTopic.findMany({
       where: { isEnabled: true },
       orderBy: { createdAt: "asc" },
       select: { id: true, name: true, slug: true }
     }),
-    topicSlug ? prisma.contentTopic.findUnique({ where: { slug: topicSlug } }) : Promise.resolve(null)
+    topicSlug
+      ? prisma.contentTopic.findUnique({ where: { slug: topicSlug }, select: { id: true, name: true, slug: true } })
+      : Promise.resolve(null)
   ]);
 
   const mode: DisplayMode = isDisplayMode(settings?.contentDisplayMode || "")
     ? (settings!.contentDisplayMode as DisplayMode)
     : "grid";
 
-  const posts: PostListEntry[] = await prisma.post.findMany({
-    where: {
-      status: "PUBLISHED",
-      ...(activeTopic ? { topics: { some: { id: activeTopic.id } } } : {})
-    },
-    orderBy: [{ sortOrder: "asc" }, { publishedAt: "desc" }],
-    take: 60,
-    select: {
-      id: true,
-      slug: true,
-      title: true,
-      titleEn: true,
-      summary: true,
-      summaryEn: true,
-      publishedAt: true,
-      kind: true,
-      tags: { select: { id: true, name: true } },
-      topics: { select: { id: true, name: true, slug: true } }
-    }
-  });
+  const where: Prisma.PostWhereInput = {
+    status: "PUBLISHED",
+    ...(activeTopic ? { topics: { some: { id: activeTopic.id } } } : {}),
+    ...(query ? {
+      OR: [
+        { title: { contains: query, mode: "insensitive" } },
+        { summary: { contains: query, mode: "insensitive" } },
+        { tags: { some: { name: { contains: query, mode: "insensitive" } } } },
+        { topics: { some: { name: { contains: query, mode: "insensitive" } } } }
+      ]
+    } : {})
+  };
+
+  const [posts, totalPosts] = await Promise.all([
+    prisma.post.findMany({
+      where,
+      orderBy: [{ sortOrder: "asc" }, { publishedAt: "desc" }],
+      skip: (page - 1) * PAGE_SIZE,
+      take: PAGE_SIZE,
+      select: {
+        id: true,
+        slug: true,
+        title: true,
+        titleEn: true,
+        summary: true,
+        summaryEn: true,
+        publishedAt: true,
+        kind: true,
+        tags: { select: { id: true, name: true } },
+        topics: { select: { id: true, name: true, slug: true } }
+      }
+    }),
+    prisma.post.count({ where })
+  ]);
+  const totalPages = Math.max(1, Math.ceil(totalPosts / PAGE_SIZE));
 
   return (
     <PublicShell>
@@ -72,21 +94,33 @@ export default async function PostsPage({ searchParams }: { searchParams: Promis
           <h1 className="page-title"><I18nText zh="内容文章" en="Posts" /></h1>
           <p className="muted">
             <I18nText
-              zh={<>内容由抓取与生成产出，经过审核后在此呈现。{activeTopic ? `当前筛选：${activeTopic.name}。` : null}</>}
-              en={<>Curated and reviewed before appearing here.{activeTopic ? ` Current filter: ${activeTopic.name}.` : null}</>}
+              zh={<>内容由抓取与生成产出，经过审核后在此呈现。{activeTopic ? `当前筛选：${activeTopic.name}。` : null}{query ? ` 搜索：${query}。` : null}</>}
+              en={<>Curated and reviewed before appearing here.{activeTopic ? ` Current filter: ${activeTopic.name}.` : null}{query ? ` Search: ${query}.` : null}</>}
             />
           </p>
         </section>
 
+        <form className="form-card filter-form" action="/posts" method="get">
+          {topicSlug ? <input type="hidden" name="topic" value={topicSlug} /> : null}
+          <div className="field">
+            <label htmlFor="post-search"><I18nText zh="搜索文章" en="Search posts" /></label>
+            <input id="post-search" name="q" defaultValue={query} placeholder="标题、摘要、标签或主题" />
+          </div>
+          <button className="button" type="submit"><I18nText zh="搜索" en="Search" /></button>
+          {(query || topicSlug) ? (
+            <Link className="button secondary" href="/posts"><I18nText zh="清除" en="Clear" /></Link>
+          ) : null}
+        </form>
+
         {mode === "topic-tabs" && topics.length > 0 ? (
           <nav className="topic-tabs" aria-label="主题筛选">
-            <Link href="/posts" className={topicSlug ? "" : "active"} aria-current={topicSlug ? undefined : "page"}>
+            <Link href={buildPostsHref(null, query)} className={topicSlug ? "" : "active"} aria-current={topicSlug ? undefined : "page"}>
               <I18nText zh="全部" en="All" />
             </Link>
             {topics.map((topic) => (
               <Link
                 key={topic.id}
-                href={`/posts?topic=${encodeURIComponent(topic.slug)}`}
+                href={buildPostsHref(topic.slug, query)}
                 className={topicSlug === topic.slug ? "active" : ""}
                 aria-current={topicSlug === topic.slug ? "page" : undefined}
               >
@@ -114,9 +148,23 @@ export default async function PostsPage({ searchParams }: { searchParams: Promis
         ) : (
           <PostsLayout mode={mode} posts={posts} />
         )}
+        <Pagination basePath="/posts" page={page} totalPages={totalPages} params={{ topic: topicSlug, q: query }} />
       </main>
     </PublicShell>
   );
+}
+
+function normalizePage(value: string | undefined) {
+  const n = Number(value || 1);
+  return Number.isFinite(n) && n > 0 ? Math.floor(n) : 1;
+}
+
+function buildPostsHref(topic: string | null, query: string) {
+  const params = new URLSearchParams();
+  if (topic) params.set("topic", topic);
+  if (query) params.set("q", query);
+  const qs = params.toString();
+  return qs ? `/posts?${qs}` : "/posts";
 }
 
 function PostsLayout({ mode, posts }: { mode: DisplayMode; posts: PostListEntry[] }) {
