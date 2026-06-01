@@ -4,6 +4,11 @@ import { VideoType } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { ensureUploadDirs } from "@/lib/storage";
 import { parseSyncZip } from "./export";
+import {
+  MAX_SYNC_FILE_ENTRIES,
+  MAX_SYNC_SINGLE_FILE_BYTES,
+  MAX_SYNC_TOTAL_FILE_BYTES
+} from "./limits";
 import type { SyncBundle, SyncPostPayload, SyncVideoPayload } from "./types";
 
 export type ImportResult = {
@@ -38,9 +43,28 @@ export async function importFromZip(buffer: Buffer): Promise<ImportResult> {
   // 1) 落盘视频本地文件
   const publicDir = path.resolve(process.cwd(), "public");
   const uploadsRoot = path.resolve(publicDir, "uploads");
+  let fileEntries = 0;
+  let totalFileBytes = 0;
   for (const entry of zip.getEntries()) {
     if (entry.isDirectory) continue;
     if (!entry.entryName.startsWith("uploads/")) continue;
+    fileEntries += 1;
+    if (fileEntries > MAX_SYNC_FILE_ENTRIES) {
+      result.filesSkipped += 1;
+      result.errors.push(`ZIP 内 uploads 文件数量超过上限 ${MAX_SYNC_FILE_ENTRIES}`);
+      break;
+    }
+    const declaredSize = zipEntrySize(entry);
+    if (declaredSize > MAX_SYNC_SINGLE_FILE_BYTES) {
+      result.filesSkipped += 1;
+      result.errors.push(`跳过过大的文件: ${entry.entryName}`);
+      continue;
+    }
+    if (declaredSize && totalFileBytes + declaredSize > MAX_SYNC_TOTAL_FILE_BYTES) {
+      result.filesSkipped += 1;
+      result.errors.push(`跳过文件 ${entry.entryName}: ZIP 解压后总文件体积超过上限`);
+      continue;
+    }
     // 双层防御:即使 entryName 通过了前缀过滤,path.resolve 后仍要落在 uploadsRoot 内,
     // 防止 "uploads/../../etc/passwd" / 绝对路径 / 反斜线注入等绕过。
     const dest = path.resolve(publicDir, entry.entryName);
@@ -50,8 +74,20 @@ export async function importFromZip(buffer: Buffer): Promise<ImportResult> {
       continue;
     }
     try {
+      const data = entry.getData();
+      if (data.length > MAX_SYNC_SINGLE_FILE_BYTES) {
+        result.filesSkipped += 1;
+        result.errors.push(`跳过过大的文件: ${entry.entryName}`);
+        continue;
+      }
+      if (totalFileBytes + data.length > MAX_SYNC_TOTAL_FILE_BYTES) {
+        result.filesSkipped += 1;
+        result.errors.push(`跳过文件 ${entry.entryName}: ZIP 解压后总文件体积超过上限`);
+        continue;
+      }
       await fs.mkdir(path.dirname(dest), { recursive: true });
-      await fs.writeFile(dest, entry.getData());
+      await fs.writeFile(dest, data);
+      totalFileBytes += data.length;
       result.filesWritten += 1;
     } catch (err) {
       result.filesSkipped += 1;
@@ -270,3 +306,8 @@ async function localFileExists(localPath: string): Promise<boolean> {
 }
 
 export type { SyncBundle };
+
+function zipEntrySize(entry: { header?: { size?: number } }) {
+  const size = Number(entry.header?.size || 0);
+  return Number.isFinite(size) && size > 0 ? size : 0;
+}

@@ -4,6 +4,11 @@ import AdmZip from "adm-zip";
 import { prisma } from "@/lib/prisma";
 import { getAppMode } from "@/lib/app-mode";
 import {
+  MAX_SYNC_JSON_BYTES,
+  MAX_SYNC_POSTS,
+  MAX_SYNC_VIDEOS
+} from "./limits";
+import {
   SYNC_SCHEMA_VERSION,
   type SyncBundle,
   type SyncManifest,
@@ -154,6 +159,12 @@ export function parseSyncZip(buffer: Buffer): { bundle: SyncBundle; zip: AdmZip 
   if (!manifestEntry || !postsEntry || !videosEntry) {
     throw new Error("ZIP 缺少 manifest/posts/videos 之一");
   }
+  for (const entry of [manifestEntry, postsEntry, videosEntry]) {
+    const size = zipEntrySize(entry);
+    if (size > MAX_SYNC_JSON_BYTES) {
+      throw new Error(`${entry.entryName} 超过 ${Math.round(MAX_SYNC_JSON_BYTES / 1024 / 1024)}MB，已拒绝导入`);
+    }
+  }
   let manifest: SyncManifest;
   let posts: SyncPostPayload[];
   let videos: SyncVideoPayload[];
@@ -175,5 +186,16 @@ export function parseSyncZip(buffer: Buffer): { bundle: SyncBundle; zip: AdmZip 
   if (!Array.isArray(posts) || !Array.isArray(videos)) {
     throw new Error("ZIP 内 posts / videos 不是数组");
   }
+  if (posts.length > MAX_SYNC_POSTS) {
+    throw new Error(`ZIP 内 posts 数量超过上限 ${MAX_SYNC_POSTS}`);
+  }
+  if (videos.length > MAX_SYNC_VIDEOS) {
+    throw new Error(`ZIP 内 videos 数量超过上限 ${MAX_SYNC_VIDEOS}`);
+  }
   return { bundle: { manifest, posts, videos }, zip };
+}
+
+function zipEntrySize(entry: { header?: { size?: number } }) {
+  const size = Number(entry.header?.size || 0);
+  return Number.isFinite(size) && size > 0 ? size : 0;
 }

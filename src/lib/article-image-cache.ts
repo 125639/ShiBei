@@ -1,7 +1,7 @@
 import crypto from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
-import { assertSafeFetchUrl } from "./url-safety";
+import { assertSafeFetchUrl, assertSafeResolvedFetchUrl, safeFetch } from "./url-safety";
 
 export const DEFAULT_MAX_IMAGE_BYTES = 8 * 1024 * 1024;
 export const DEFAULT_IMAGE_DIR = path.join(process.cwd(), "public", "uploads", "image");
@@ -40,7 +40,7 @@ export async function cacheArticleImage(
   rawUrl: string,
   opts: CacheArticleImageOptions = {}
 ): Promise<CachedArticleImage | null> {
-  const safeUrl = safeRemoteImageUrl(rawUrl);
+  const safeUrl = await safeRemoteImageUrl(rawUrl, !opts.fetcher);
   if (!safeUrl) return null;
 
   const cacheDir = opts.cacheDir || DEFAULT_IMAGE_DIR;
@@ -53,10 +53,14 @@ export async function cacheArticleImage(
   const fetcher = opts.fetcher || fetch;
   let response: Response;
   try {
-    response = await fetcher(safeUrl, {
-      redirect: "follow",
-      headers: imageRequestHeaders(opts.sourcePageUrl)
-    });
+    response = opts.fetcher
+      ? await fetcher(safeUrl, {
+          redirect: "manual",
+          headers: imageRequestHeaders(opts.sourcePageUrl)
+        })
+      : await safeFetch(safeUrl, {
+          headers: imageRequestHeaders(opts.sourcePageUrl)
+        });
   } catch {
     return null;
   }
@@ -98,10 +102,13 @@ export async function rewriteRemoteArticleImageSources(
   let changed = 0;
   let skipped = 0;
 
-  for (const match of matches) {
-    const src = match[3];
-    if (replacements.has(src)) continue;
-    const cached = await cacheArticleImage(src, opts);
+  const uniqueSources = [...new Set(matches.map((match) => match[3]))];
+  const cachedImages = await mapWithConcurrency(uniqueSources, 6, async (src) => ({
+    src,
+    cached: await cacheArticleImage(src, opts)
+  }));
+
+  for (const { src, cached } of cachedImages) {
     if (cached) {
       replacements.set(src, cached.url);
       changed += 1;
@@ -123,9 +130,32 @@ export async function rewriteRemoteArticleImageSources(
   return { html: rewritten, changed, skipped };
 }
 
-function safeRemoteImageUrl(rawUrl: string) {
+async function mapWithConcurrency<T, R>(
+  items: T[],
+  limit: number,
+  fn: (item: T) => Promise<R>
+): Promise<R[]> {
+  const results = new Array<R>(items.length);
+  let nextIndex = 0;
+  const workerCount = Math.min(Math.max(1, limit), items.length);
+
+  await Promise.all(Array.from({ length: workerCount }, async () => {
+    while (nextIndex < items.length) {
+      const currentIndex = nextIndex;
+      nextIndex += 1;
+      results[currentIndex] = await fn(items[currentIndex]);
+    }
+  }));
+
+  return results;
+}
+
+async function safeRemoteImageUrl(rawUrl: string, resolveDns: boolean) {
   try {
-    const url = assertSafeFetchUrl(decodeHtmlUrl(rawUrl));
+    const decoded = decodeHtmlUrl(rawUrl);
+    const url = resolveDns
+      ? await assertSafeResolvedFetchUrl(decoded)
+      : assertSafeFetchUrl(decoded);
     url.hash = "";
     return url.toString();
   } catch {

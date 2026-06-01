@@ -8,6 +8,7 @@ import {
   saveUploadedArticleImage
 } from "@/lib/article-images";
 import { prisma } from "@/lib/prisma";
+import { revalidatePublicContent } from "@/lib/revalidate-public";
 import { redirectTo } from "@/lib/redirect";
 import { slugify } from "@/lib/slug";
 import { ensureUploadDirs } from "@/lib/storage";
@@ -60,6 +61,7 @@ export async function POST(request: Request) {
     });
   }
 
+  revalidatePublicContent([`/posts/${post.slug}`]);
   return redirectTo(`/admin/posts/${post.id}`);
 }
 

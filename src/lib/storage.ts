@@ -55,7 +55,10 @@ export async function reportStorage(): Promise<StorageReport> {
       dirSizeBytes(IMAGE_DIR),
       dirSizeBytes(MUSIC_DIR),
       dirSizeBytes(VIDEO_DIR),
-      prisma.siteSettings.findUnique({ where: { id: "site" } }),
+      prisma.siteSettings.findUnique({
+        where: { id: "site" },
+        select: { maxStorageMb: true, textOnlyMode: true, cleanupAfterDays: true }
+      }),
       prisma.post.count(),
       prisma.rawItem.count(),
       prisma.video.count(),
@@ -92,7 +95,10 @@ export type CleanupSummary = {
 };
 
 export async function runStorageCleanup(opts?: { force?: boolean; daysOverride?: number }): Promise<CleanupSummary> {
-  const settings = await prisma.siteSettings.findUnique({ where: { id: "site" } });
+  const settings = await prisma.siteSettings.findUnique({
+    where: { id: "site" },
+    select: { cleanupAfterDays: true, maxStorageMb: true }
+  });
   const days = opts?.daysOverride ?? (settings as { cleanupAfterDays?: number })?.cleanupAfterDays ?? 30;
   const maxMb = (settings as { maxStorageMb?: number })?.maxStorageMb ?? 2048;
 

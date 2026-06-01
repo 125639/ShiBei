@@ -1,18 +1,75 @@
+import Link from "next/link";
+import type { PostStatus, Prisma } from "@prisma/client";
 import { AdminShell } from "@/components/AdminShell";
 import { BulkPostActions } from "@/components/BulkPostActions";
+import { Pagination } from "@/components/Pagination";
 import { requireAdmin } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 
-export default async function AdminPostsPage() {
+const PAGE_SIZE = 40;
+
+export default async function AdminPostsPage({ searchParams }: { searchParams: Promise<{ q?: string; status?: string; page?: string }> }) {
   await requireAdmin();
-  const posts = await prisma.post.findMany({ orderBy: [{ sortOrder: "asc" }, { updatedAt: "desc" }], include: { videos: true } });
+  const params = await searchParams;
+  const query = params.q?.trim().slice(0, 120) || "";
+  const status = normalizeStatusFilter(params.status);
+  const page = normalizePage(params.page);
+  const where: Prisma.PostWhereInput = {
+    ...(status ? { status } : {}),
+    ...(query ? {
+      OR: [
+        { title: { contains: query, mode: "insensitive" } },
+        { summary: { contains: query, mode: "insensitive" } },
+        { tags: { some: { name: { contains: query, mode: "insensitive" } } } }
+      ]
+    } : {})
+  };
+
+  const [posts, totalPosts] = await Promise.all([
+    prisma.post.findMany({
+      where,
+      orderBy: [{ sortOrder: "asc" }, { updatedAt: "desc" }],
+      skip: (page - 1) * PAGE_SIZE,
+      take: PAGE_SIZE,
+      select: {
+        id: true,
+        title: true,
+        summary: true,
+        status: true,
+        sortOrder: true,
+        _count: { select: { videos: true } }
+      }
+    }),
+    prisma.post.count({ where })
+  ]);
+  const totalPages = Math.max(1, Math.ceil(totalPosts / PAGE_SIZE));
 
   return (
     <AdminShell>
       <p className="eyebrow">Posts</p>
       <h1>草稿与文章</h1>
-      <form className="form-card form-stack" action="/api/admin/posts" method="post" encType="multipart/form-data" style={{ marginBottom: 24 }}>
-        <h2>手动上传 / 新建博客内容</h2>
+
+      <form className="form-card filter-form" action="/admin/posts" method="get" style={{ marginBottom: 24 }}>
+        <div className="field">
+          <label htmlFor="admin-post-search">搜索文章</label>
+          <input id="admin-post-search" name="q" defaultValue={query} placeholder="标题、摘要或标签" />
+        </div>
+        <div className="field">
+          <label htmlFor="admin-post-status">状态</label>
+          <select id="admin-post-status" name="status" defaultValue={status || ""}>
+            <option value="">全部</option>
+            <option value="DRAFT">草稿</option>
+            <option value="PUBLISHED">已发布</option>
+            <option value="ARCHIVED">已归档</option>
+          </select>
+        </div>
+        <button className="button" type="submit">筛选</button>
+        {(query || status) ? <Link className="button secondary" href="/admin/posts">清除</Link> : null}
+      </form>
+
+      <details className="form-card form-stack" style={{ marginBottom: 24 }}>
+        <summary>手动上传 / 新建博客内容</summary>
+      <form className="form-stack" action="/api/admin/posts" method="post" encType="multipart/form-data">
         <div className="field-row">
           <div className="field">
             <label htmlFor="title">标题</label>
@@ -76,15 +133,17 @@ export default async function AdminPostsPage() {
           </div>
           <div className="field">
             <label htmlFor="sortOrder">排序（小的在前）</label>
-            <input id="sortOrder" name="sortOrder" type="number" defaultValue={posts.length} />
+            <input id="sortOrder" name="sortOrder" type="number" defaultValue={totalPosts} />
           </div>
         </div>
         <input type="hidden" name="kind" value="SINGLE_ARTICLE" />
         <button className="button" type="submit">创建文章</button>
       </form>
+      </details>
 
-      <form className="form-card form-stack" action="/api/admin/videos" method="post" encType="multipart/form-data" style={{ marginBottom: 24 }}>
-        <h2>上传 / 添加视频内容</h2>
+      <details className="form-card form-stack" style={{ marginBottom: 24 }}>
+        <summary>上传 / 添加视频内容</summary>
+      <form className="form-stack" action="/api/admin/videos" method="post" encType="multipart/form-data">
         <div className="field-row">
           <div className="field">
             <label htmlFor="videoTitle">视频标题</label>
@@ -137,16 +196,32 @@ export default async function AdminPostsPage() {
         </div>
         <button className="button" type="submit">保存视频</button>
       </form>
+      </details>
       <section className="admin-panel">
+        <div className="meta-row" style={{ justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+          <strong>当前结果 {totalPosts} 篇</strong>
+          <span className="muted">每页 {PAGE_SIZE} 篇</span>
+        </div>
         <BulkPostActions posts={posts.map((post) => ({
           id: post.id,
           title: post.title,
           summary: post.summary,
           status: post.status,
-          videosCount: post.videos.length,
-          sortOrder: (post as { sortOrder?: number }).sortOrder ?? 0
+          videosCount: post._count.videos,
+          sortOrder: post.sortOrder
         }))} />
+        <Pagination basePath="/admin/posts" page={page} totalPages={totalPages} params={{ q: query, status }} />
       </section>
     </AdminShell>
   );
+}
+
+function normalizePage(value: string | undefined) {
+  const n = Number(value || 1);
+  return Number.isFinite(n) && n > 0 ? Math.floor(n) : 1;
+}
+
+function normalizeStatusFilter(value: string | undefined): PostStatus | null {
+  if (value === "DRAFT" || value === "PUBLISHED" || value === "ARCHIVED") return value;
+  return null;
 }

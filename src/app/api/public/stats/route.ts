@@ -1,12 +1,16 @@
 import { NextResponse } from "next/server";
-import { loadStats, type StatsWindow } from "@/lib/stats";
+import { loadCachedStats, type StatsWindow } from "@/lib/stats";
 
-export const dynamic = "force-dynamic";
+export const revalidate = 60;
 
 export async function GET(request: Request) {
   const url = new URL(request.url);
   const w = url.searchParams.get("window");
   const window: StatsWindow = w === "today" || w === "week" || w === "total" ? w : "week";
-  const stats = await loadStats(window);
-  return NextResponse.json(stats);
+  const stats = await loadCachedStats(window);
+  return NextResponse.json(stats, {
+    headers: {
+      "Cache-Control": "public, s-maxage=60, stale-while-revalidate=120"
+    }
+  });
 }

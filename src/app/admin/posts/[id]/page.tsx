@@ -10,7 +10,26 @@ export default async function AdminPostEditPage({ params }: { params: Promise<{ 
   await requireAdmin();
   const { id } = await params;
   const [post, allVideos] = await Promise.all([
-    prisma.post.findUnique({ where: { id }, include: { videos: true, tags: true } }),
+    prisma.post.findUnique({
+      where: { id },
+      select: {
+        id: true,
+        title: true,
+        titleEn: true,
+        summary: true,
+        summaryEn: true,
+        content: true,
+        contentEn: true,
+        sourceUrl: true,
+        sortOrder: true,
+        status: true,
+        tags: { select: { id: true, name: true } },
+        videos: {
+          orderBy: [{ sortOrder: "asc" }, { createdAt: "desc" }],
+          select: { id: true, title: true, type: true, displayMode: true }
+        }
+      }
+    }),
     prisma.video.findMany({
       orderBy: [{ sortOrder: "asc" }, { createdAt: "desc" }],
       select: { id: true, title: true, type: true, displayMode: true, postId: true },
@@ -29,7 +48,7 @@ export default async function AdminPostEditPage({ params }: { params: Promise<{ 
         </div>
         <div className="field">
           <label htmlFor="titleEn">英文标题（可选，AI 翻译会自动缓存）</label>
-          <input id="titleEn" name="titleEn" defaultValue={(post as { titleEn?: string | null }).titleEn || ""} />
+          <input id="titleEn" name="titleEn" defaultValue={post.titleEn || ""} />
         </div>
         <div className="field">
           <label htmlFor="summary">摘要<span aria-hidden="true" className="req">*</span></label>
@@ -37,7 +56,7 @@ export default async function AdminPostEditPage({ params }: { params: Promise<{ 
         </div>
         <div className="field">
           <label htmlFor="summaryEn">英文摘要（可选）</label>
-          <textarea id="summaryEn" name="summaryEn" defaultValue={(post as { summaryEn?: string | null }).summaryEn || ""} />
+          <textarea id="summaryEn" name="summaryEn" defaultValue={post.summaryEn || ""} />
         </div>
         <div className="field">
           <label htmlFor="content">正文 Markdown<span aria-hidden="true" className="req">*</span></label>
@@ -49,7 +68,7 @@ export default async function AdminPostEditPage({ params }: { params: Promise<{ 
         </div>
         <div className="field">
           <label htmlFor="contentEn">英文正文 Markdown（可选）</label>
-          <textarea id="contentEn" name="contentEn" defaultValue={(post as { contentEn?: string | null }).contentEn || ""} style={{ minHeight: 320 }} />
+          <textarea id="contentEn" name="contentEn" defaultValue={post.contentEn || ""} style={{ minHeight: 320 }} />
         </div>
         <div className="field-row">
           <div className="field">
@@ -63,7 +82,7 @@ export default async function AdminPostEditPage({ params }: { params: Promise<{ 
         </div>
         <div className="field">
           <label htmlFor="sortOrder">排序（小的在前）</label>
-          <input id="sortOrder" name="sortOrder" type="number" defaultValue={(post as { sortOrder?: number }).sortOrder ?? 0} />
+          <input id="sortOrder" name="sortOrder" type="number" defaultValue={post.sortOrder} />
         </div>
         <div className="field">
           <label htmlFor="status">状态</label>
@@ -102,7 +121,7 @@ export default async function AdminPostEditPage({ params }: { params: Promise<{ 
               <input id="image-source-page" name="sourcePageUrl" type="url" placeholder="https://..." />
             </div>
           </div>
-          {(post as { contentEn?: string | null }).contentEn ? (
+          {post.contentEn ? (
             <label>
               <input type="checkbox" name="mirrorToEnglish" value="true" defaultChecked /> 同步插入英文正文
             </label>
@@ -123,7 +142,7 @@ export default async function AdminPostEditPage({ params }: { params: Promise<{ 
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <strong>{video.title}</strong>
                   <div style={{ fontSize: 12, opacity: 0.7 }}>
-                    {video.type} · 展示：{(video as { displayMode?: string | null }).displayMode === "link" ? "链接" : "嵌入"} · ID: <code>{video.id}</code>
+                    {video.type} · 展示：{video.displayMode === "link" ? "链接" : "嵌入"} · ID: <code>{video.id}</code>
                   </div>
                 </div>
                 <code style={{ fontSize: 12, marginRight: 12 }}>[[video:{video.id}]]</code>
@@ -131,7 +150,7 @@ export default async function AdminPostEditPage({ params }: { params: Promise<{ 
                   <input type="hidden" name="id" value={video.id} />
                   <input type="hidden" name="postId" value={post.id} />
                   <input type="hidden" name="redirect" value={`/admin/posts/${post.id}`} />
-                  <select name="displayMode" defaultValue={(video as { displayMode?: string | null }).displayMode || "embed"}>
+                  <select name="displayMode" defaultValue={video.displayMode || "embed"}>
                     <option value="embed">嵌入</option>
                     <option value="link">链接</option>
                   </select>

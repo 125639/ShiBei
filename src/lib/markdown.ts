@@ -1,7 +1,7 @@
 import { Marked } from "marked";
 import DOMPurify from "isomorphic-dompurify";
 import { escapeHtml, hostFromUrl as hostFromUrlOrNull } from "./html";
-import { shouldRenderVideoAsLink, VIDEO_SHORTCODE_RE } from "./video-display";
+import { EMBED_IFRAME_SANDBOX, isAllowedEmbedUrl, shouldRenderVideoAsLink, VIDEO_SHORTCODE_RE } from "./video-display";
 
 // GFM 默认开启；breaks: 软换行转 <br>，更贴近写作直觉。
 const marked = new Marked({
@@ -31,21 +31,6 @@ export type MarkdownOptions = {
   videosById?: Map<string, VideoForShortcode>;
 };
 
-// 允许 iframe src 落在这些 host（必须以 http/https 开头）。
-// 任何不在白名单内的 EMBED 视频会降级为链接。
-const EMBED_HOST_WHITELIST = [
-  /^https:\/\/www\.youtube\.com\/embed\//,
-  /^https:\/\/youtube\.com\/embed\//,
-  /^https:\/\/player\.bilibili\.com\/player\.html/,
-  /^https:\/\/player\.youku\.com\/embed\//,
-  /^https:\/\/v\.qq\.com\/txp\/iframe\//,
-  /^https:\/\/open\.iqiyi\.com\/developer\/player_js\//,
-];
-
-function isAllowedEmbedUrl(url: string): boolean {
-  return EMBED_HOST_WHITELIST.some((re) => re.test(url));
-}
-
 function formatDuration(sec: number) {
   if (sec < 60) return `${sec}s`;
   const m = Math.floor(sec / 60);
@@ -70,7 +55,7 @@ export function videoShortcodeHtml(video: VideoForShortcode): string {
   } else if (video.type === "LOCAL" && url) {
     player = `<video controls preload="metadata" class="video-frame" src="${escapeHtml(url)}"></video>`;
   } else if (video.type === "EMBED" && isAllowedEmbedUrl(url)) {
-    player = `<iframe class="video-frame" title="${title}" src="${escapeHtml(url)}" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" allowfullscreen></iframe>`;
+    player = `<iframe class="video-frame" title="${title}" src="${escapeHtml(url)}" sandbox="${EMBED_IFRAME_SANDBOX}" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" allowfullscreen></iframe>`;
   } else if (url) {
     // EMBED 但 host 未在白名单 / 或 LINK 类型 → 都降级为链接。
     player = `<a class="text-link" href="${escapeHtml(url)}" target="_blank" rel="noreferrer">打开视频资源</a>`;
@@ -157,6 +142,7 @@ export function markdownToHtml(markdown: string, opts?: MarkdownOptions): string
       "loading",
       "decoding",
       "data-video-id",
+      "sandbox",
     ],
     FORBID_TAGS: ["style", "form", "input", "button"],
     FORBID_ATTR: ["onerror", "onload", "onclick", "onmouseover", "onfocus"],

@@ -1,9 +1,8 @@
 import Link from "next/link";
 import { BarChart, DonutChart, LineChart, StackedBarChart } from "@/components/Charts";
 import { PublicShell } from "@/components/PublicShell";
-import { loadStats, type StatsWindow } from "@/lib/stats";
+import { loadCachedStats, type StatsWindow } from "@/lib/stats";
 
-export const dynamic = "force-dynamic";
 export const revalidate = 60;
 
 const VALID: StatsWindow[] = ["today", "week", "total"];
@@ -16,7 +15,7 @@ export default async function StatsPage({
   const params = await searchParams;
   const requested = typeof params.window === "string" ? params.window : "week";
   const window: StatsWindow = (VALID as string[]).includes(requested) ? (requested as StatsWindow) : "week";
-  const stats = await loadStats(window);
+  const stats = await loadCachedStats(window);
 
   return (
     <PublicShell>

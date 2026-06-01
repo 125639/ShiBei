@@ -2,6 +2,7 @@ import fs from "node:fs/promises";
 import { NextResponse } from "next/server";
 import { requireAdmin } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { revalidatePublicContent } from "@/lib/revalidate-public";
 import { redirectTo } from "@/lib/redirect";
 import { resolveUploadsPath } from "@/lib/uploads-path";
 
@@ -15,7 +16,7 @@ export async function POST(request: Request) {
   const redirect = safeRedirectPath(url.searchParams.get("redirect"));
   if (!id) return NextResponse.json({ error: "missing id" }, { status: 400 });
 
-  const video = await prisma.video.findUnique({ where: { id } });
+  const video = await prisma.video.findUnique({ where: { id }, include: { post: { select: { slug: true } } } });
   if (video?.localPath) {
     // 必须经过 resolveUploadsPath：DB 里被写入 "../etc/passwd" 一类值时
     // 直接 path.join 会让 fs.unlink 变成任意文件删除原语。
@@ -24,6 +25,7 @@ export async function POST(request: Request) {
   }
   if (video) {
     await prisma.video.delete({ where: { id } });
+    revalidatePublicContent([`/videos/${video.id}`, video.post ? `/posts/${video.post.slug}` : null]);
   }
   return redirectTo(redirect);
 }

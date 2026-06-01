@@ -1,7 +1,6 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  typescript: { ignoreBuildErrors: true },
   // Reduce CSS payload + better chunk hashing for repeat visits.
   poweredByHeader: false,
   reactStrictMode: true,

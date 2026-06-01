@@ -1,6 +1,7 @@
 import { prisma } from "@/lib/prisma";
 import { backendFetchInitForConfig, getResolvedSyncConfig } from "@/lib/sync/config";
 import { importFromZip, type ImportResult } from "./import";
+import { MAX_SYNC_ZIP_BYTES, readResponseBufferWithLimit } from "./limits";
 
 /**
  * 前端模式下，从 backend 拉一份增量 ZIP 并 import 到本地。
@@ -67,9 +68,14 @@ export async function runAutoSync(): Promise<{
     await writeError(msg);
     throw new Error(msg);
   }
+  const declaredLength = Number(response.headers.get("content-length") || 0);
+  if (declaredLength > MAX_SYNC_ZIP_BYTES) {
+    const msg = `backend 返回的 ZIP 超过 ${Math.round(MAX_SYNC_ZIP_BYTES / 1024 / 1024)}MB，请改用手动轻量同步`;
+    await writeError(msg);
+    throw new Error(msg);
+  }
 
-  const arrayBuffer = await response.arrayBuffer();
-  const buffer = Buffer.from(arrayBuffer);
+  const buffer = await readResponseBufferWithLimit(response, MAX_SYNC_ZIP_BYTES);
   if (buffer.length === 0) {
     await writeError(null);
     return { attempted: true, bytes: 0 };

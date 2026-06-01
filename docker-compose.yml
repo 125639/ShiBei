@@ -45,7 +45,6 @@ services:
       APP_MODE: full
       NODE_OPTIONS: --max-old-space-size=1024
     ports:
-      - "80:3000"
       - "3000:3000"
     command: ["sh", "scripts/start-app.sh"]
     volumes:

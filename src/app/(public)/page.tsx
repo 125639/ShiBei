@@ -3,6 +3,7 @@ import { AiAssistant } from "@/components/AiAssistant";
 import { I18nText } from "@/components/I18nText";
 import { PublicShell } from "@/components/PublicShell";
 import { prisma } from "@/lib/prisma";
+import { publicVideoWhere } from "@/lib/public-video";
 
 const HOME_POST_VARIANTS = ["bento-large", "bento-wide"] as const;
 const HOME_VIDEO_VARIANTS = ["bento-wide"] as const;
@@ -24,12 +25,26 @@ export default async function HomePage() {
       where: { status: "PUBLISHED" },
       orderBy: [{ sortOrder: "asc" }, { publishedAt: "desc" }],
       take: 6,
-      include: { tags: true }
+      select: {
+        id: true,
+        slug: true,
+        title: true,
+        titleEn: true,
+        summary: true,
+        summaryEn: true,
+        publishedAt: true,
+        tags: { select: { id: true, name: true } }
+      }
     }),
-    prisma.video.findMany({ orderBy: [{ sortOrder: "asc" }, { createdAt: "desc" }], take: 3 }),
-    prisma.siteSettings.findUnique({ where: { id: "site" } }),
+    prisma.video.findMany({
+      where: publicVideoWhere,
+      orderBy: [{ sortOrder: "asc" }, { createdAt: "desc" }],
+      take: 3,
+      select: { id: true, title: true, type: true, summary: true }
+    }),
+    prisma.siteSettings.findUnique({ where: { id: "site" }, select: { description: true } }),
     prisma.post.count({ where: { status: "PUBLISHED" } }),
-    prisma.video.count()
+    prisma.video.count({ where: publicVideoWhere })
   ]);
 
   const description = settings?.description || "后端整理与同步，前端轻量展示。";
@@ -123,10 +138,10 @@ export default async function HomePage() {
                     </div>
                     <h3>
                       <Link className="card-link" href={`/posts/${post.slug}`}>
-                        <I18nText zh={post.title} en={(post as { titleEn?: string | null }).titleEn || post.title} />
+                        <I18nText zh={post.title} en={post.titleEn || post.title} />
                       </Link>
                     </h3>
-                    <p><I18nText zh={post.summary} en={(post as { summaryEn?: string | null }).summaryEn || post.summary} /></p>
+                    <p><I18nText zh={post.summary} en={post.summaryEn || post.summary} /></p>
                   </div>
                   <span className="text-link" aria-hidden="true"><I18nText zh="阅读全文" en="Read more" /></span>
                 </article>

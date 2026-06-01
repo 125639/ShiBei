@@ -900,10 +900,54 @@ a.bento-card:hover {
   box-shadow: none;
 }
 
+.button.disabled,
+.button:disabled,
+.danger-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.48;
+  transform: none;
+  box-shadow: none;
+}
+
 .button.ghost {
   background: transparent;
   color: var(--ink);
   border-color: var(--line-strong);
+}
+
+.filter-form {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: var(--sp-sm);
+  align-items: end;
+}
+
+.filter-form .field {
+  margin: 0;
+}
+
+.pagination-row {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--sp-sm);
+  margin-top: var(--sp-lg);
+}
+
+.pagination-status {
+  color: var(--muted);
+  font-size: 14px;
+}
+
+details.form-card > summary {
+  cursor: pointer;
+  font-size: 20px;
+  font-weight: 650;
+  font-family: var(--font-display);
+}
+
+details.form-card > form {
+  margin-top: var(--sp-lg);
 }
 
 .prose {

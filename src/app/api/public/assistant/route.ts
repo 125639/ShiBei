@@ -6,6 +6,8 @@ import { getModelConfigForUse } from "@/lib/model-selection";
 import { isFrontend } from "@/lib/app-mode";
 import { proxyToBackend } from "@/lib/sync/proxy";
 import { ensureBackendCallerAllowed } from "@/lib/sync/backend-auth";
+import { parseJsonBody } from "@/lib/request-validation";
+import { checkRateLimit } from "@/lib/rate-limit";
 
 export const dynamic = "force-dynamic";
 
@@ -25,7 +27,17 @@ export async function POST(request: Request) {
   const denied = await ensureBackendCallerAllowed(request);
   if (denied) return denied;
 
-  const body = BodySchema.parse(await request.json());
+  const limited = await checkRateLimit({ namespace: "assistant", request, limit: 30, windowSec: 60 * 60 });
+  if (!limited.ok) {
+    return NextResponse.json(
+      { error: "请求过于频繁，请稍后再试" },
+      { status: 429, headers: { "Retry-After": String(limited.retryAfterSec) } }
+    );
+  }
+
+  const parsed = await parseJsonBody(request, BodySchema);
+  if (!parsed.ok) return parsed.response;
+  const body = parsed.data;
   const modelConfig = await getModelConfigForUse("assistant");
   if (!modelConfig) {
     return NextResponse.json({ error: "管理员尚未配置 AI 助手模型" }, { status: 503 });

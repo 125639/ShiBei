@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { requireAdmin } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { revalidatePublicContent } from "@/lib/revalidate-public";
 import { redirectTo } from "@/lib/redirect";
 import {
   insertVideoShortcode,
@@ -18,7 +19,7 @@ export async function POST(request: Request) {
 
   const [video, post] = await Promise.all([
     prisma.video.findUnique({ where: { id }, select: { id: true } }),
-    prisma.post.findUnique({ where: { id: postId }, select: { id: true, content: true, contentEn: true } })
+    prisma.post.findUnique({ where: { id: postId }, select: { id: true, slug: true, content: true, contentEn: true } })
   ]);
   if (!video) return NextResponse.json({ error: "video not found" }, { status: 404 });
   if (!post) return NextResponse.json({ error: "post not found" }, { status: 404 });
@@ -43,6 +44,7 @@ export async function POST(request: Request) {
     }
   });
 
+  revalidatePublicContent([`/videos/${id}`, `/posts/${post.slug}`]);
   return redirectTo(redirect);
 }
 

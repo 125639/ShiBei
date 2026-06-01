@@ -1,12 +1,65 @@
 import { notFound } from "next/navigation";
 import Link from "next/link";
+import type { Metadata } from "next";
 import { AiAssistant } from "@/components/AiAssistant";
 import { LanguageAwarePost } from "@/components/LanguageAwarePost";
 import { PublicShell } from "@/components/PublicShell";
 import { I18nText } from "@/components/I18nText";
 import { prisma } from "@/lib/prisma";
+import { getCachedSiteChromeSettings } from "@/lib/site-settings-cache";
+import { absoluteSiteUrl } from "@/lib/site-url";
 import { VideoEmbed } from "@/lib/video";
 import { VIDEO_SHORTCODE_RE } from "@/lib/video-display";
+
+const ARTICLE_VIDEO_SELECT = {
+  id: true,
+  title: true,
+  type: true,
+  url: true,
+  displayMode: true,
+  summary: true,
+  sourcePageUrl: true,
+  sourcePlatform: true,
+  attribution: true,
+  durationSec: true
+} as const;
+
+export async function generateMetadata({ params }: { params: Promise<{ slug: string }> }): Promise<Metadata> {
+  const { slug } = await params;
+  const [post, settings] = await Promise.all([
+    prisma.post.findFirst({
+      where: { slug: { in: getSlugCandidates(slug) }, status: "PUBLISHED" },
+      select: { slug: true, title: true, summary: true, publishedAt: true, updatedAt: true }
+    }),
+    getCachedSiteChromeSettings().catch(() => null)
+  ]);
+  if (!post) return {};
+
+  const title = post.title;
+  const description = post.summary.slice(0, 180);
+  const url = absoluteSiteUrl(`/posts/${post.slug}`);
+  const siteName = settings?.name || "ShiBei";
+
+  return {
+    title: `${title} | ${siteName}`,
+    description,
+    alternates: { canonical: url },
+    openGraph: {
+      type: "article",
+      title,
+      description,
+      url,
+      siteName,
+      publishedTime: post.publishedAt?.toISOString(),
+      modifiedTime: post.updatedAt.toISOString()
+    },
+    twitter: {
+      card: "summary",
+      title,
+      description
+    }
+  };
+}
 
 function collectShortcodedVideoIds(...sources: Array<string | null | undefined>): Set<string> {
   const ids = new Set<string>();
@@ -30,24 +83,38 @@ export default async function PostDetailPage({ params }: { params: Promise<{ slu
           in: getSlugCandidates(slug)
         }
       },
-      include: {
-        tags: true,
-        videos: true,
+      select: {
+        id: true,
+        slug: true,
+        status: true,
+        title: true,
+        titleEn: true,
+        summary: true,
+        summaryEn: true,
+        content: true,
+        contentEn: true,
+        sourceUrl: true,
+        publishedAt: true,
+        tags: { select: { id: true, name: true } },
+        videos: {
+          orderBy: [{ sortOrder: "asc" }, { createdAt: "desc" }],
+          select: ARTICLE_VIDEO_SELECT
+        },
         topics: { select: { id: true, name: true, slug: true } }
       }
     }),
-    prisma.siteSettings.findUnique({ where: { id: "site" } })
+    prisma.siteSettings.findUnique({ where: { id: "site" }, select: { contentLanguageMode: true } })
   ]);
   if (!post || post.status !== "PUBLISHED") notFound();
-  const contentLanguageMode = (settings as { contentLanguageMode?: string } | null)?.contentLanguageMode || "default-language";
+  const contentLanguageMode = settings?.contentLanguageMode || "default-language";
 
   // 已通过 [[video:ID]] 短代码内嵌到正文里的视频，不在末尾「相关视频」再重复展示。
   const inlineVideoIds = collectShortcodedVideoIds(
     post.content,
-    (post as { contentEn?: string | null }).contentEn
+    post.contentEn
   );
   const inlineVideos = inlineVideoIds.size
-    ? await prisma.video.findMany({ where: { id: { in: [...inlineVideoIds] } } })
+    ? await prisma.video.findMany({ where: { id: { in: [...inlineVideoIds] } }, select: ARTICLE_VIDEO_SELECT })
     : [];
   const articleVideosById = new Map(post.videos.map((video) => [video.id, video]));
   for (const video of inlineVideos) {
@@ -83,11 +150,11 @@ export default async function PostDetailPage({ params }: { params: Promise<{ slu
             {post.tags.length ? post.tags[0].name : <I18nText zh="内容文章" en="Posts" />}
           </p>
           <h1>
-            <I18nText zh={post.title} en={(post as { titleEn?: string | null }).titleEn || post.title} />
+            <I18nText zh={post.title} en={post.titleEn || post.title} />
           </h1>
           {post.summary ? (
             <p className="lead">
-              <I18nText zh={post.summary} en={(post as { summaryEn?: string | null }).summaryEn || post.summary} />
+              <I18nText zh={post.summary} en={post.summaryEn || post.summary} />
             </p>
           ) : null}
           <div className="meta-row">
@@ -110,9 +177,9 @@ export default async function PostDetailPage({ params }: { params: Promise<{ slu
               title: post.title,
               summary: post.summary,
               content: post.content,
-              titleEn: (post as { titleEn?: string | null }).titleEn,
-              summaryEn: (post as { summaryEn?: string | null }).summaryEn,
-              contentEn: (post as { contentEn?: string | null }).contentEn
+              titleEn: post.titleEn,
+              summaryEn: post.summaryEn,
+              contentEn: post.contentEn
             }}
             videos={articleVideos.map((video) => ({
               id: video.id,

@@ -1,6 +1,6 @@
-import { chromium } from "playwright";
+import { chromium, type Page } from "playwright";
 import TurndownService from "turndown";
-import { assertSafeFetchUrl } from "./url-safety";
+import { assertSafeResolvedFetchUrl, isHttpUrl, isSafeResolvedFetchUrl } from "./url-safety";
 import { VIDEO_MEDIA_URL_RE } from "./video-policy";
 
 const MEDIA_CONTENT_TYPE_RE = /^(video\/|application\/(vnd\.apple\.mpegurl|x-mpegurl|dash\+xml|octet-stream))/i;
@@ -22,11 +22,12 @@ function sniffedMediaScore(media: SniffedMedia) {
 
 export async function scrapeWebPage(url: string) {
   // 拒绝 file://、loopback、私网、云 metadata 等，避免 SSRF 通过 Playwright 触达内部服务。
-  assertSafeFetchUrl(url);
+  await assertSafeResolvedFetchUrl(url);
   const browser = await chromium.launch({ headless: true });
   const sniffed = new Map<string, SniffedMedia>();
   try {
     const page = await browser.newPage({ viewport: { width: 1440, height: 1200 } });
+    await installSafeRequestGuard(page);
 
     // 被动嗅探网络响应：现代新闻站把视频 URL 放在 JS-注入的播放器配置里,DOM 扫不到。
     // 这里在页面加载过程中收集所有 content-type 是 video/* 或 URL 命中 .mp4/.m3u8 的请求,
@@ -350,4 +351,27 @@ export async function scrapeWebPage(url: string) {
   } finally {
     await browser.close();
   }
+}
+
+async function installSafeRequestGuard(page: Page) {
+  await page.route("**/*", async (route) => {
+    const requestUrl = route.request().url();
+    try {
+      if (!isHttpUrl(requestUrl)) {
+        if (requestUrl.startsWith("data:") || requestUrl.startsWith("blob:") || requestUrl === "about:blank") {
+          await route.continue();
+        } else {
+          await route.abort("blockedbyclient");
+        }
+        return;
+      }
+      if (await isSafeResolvedFetchUrl(requestUrl)) {
+        await route.continue();
+      } else {
+        await route.abort("blockedbyclient");
+      }
+    } catch {
+      await route.abort("blockedbyclient").catch(() => undefined);
+    }
+  });
 }

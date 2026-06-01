@@ -385,9 +385,12 @@ fi
 
 # SHIBEI_AUTO_START=y/n 用于非交互场景与单元测试；空值走交互提问。
 AUTO_START="${SHIBEI_AUTO_START:-}"
+COMPOSE_UP_ARGS=(up -d --build --force-recreate)
+COMPOSE_UP_DISPLAY="${COMPOSE_CMD_DISPLAY} ${COMPOSE_UP_ARGS[*]}"
+
 if [ -z "$AUTO_START" ]; then
   echo
-  ask_default AUTO_START "现在用 ${COMPOSE_CMD_DISPLAY} up -d --build 启动？(Y/n)" "y"
+  ask_default AUTO_START "现在用 ${COMPOSE_UP_DISPLAY} 启动？(Y/n)" "y"
 fi
 
 case "$AUTO_START" in
@@ -404,9 +407,9 @@ case "$AUTO_START" in
       DOCKER_MISSING=1
     else
       echo
-      ui_info "切到 $PROJECT_DIR 并运行 ${COMPOSE_CMD_DISPLAY} up -d --build ..."
+      ui_info "切到 $PROJECT_DIR 并运行 ${COMPOSE_UP_DISPLAY} ..."
       ui_info "测试环境默认本地 build；如要改用远程镜像，删掉 --build 并 ${COMPOSE_CMD_DISPLAY} pull。"
-      if (cd "$PROJECT_DIR" && docker compose "${COMPOSE_ARGS[@]}" up -d --build); then
+      if (cd "$PROJECT_DIR" && docker compose "${COMPOSE_ARGS[@]}" "${COMPOSE_UP_ARGS[@]}"); then
         AUTO_STARTED=1
         DOCKER_FAILED=0
         DOCKER_MISSING=0
@@ -417,7 +420,7 @@ case "$AUTO_START" in
         DOCKER_FAILED=1
         DOCKER_MISSING=0
         echo
-        ui_error "${COMPOSE_CMD_DISPLAY} up -d --build 退出非零；常见原因：build 失败 / 端口占用 / .env 缺项。"
+        ui_error "${COMPOSE_UP_DISPLAY} 退出非零；常见原因：build 失败 / 端口占用 / .env 缺项。"
       fi
     fi
     ;;
@@ -436,15 +439,15 @@ esac
 #   4) AUTO_STARTED=0 DOCKER_FAILED=1                  — 启动失败,改打"未完成"+ 排查步骤,exit 1
 echo
 if [ "${DOCKER_FAILED:-0}" = "1" ]; then
-  printf "${WARN}${BOLD}Setup 未完成${NC} — .env 已生成,但 ${COMPOSE_CMD_DISPLAY} up -d --build 失败,容器没起来。\n"
+  printf "${WARN}${BOLD}Setup 未完成${NC} — .env 已生成,但 ${COMPOSE_UP_DISPLAY} 失败,容器没起来。\n"
   echo
   ui_section "排查步骤"
   printf "  ${BOLD}1. 看错误：${NC}cd %s && %s logs --tail=100\n" "$PROJECT_DIR" "$COMPOSE_CMD_DISPLAY"
   printf "  ${BOLD}2. 单独 build 看报错：${NC}cd %s && %s build\n" "$PROJECT_DIR" "$COMPOSE_CMD_DISPLAY"
   printf "       ${MUTED}如果只想跳过本地 build,直接拉远程镜像:${NC}\n"
-  printf "       ${MUTED}cd %s && %s pull && %s up -d${NC}\n" "$PROJECT_DIR" "$COMPOSE_CMD_DISPLAY" "$COMPOSE_CMD_DISPLAY"
-  printf "  ${BOLD}3. 检查端口：${NC}sudo lsof -i :3000 -i :80   ${MUTED}(被占用就改 compose 的 ports 映射)${NC}\n"
-  printf "  ${BOLD}4. 重新启动：${NC}cd %s && %s up -d --build\n" "$PROJECT_DIR" "$COMPOSE_CMD_DISPLAY"
+  printf "       ${MUTED}cd %s && %s pull && %s up -d --force-recreate${NC}\n" "$PROJECT_DIR" "$COMPOSE_CMD_DISPLAY" "$COMPOSE_CMD_DISPLAY"
+  printf "  ${BOLD}3. 检查端口：${NC}sudo lsof -i :3000   ${MUTED}(被占用就改 compose 的 ports 映射)${NC}\n"
+  printf "  ${BOLD}4. 重新启动：${NC}cd %s && %s\n" "$PROJECT_DIR" "$COMPOSE_UP_DISPLAY"
   echo
   ui_info "排查后容器跑起来,登录信息:${ACCENT_BRIGHT}${SITE_URL%/}/admin${NC}  账号:${BOLD}${ADMIN_USERNAME} / ${ADMIN_PASSWORD}${NC}"
   echo
@@ -472,7 +475,7 @@ if [ "${DOCKER_MISSING:-0}" = "1" ]; then
       ;;
   esac
   printf "  ${BOLD}2. 验证：${NC}docker --version && docker compose version\n"
-  printf "  ${BOLD}3. 启动：${NC}cd %s && %s up -d --build\n" "$PROJECT_DIR" "$COMPOSE_CMD_DISPLAY"
+  printf "  ${BOLD}3. 启动：${NC}cd %s && %s\n" "$PROJECT_DIR" "$COMPOSE_UP_DISPLAY"
   printf "  ${BOLD}4. 健康检查：${NC}curl ${SITE_URL%/}/api/health\n"
   echo
   ui_info "启动后管理后台:${ACCENT_BRIGHT}${SITE_URL%/}/admin${NC}  账号:${BOLD}${ADMIN_USERNAME} / ${ADMIN_PASSWORD}${NC}"
@@ -490,10 +493,10 @@ ui_celebrate "🎉 Setup complete!"
 echo
 ui_section "Next steps"
 if [ "${AUTO_STARTED:-0}" = "1" ]; then
-  printf "  ${BOLD}已启动${NC}（${MUTED}%s up -d --build 已自动执行${NC}）\n" "$COMPOSE_CMD_DISPLAY"
+  printf "  ${BOLD}已启动${NC}（${MUTED}%s 已自动执行${NC}）\n" "$COMPOSE_UP_DISPLAY"
 else
   # 没自动起：完整把 cd + 启动一行写出来，避免用户在错误目录里跑 docker compose。
-  printf "  ${BOLD}启动：${NC}cd %s && %s up -d --build\n" "$PROJECT_DIR" "$COMPOSE_CMD_DISPLAY"
+  printf "  ${BOLD}启动：${NC}cd %s && %s\n" "$PROJECT_DIR" "$COMPOSE_UP_DISPLAY"
 fi
 printf "  ${BOLD}健康检查：${NC}curl ${SITE_URL%/}/api/health\n"
 printf "  ${BOLD}管理后台：${NC}${ACCENT_BRIGHT}${SITE_URL%/}/admin${NC}\n"

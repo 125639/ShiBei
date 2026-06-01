@@ -2,7 +2,10 @@ import { PublicShell } from "@/components/PublicShell";
 import { prisma } from "@/lib/prisma";
 
 export default async function AboutPage() {
-  const settings = await prisma.siteSettings.findUnique({ where: { id: "site" } });
+  const settings = await prisma.siteSettings.findUnique({
+    where: { id: "site" },
+    select: { name: true }
+  });
 
   return (
     <PublicShell>

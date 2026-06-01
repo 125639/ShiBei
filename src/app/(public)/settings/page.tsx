@@ -26,7 +26,16 @@ export default async function SettingsPage() {
   let musicEnabled = false;
 
   try {
-    const settings = await prisma.siteSettings.findUnique({ where: { id: "site" } });
+    const settings = await prisma.siteSettings.findUnique({
+      where: { id: "site" },
+      select: {
+        defaultTheme: true,
+        defaultFont: true,
+        defaultLanguage: true,
+        defaultSettingsUI: true,
+        musicEnabledDefault: true
+      }
+    });
     if (settings) {
       const dt = (settings as { defaultTheme?: string }).defaultTheme;
       const df = (settings as { defaultFont?: string }).defaultFont;

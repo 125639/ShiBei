@@ -17,7 +17,15 @@ const MODEL_FIELD_BY_USE: Record<ModelUse, keyof SiteModelFields> = {
 };
 
 export async function getModelConfigForUse(use: ModelUse) {
-  const settings = await prisma.siteSettings.findUnique({ where: { id: "site" } }).catch(() => null);
+  const settings = await prisma.siteSettings.findUnique({
+    where: { id: "site" },
+    select: {
+      contentModelConfigId: true,
+      assistantModelConfigId: true,
+      writingModelConfigId: true,
+      translationModelConfigId: true
+    }
+  }).catch(() => null);
   const site = settings as SiteModelFields | null;
   const configuredId = site?.[MODEL_FIELD_BY_USE[use]];
 

@@ -1,6 +1,7 @@
 import { PostStatus } from "@prisma/client";
 import { requireAdmin } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { revalidatePublicContent } from "@/lib/revalidate-public";
 import { redirectTo } from "@/lib/redirect";
 
 export async function POST(request: Request, { params }: { params: Promise<{ id: string }> }) {
@@ -10,7 +11,10 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   const status = normalizeStatus(String(form.get("status") || "DRAFT"));
   const tags = parseTags(String(form.get("tags") || ""));
 
-  const existing = await prisma.post.findUniqueOrThrow({ where: { id }, include: { tags: true } });
+  const existing = await prisma.post.findUniqueOrThrow({
+    where: { id },
+    select: { publishedAt: true, slug: true }
+  });
 
   await prisma.post.update({
     where: { id },
@@ -32,6 +36,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
     }
   });
 
+  revalidatePublicContent([`/posts/${existing.slug}`]);
   return redirectTo(`/admin/posts/${id}`);
 }
 

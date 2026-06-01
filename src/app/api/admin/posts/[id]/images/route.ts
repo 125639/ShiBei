@@ -6,6 +6,8 @@ import {
   normalizeArticleImagePlacement,
   saveUploadedArticleImage
 } from "@/lib/article-images";
+import { prisma } from "@/lib/prisma";
+import { revalidatePublicContent } from "@/lib/revalidate-public";
 import { redirectTo } from "@/lib/redirect";
 import { ensureUploadDirs } from "@/lib/storage";
 
@@ -42,6 +44,8 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
     mirrorToEnglish: form.get("mirrorToEnglish") === "true"
   });
 
+  const post = await prisma.post.findUnique({ where: { id }, select: { slug: true } });
+  revalidatePublicContent([post ? `/posts/${post.slug}` : null]);
   return redirectTo(redirect);
 }
 

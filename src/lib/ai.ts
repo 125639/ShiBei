@@ -3,6 +3,7 @@ import type { SourceType } from "@prisma/client";
 import { contentModeLabel, normalizeContentMode, type ContentMode } from "./content-style";
 import { decryptSecret } from "./crypto";
 import { prisma } from "./prisma";
+import { assertSafeResolvedFetchUrl } from "./url-safety";
 
 let cachedPrefix: { value: string; ts: number } | null = null;
 const PREFIX_TTL_MS = 30_000;
@@ -11,7 +12,10 @@ async function loadGlobalPromptPrefix(): Promise<string> {
   const now = Date.now();
   if (cachedPrefix && now - cachedPrefix.ts < PREFIX_TTL_MS) return cachedPrefix.value;
   try {
-    const settings = await prisma.siteSettings.findUnique({ where: { id: "site" } });
+    const settings = await prisma.siteSettings.findUnique({
+      where: { id: "site" },
+      select: { globalPromptPrefix: true }
+    });
     const prefix = (settings as { globalPromptPrefix?: string } | null)?.globalPromptPrefix?.trim() || "";
     cachedPrefix = { value: prefix, ts: now };
     return prefix;
@@ -470,6 +474,7 @@ async function requestChatCompletionWithKey(
   system: string
 ) {
   const baseUrl = modelConfig.baseUrl.replace(/\/$/, "");
+  const endpoint = await assertSafeResolvedFetchUrl(`${baseUrl}/chat/completions`);
   const controller = new AbortController();
   // Reasoning models (Kimi-k2.6, DeepSeek-R1, ...) often spend several minutes
   // on chain-of-thought before they emit content, especially for digest
@@ -482,8 +487,9 @@ async function requestChatCompletionWithKey(
   const prefix = await loadGlobalPromptPrefix();
   const finalSystem = prefix ? `${prefix}\n\n${system}` : system;
 
-  const response = await fetch(`${baseUrl}/chat/completions`, {
+  const response = await fetch(endpoint.toString(), {
     method: "POST",
+    redirect: "error",
     headers: {
       "Content-Type": "application/json",
       Authorization: `Bearer ${apiKey}`
