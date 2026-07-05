@@ -1,5 +1,6 @@
 import { PostStatus } from "@prisma/client";
 import { requireAdmin } from "@/lib/auth";
+import { normalizeSortOrder } from "@/lib/form-number";
 import { prisma } from "@/lib/prisma";
 import { revalidatePublicContent } from "@/lib/revalidate-public";
 import { redirectTo } from "@/lib/redirect";
@@ -47,11 +48,6 @@ function parseTags(raw: string) {
 function normalizeOptional(value: string) {
   const trimmed = value.trim();
   return trimmed || null;
-}
-
-function normalizeSortOrder(value: FormDataEntryValue | null) {
-  const n = Number(value || 0);
-  return Number.isFinite(n) ? Math.floor(n) : 0;
 }
 
 function normalizeStatus(value: string): PostStatus {

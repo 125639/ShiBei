@@ -4,6 +4,7 @@ import { revalidatePublicContent } from "@/lib/revalidate-public";
 import { importFromZip } from "@/lib/sync/import";
 import { MAX_SYNC_ZIP_BYTES } from "@/lib/sync/limits";
 import { redirectTo } from "@/lib/redirect";
+import { readUploadedFileBuffer } from "@/lib/upload-stream";
 
 // POST /api/admin/sync/import
 // 表单字段:
@@ -24,7 +25,7 @@ export async function POST(request: Request) {
 
   let buffer: Buffer;
   try {
-    buffer = Buffer.from(await file.arrayBuffer());
+    buffer = await readUploadedFileBuffer(file, MAX_SYNC_ZIP_BYTES);
   } catch (err) {
     return NextResponse.json(
       { error: `读取上传文件失败: ${err instanceof Error ? err.message : String(err)}` },

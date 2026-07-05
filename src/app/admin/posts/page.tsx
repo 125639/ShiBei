@@ -1,12 +1,22 @@
 import Link from "next/link";
+import { redirect } from "next/navigation";
 import type { PostStatus, Prisma } from "@prisma/client";
 import { AdminShell } from "@/components/AdminShell";
 import { BulkPostActions } from "@/components/BulkPostActions";
+import { I18nText } from "@/components/I18nText";
 import { Pagination } from "@/components/Pagination";
+import { SubmitButton } from "@/components/SubmitButton";
 import { requireAdmin } from "@/lib/auth";
+import { normalizePage } from "@/lib/pagination";
 import { prisma } from "@/lib/prisma";
 
 const PAGE_SIZE = 40;
+
+const STATUS_LABELS: Record<PostStatus, string> = {
+  DRAFT: "草稿",
+  PUBLISHED: "已发布",
+  ARCHIVED: "已归档"
+};
 
 export default async function AdminPostsPage({ searchParams }: { searchParams: Promise<{ q?: string; status?: string; page?: string }> }) {
   await requireAdmin();
@@ -44,115 +54,125 @@ export default async function AdminPostsPage({ searchParams }: { searchParams: P
   ]);
   const totalPages = Math.max(1, Math.ceil(totalPosts / PAGE_SIZE));
 
+  // 页码超出实际范围（删除文章后回访旧链接等）时回到最后一页。
+  if (totalPosts > 0 && page > totalPages) {
+    const back = new URLSearchParams();
+    if (query) back.set("q", query);
+    if (status) back.set("status", status);
+    if (totalPages > 1) back.set("page", String(totalPages));
+    const qs = back.toString();
+    redirect(qs ? `/admin/posts?${qs}` : "/admin/posts");
+  }
+
   return (
     <AdminShell>
       <p className="eyebrow">Posts</p>
-      <h1>草稿与文章</h1>
+      <h1><I18nText zh="草稿与文章" en="Drafts & Posts" /></h1>
 
       <form className="form-card filter-form" action="/admin/posts" method="get" style={{ marginBottom: 24 }}>
         <div className="field">
-          <label htmlFor="admin-post-search">搜索文章</label>
-          <input id="admin-post-search" name="q" defaultValue={query} placeholder="标题、摘要或标签" />
+          <label htmlFor="admin-post-search"><I18nText zh="搜索文章" en="Search posts" /></label>
+          <input id="admin-post-search" name="q" defaultValue={query} placeholder="标题、摘要或标签 / title, summary or tag" />
         </div>
         <div className="field">
-          <label htmlFor="admin-post-status">状态</label>
+          <label htmlFor="admin-post-status"><I18nText zh="状态" en="Status" /></label>
           <select id="admin-post-status" name="status" defaultValue={status || ""}>
-            <option value="">全部</option>
-            <option value="DRAFT">草稿</option>
-            <option value="PUBLISHED">已发布</option>
-            <option value="ARCHIVED">已归档</option>
+            <option value="">全部 / All</option>
+            <option value="DRAFT">草稿 / Draft</option>
+            <option value="PUBLISHED">已发布 / Published</option>
+            <option value="ARCHIVED">已归档 / Archived</option>
           </select>
         </div>
-        <button className="button" type="submit">筛选</button>
-        {(query || status) ? <Link className="button secondary" href="/admin/posts">清除</Link> : null}
+        <button className="button" type="submit"><I18nText zh="筛选" en="Filter" /></button>
+        {(query || status) ? <Link className="button secondary" href="/admin/posts"><I18nText zh="清除" en="Clear" /></Link> : null}
       </form>
 
       <details className="form-card form-stack" style={{ marginBottom: 24 }}>
-        <summary>手动上传 / 新建博客内容</summary>
+        <summary><I18nText zh="手动上传 / 新建博客内容" en="Create / upload a post manually" /></summary>
       <form className="form-stack" action="/api/admin/posts" method="post" encType="multipart/form-data">
         <div className="field-row">
           <div className="field">
-            <label htmlFor="title">标题</label>
+            <label htmlFor="title"><I18nText zh="标题" en="Title" /></label>
             <input id="title" name="title" required />
           </div>
           <div className="field">
-            <label htmlFor="slug">Slug（可选）</label>
-            <input id="slug" name="slug" placeholder="留空自动生成" />
+            <label htmlFor="slug"><I18nText zh="Slug（可选）" en="Slug (optional)" /></label>
+            <input id="slug" name="slug" placeholder="留空自动生成 / auto-generated if empty" />
           </div>
         </div>
         <div className="field">
-          <label htmlFor="summary">摘要</label>
+          <label htmlFor="summary"><I18nText zh="摘要" en="Summary" /></label>
           <textarea id="summary" name="summary" required />
         </div>
         <div className="field">
-          <label htmlFor="content">正文 Markdown</label>
+          <label htmlFor="content"><I18nText zh="正文 Markdown" en="Body (Markdown)" /></label>
           <textarea id="content" name="content" required style={{ minHeight: 260 }} />
         </div>
         <div className="field-row">
           <div className="field">
-            <label htmlFor="imageFile">正文配图（可选）</label>
+            <label htmlFor="imageFile"><I18nText zh="正文配图（可选）" en="Body image (optional)" /></label>
             <input id="imageFile" name="imageFile" type="file" accept="image/png,image/jpeg,image/webp,image/gif,.png,.jpg,.jpeg,.webp,.gif" />
           </div>
           <div className="field">
-            <label htmlFor="imageCaption">图片说明</label>
-            <input id="imageCaption" name="imageCaption" placeholder="留空使用文件名" />
+            <label htmlFor="imageCaption"><I18nText zh="图片说明" en="Image caption" /></label>
+            <input id="imageCaption" name="imageCaption" placeholder="留空使用文件名 / defaults to filename" />
           </div>
         </div>
         <div className="field-row">
           <div className="field">
-            <label htmlFor="imageInsertPlacement">图片插入位置</label>
+            <label htmlFor="imageInsertPlacement"><I18nText zh="图片插入位置" en="Image placement" /></label>
             <select id="imageInsertPlacement" name="imageInsertPlacement" defaultValue="after-intro">
-              <option value="after-intro">导语后</option>
-              <option value="before-references">参考来源前</option>
-              <option value="end">文末</option>
+              <option value="after-intro">导语后 / After intro</option>
+              <option value="before-references">参考来源前 / Before references</option>
+              <option value="end">文末 / End</option>
             </select>
           </div>
           <div className="field">
-            <label htmlFor="imageSourcePageUrl">图片来源链接（可选）</label>
+            <label htmlFor="imageSourcePageUrl"><I18nText zh="图片来源链接（可选）" en="Image source URL (optional)" /></label>
             <input id="imageSourcePageUrl" name="imageSourcePageUrl" type="url" placeholder="https://..." />
           </div>
         </div>
         <div className="field-row">
           <div className="field">
-            <label htmlFor="tags">标签（逗号分隔）</label>
+            <label htmlFor="tags"><I18nText zh="标签（逗号分隔）" en="Tags (comma separated)" /></label>
             <input id="tags" name="tags" placeholder="AI, 财经, 观察" />
           </div>
           <div className="field">
-            <label htmlFor="sourceUrl">来源链接（可选）</label>
+            <label htmlFor="sourceUrl"><I18nText zh="来源链接（可选）" en="Source URL (optional)" /></label>
             <input id="sourceUrl" name="sourceUrl" type="url" />
           </div>
         </div>
         <div className="field-row">
           <div className="field">
-            <label htmlFor="status">状态</label>
+            <label htmlFor="status"><I18nText zh="状态" en="Status" /></label>
             <select id="status" name="status" defaultValue="DRAFT">
-              <option value="DRAFT">草稿</option>
-              <option value="PUBLISHED">发布</option>
-              <option value="ARCHIVED">归档</option>
+              <option value="DRAFT">草稿 / Draft</option>
+              <option value="PUBLISHED">发布 / Published</option>
+              <option value="ARCHIVED">归档 / Archived</option>
             </select>
           </div>
           <div className="field">
-            <label htmlFor="sortOrder">排序（小的在前）</label>
+            <label htmlFor="sortOrder"><I18nText zh="排序（小的在前）" en="Sort order (asc)" /></label>
             <input id="sortOrder" name="sortOrder" type="number" defaultValue={totalPosts} />
           </div>
         </div>
         <input type="hidden" name="kind" value="SINGLE_ARTICLE" />
-        <button className="button" type="submit">创建文章</button>
+        <SubmitButton pendingLabel={<I18nText zh="创建中…" en="Creating…" />}><I18nText zh="创建文章" en="Create Post" /></SubmitButton>
       </form>
       </details>
 
       <details className="form-card form-stack" style={{ marginBottom: 24 }}>
-        <summary>上传 / 添加视频内容</summary>
+        <summary><I18nText zh="上传 / 添加视频内容" en="Upload / add a video" /></summary>
       <form className="form-stack" action="/api/admin/videos" method="post" encType="multipart/form-data">
         <div className="field-row">
           <div className="field">
-            <label htmlFor="videoTitle">视频标题</label>
+            <label htmlFor="videoTitle"><I18nText zh="视频标题" en="Video title" /></label>
             <input id="videoTitle" name="title" required />
           </div>
           <div className="field">
-            <label htmlFor="videoPostId">关联文章（可选）</label>
+            <label htmlFor="videoPostId"><I18nText zh="关联文章（可选）" en="Attach to post (optional)" /></label>
             <select id="videoPostId" name="postId" defaultValue="">
-              <option value="">不关联</option>
+              <option value="">不关联 / None</option>
               {posts.map((post) => (
                 <option key={post.id} value={post.id}>{post.title}</option>
               ))}
@@ -160,65 +180,74 @@ export default async function AdminPostsPage({ searchParams }: { searchParams: P
           </div>
         </div>
         <div className="field">
-          <label htmlFor="videoSummary">视频说明</label>
+          <label htmlFor="videoSummary"><I18nText zh="视频说明" en="Video description" /></label>
           <textarea id="videoSummary" name="summary" required />
         </div>
         <div className="field-row">
           <div className="field">
-            <label htmlFor="videoFile">本地视频文件（可选）</label>
+            <label htmlFor="videoFile"><I18nText zh="本地视频文件（可选）" en="Local video file (optional)" /></label>
             <input id="videoFile" name="file" type="file" accept="video/*,.mp4,.webm,.mov,.m4v" />
           </div>
           <div className="field">
-            <label htmlFor="videoUrl">视频链接（未上传文件时使用）</label>
+            <label htmlFor="videoUrl"><I18nText zh="视频链接（未上传文件时使用）" en="Video URL (when no file)" /></label>
             <input id="videoUrl" name="url" placeholder="https://..." />
           </div>
         </div>
         <div className="field-row">
           <div className="field">
-            <label htmlFor="videoType">链接类型</label>
+            <label htmlFor="videoType"><I18nText zh="链接类型" en="Link type" /></label>
             <select id="videoType" name="type" defaultValue="EMBED">
-              <option value="LINK">普通外链</option>
-              <option value="EMBED">可嵌入链接</option>
-              <option value="LOCAL">本地文件</option>
+              <option value="LINK">普通外链 / Link</option>
+              <option value="EMBED">可嵌入链接 / Embed</option>
+              <option value="LOCAL">本地文件 / Local</option>
             </select>
           </div>
           <div className="field">
-            <label htmlFor="videoSortOrder">排序（小的在前）</label>
+            <label htmlFor="videoSortOrder"><I18nText zh="排序（小的在前）" en="Sort order (asc)" /></label>
             <input id="videoSortOrder" name="sortOrder" type="number" defaultValue="0" />
           </div>
         </div>
         <div className="field">
-          <label htmlFor="videoDisplayMode">文章展示方式</label>
+          <label htmlFor="videoDisplayMode"><I18nText zh="文章展示方式" en="Display in post" /></label>
           <select id="videoDisplayMode" name="displayMode" defaultValue="embed">
-            <option value="embed">嵌入视频播放器（默认）</option>
-            <option value="link">仅以链接形式插入</option>
+            <option value="embed">嵌入视频播放器（默认）/ Embedded player</option>
+            <option value="link">仅以链接形式插入 / Link only</option>
           </select>
         </div>
-        <button className="button" type="submit">保存视频</button>
+        <SubmitButton pendingLabel={<I18nText zh="上传中，视频文件可能需要几分钟…" en="Uploading, large files may take minutes…" />}><I18nText zh="保存视频" en="Save Video" /></SubmitButton>
       </form>
       </details>
       <section className="admin-panel">
         <div className="meta-row" style={{ justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
-          <strong>当前结果 {totalPosts} 篇</strong>
-          <span className="muted">每页 {PAGE_SIZE} 篇</span>
+          <strong><I18nText zh={`当前结果 ${totalPosts} 篇`} en={`${totalPosts} posts found`} /></strong>
+          <span className="muted"><I18nText zh={`每页 ${PAGE_SIZE} 篇`} en={`${PAGE_SIZE} per page`} /></span>
         </div>
-        <BulkPostActions posts={posts.map((post) => ({
-          id: post.id,
-          title: post.title,
-          summary: post.summary,
-          status: post.status,
-          videosCount: post._count.videos,
-          sortOrder: post.sortOrder
-        }))} />
+        {totalPosts === 0 && (query || status) ? (
+          <div className="empty-state">
+            <p>
+              <I18nText
+                zh={`没有找到匹配${query ? `「${query}」` : ""}${status ? `（状态：${STATUS_LABELS[status]}）` : ""}的文章。`}
+                en={`No posts matched${query ? ` "${query}"` : ""}${status ? ` (status: ${status})` : ""}.`}
+              />
+            </p>
+            <div className="row-actions">
+              <Link className="button secondary" href="/admin/posts"><I18nText zh="清除筛选" en="Clear filters" /></Link>
+            </div>
+          </div>
+        ) : (
+          <BulkPostActions posts={posts.map((post) => ({
+            id: post.id,
+            title: post.title,
+            summary: post.summary,
+            status: post.status,
+            videosCount: post._count.videos,
+            sortOrder: post.sortOrder
+          }))} />
+        )}
         <Pagination basePath="/admin/posts" page={page} totalPages={totalPages} params={{ q: query, status }} />
       </section>
     </AdminShell>
   );
-}
-
-function normalizePage(value: string | undefined) {
-  const n = Number(value || 1);
-  return Number.isFinite(n) && n > 0 ? Math.floor(n) : 1;
 }
 
 function normalizeStatusFilter(value: string | undefined): PostStatus | null {

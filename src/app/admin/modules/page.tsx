@@ -1,5 +1,8 @@
 import Link from "next/link";
 import { AdminShell } from "@/components/AdminShell";
+import { I18nText } from "@/components/I18nText";
+import { ConfirmButton } from "@/components/ConfirmButton";
+import { SubmitButton } from "@/components/SubmitButton";
 import { requireAdmin } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 
@@ -36,40 +39,42 @@ export default async function ModulesPage() {
   return (
     <AdminShell>
       <p className="eyebrow">Modules</p>
-      <h1>信息源模块</h1>
+      <h1><I18nText zh="信息源模块" en="Source Modules" /></h1>
       <p className="muted-block" style={{ maxWidth: 760 }}>
-        模块用来把信息源按主题归类（如「AI」「娱乐」「财经」）。
-        Topic 抓取时只会用关联到对应模块的源，互不干扰。一个源可以同时属于多个模块。
+        <I18nText
+          zh="模块用来把信息源按主题归类（如「AI」「娱乐」「财经」）。Topic 抓取时只会用关联到对应模块的源，互不干扰。一个源可以同时属于多个模块。"
+          en="Modules group sources by theme (e.g. AI, entertainment, finance). Topic runs only use sources linked to their module. One source can belong to several modules."
+        />
       </p>
 
       <div className="admin-grid">
         <form className="form-card form-stack" action="/api/admin/modules" method="post">
-          <h2>新增模块</h2>
+          <h2><I18nText zh="新增模块" en="New Module" /></h2>
           <div className="field">
-            <label htmlFor="name">名称</label>
+            <label htmlFor="name"><I18nText zh="名称" en="Name" /></label>
             <input id="name" name="name" required placeholder="例如：AI / 娱乐 / 财经" />
           </div>
           <div className="field">
-            <label htmlFor="description">简介（可选）</label>
+            <label htmlFor="description"><I18nText zh="简介（可选）" en="Description (optional)" /></label>
             <textarea id="description" name="description" placeholder="对外可见的模块描述" />
           </div>
           <div className="field-row">
             <div className="field">
-              <label htmlFor="color">主色（卡片高光）</label>
+              <label htmlFor="color"><I18nText zh="主色（卡片高光）" en="Accent color" /></label>
               <input id="color" name="color" type="color" defaultValue="#9f4f2f" />
             </div>
             <div className="field">
-              <label htmlFor="sortOrder">排序（小的在前）</label>
+              <label htmlFor="sortOrder"><I18nText zh="排序（小的在前）" en="Sort order (asc)" /></label>
               <input id="sortOrder" name="sortOrder" type="number" defaultValue={modules.length} />
             </div>
           </div>
-          <button className="button" type="submit">保存模块</button>
+          <SubmitButton pendingLabel={<I18nText zh="保存中…" en="Saving…" />}><I18nText zh="保存模块" en="Save Module" /></SubmitButton>
         </form>
 
         <div className="form-card">
-          <h2>已有模块（{modules.length}）</h2>
+          <h2><I18nText zh={`已有模块（${modules.length}）`} en={`Modules (${modules.length})`} /></h2>
           {modules.length === 0 ? (
-            <p className="muted">暂无模块。</p>
+            <p className="muted"><I18nText zh="暂无模块。" en="No modules yet." /></p>
           ) : (
             <div className="module-grid">
               {modules.map((module) => (
@@ -82,20 +87,23 @@ export default async function ModulesPage() {
                   {module.description && <div className="module-desc">{module.description}</div>}
                   <div className="module-stat">
                     <span>
-                      <strong>{module.sources.length}</strong> 信息源
+                      <strong>{module.sources.length}</strong> <I18nText zh="信息源" en="sources" />
                     </span>
                     <span>
-                      <strong>{module.topics.length}</strong> 关联 Topic
+                      <strong>{module.topics.length}</strong> <I18nText zh="关联 Topic" en="topics" />
                     </span>
                   </div>
                   <div className="row" style={{ marginTop: 8 }}>
                     <Link className="text-link" href={`/admin/sources?module=${module.slug}`}>
-                      管理本模块来源
+                      <I18nText zh="管理本模块来源" en="Manage module sources" />
                     </Link>
                     <form action={`/api/admin/modules/${module.id}/delete`} method="post" style={{ marginLeft: "auto" }}>
-                      <button className="button ghost" type="submit">
-                        删除
-                      </button>
+                      <ConfirmButton
+                        className="button ghost"
+                        message={`确认删除模块「${module.name}」？它关联着 ${module.sources.length} 个信息源、${module.topics.length} 个 Topic，删除后这些关联会一并解除。`}
+                      >
+                        <I18nText zh="删除" en="Delete" />
+                      </ConfirmButton>
                     </form>
                   </div>
                 </div>

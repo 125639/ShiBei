@@ -1,3 +1,4 @@
+import { I18nText } from "@/components/I18nText";
 import type { StatsBucket, TopicSlice } from "@/lib/stats";
 
 const CHART_COLORS = [
@@ -24,7 +25,7 @@ export function BarChart({
   showAllLabels?: boolean;
   ariaLabel?: string;
 }) {
-  if (!buckets.length) return <p className="muted">暂无数据</p>;
+  if (!buckets.length) return <p className="muted"><I18nText zh="暂无数据" en="No data yet" /></p>;
   const padX = 24;
   const padY = 18;
   const width = 600;
@@ -63,9 +64,7 @@ export function BarChart({
               fill={color}
               rx={2}
             >
-              <title>
-                {b.label}: {b.count}
-              </title>
+              <title>{`${b.label}: ${b.count}`}</title>
             </rect>
             {i % labelEvery === 0 && (
               <text x={x + (barW - 4) / 2} y={height - 4} textAnchor="middle" fontSize="11">
@@ -92,7 +91,7 @@ export function LineChart({
   color?: string;
   ariaLabel?: string;
 }) {
-  if (!buckets.length) return <p className="muted">暂无数据</p>;
+  if (!buckets.length) return <p className="muted"><I18nText zh="暂无数据" en="No data yet" /></p>;
   const padX = 28;
   const padY = 18;
   const width = 600;
@@ -128,9 +127,7 @@ export function LineChart({
       <path d={path} fill="none" stroke={color} strokeWidth={2} strokeLinejoin="round" strokeLinecap="round" />
       {points.map((p, i) => (
         <circle key={i} cx={p.x} cy={p.y} r={3} fill={color}>
-          <title>
-            {p.b.label}: {p.b.count}
-          </title>
+          <title>{`${p.b.label}: ${p.b.count}`}</title>
         </circle>
       ))}
       {points.map((p, i) =>
@@ -154,7 +151,7 @@ export function DonutChart({
   ariaLabel?: string;
 }) {
   const total = slices.reduce((acc, s) => acc + s.count, 0);
-  if (!total) return <p className="muted">该时间段内无文章分类数据</p>;
+  if (!total) return <p className="muted"><I18nText zh="该时间段内无文章分类数据" en="No topic data in this window" /></p>;
 
   const size = 220;
   const radius = 90;
@@ -176,9 +173,7 @@ export function DonutChart({
       <svg className="chart-donut" viewBox={`0 0 ${size} ${size}`} role="img" aria-label={ariaLabel}>
         {arcs.map((a) => (
           <path key={a.id} d={a.path} fill={a.color}>
-            <title>
-              {a.name}: {a.count}（{((a.count / total) * 100).toFixed(1)}%）
-            </title>
+            <title>{`${a.name}: ${a.count}（${((a.count / total) * 100).toFixed(1)}%）`}</title>
           </path>
         ))}
         <text x={cx} y={cy - 4} textAnchor="middle" fontSize="22" fontWeight="500">
@@ -221,7 +216,7 @@ export function StackedBarChart({
   secondaryLabel?: string;
   ariaLabel?: string;
 }) {
-  if (!primary.length) return <p className="muted">暂无数据</p>;
+  if (!primary.length) return <p className="muted"><I18nText zh="暂无数据" en="No data yet" /></p>;
   const padX = 28;
   const padY = 22;
   const width = 600;
@@ -266,9 +261,7 @@ export function StackedBarChart({
                 fill={primaryColor}
                 rx={2}
               >
-                <title>
-                  {b.label} · {primaryLabel}: {b.count}
-                </title>
+                <title>{`${b.label} · ${primaryLabel}: ${b.count}`}</title>
               </rect>
               <rect
                 x={x}
@@ -278,9 +271,7 @@ export function StackedBarChart({
                 fill={secondaryColor}
                 rx={2}
               >
-                <title>
-                  {b.label} · {secondaryLabel}: {v}
-                </title>
+                <title>{`${b.label} · ${secondaryLabel}: ${v}`}</title>
               </rect>
               {i % labelEvery === 0 && (
                 <text x={x + (barW - 4) / 2} y={height - 4} textAnchor="middle" fontSize="11">

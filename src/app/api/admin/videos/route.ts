@@ -1,14 +1,20 @@
 import crypto from "node:crypto";
-import fs from "node:fs/promises";
 import path from "node:path";
 import { NextResponse } from "next/server";
 import { VideoType } from "@prisma/client";
 import { requireAdmin } from "@/lib/auth";
+import { normalizeSortOrder } from "@/lib/form-number";
 import { prisma } from "@/lib/prisma";
 import { revalidatePublicContent } from "@/lib/revalidate-public";
 import { redirectTo } from "@/lib/redirect";
 import { VIDEO_DIR, ensureUploadDirs } from "@/lib/storage";
-import { insertVideoShortcode, normalizeVideoDisplayMode, normalizeVideoPlacement } from "@/lib/video-display";
+import { writeUploadedFile } from "@/lib/upload-stream";
+import {
+  insertVideoShortcode,
+  normalizeEmbedUrl,
+  normalizeVideoDisplayMode,
+  normalizeVideoPlacement
+} from "@/lib/video-display";
 
 const ALLOWED_EXT = new Set([".mp4", ".webm", ".mov", ".m4v"]);
 const MAX_BYTES = 300 * 1024 * 1024;
@@ -35,11 +41,10 @@ export async function POST(request: Request) {
     if (!ALLOWED_EXT.has(ext)) return NextResponse.json({ error: `不支持的视频格式：${ext}` }, { status: 400 });
     const id = crypto.randomBytes(8).toString("hex");
     const fileName = `${id}${ext}`;
-    const buffer = Buffer.from(await file.arrayBuffer());
-    await fs.writeFile(path.join(VIDEO_DIR, fileName), buffer);
+    const bytesWritten = await writeUploadedFile(file, path.join(VIDEO_DIR, fileName), MAX_BYTES);
     videoUrl = `/uploads/video/${fileName}`;
     type = "LOCAL";
-    fileSizeBytes = buffer.length;
+    fileSizeBytes = bytesWritten;
   }
 
   if (!videoUrl) return NextResponse.json({ error: "请上传视频文件或填写视频链接" }, { status: 400 });
@@ -68,7 +73,7 @@ export async function POST(request: Request) {
   const post = postId
     ? await prisma.post.findUnique({ where: { id: postId }, select: { slug: true } })
     : null;
-  revalidatePublicContent([`/videos/${video.id}`, post ? `/posts/${post.slug}` : null]);
+  revalidatePublicContent([post ? `/posts/${post.slug}` : null]);
   return redirectTo(postId ? `/admin/posts/${postId}` : "/admin/videos");
 }
 
@@ -87,20 +92,7 @@ async function insertVideoIntoPost(postId: string, videoId: string, placement: R
   });
 }
 
-function normalizeSortOrder(value: FormDataEntryValue | null) {
-  const n = Number(value || 0);
-  return Number.isFinite(n) ? Math.floor(n) : 0;
-}
-
 function normalizeVideoType(value: string): VideoType {
   if (value === "LOCAL" || value === "EMBED" || value === "LINK") return value;
   return "LINK";
-}
-
-function normalizeEmbedUrl(url: string) {
-  const youtube = url.match(/(?:youtube\.com\/watch\?v=|youtu\.be\/)([A-Za-z0-9_-]+)/);
-  if (youtube) return `https://www.youtube.com/embed/${youtube[1]}`;
-  const bilibili = url.match(/bilibili\.com\/video\/([A-Za-z0-9]+)/);
-  if (bilibili) return `https://player.bilibili.com/player.html?bvid=${bilibili[1]}`;
-  return url;
 }

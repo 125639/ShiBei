@@ -7,7 +7,7 @@ type MetricCardProps = {
   value: ReactNode;
   label: ReactNode;
   tone?: MetricTone;
-  action?: { href: string; label: string };
+  action?: { href: string; label: ReactNode };
 };
 
 export function MetricCard({ value, label, tone = "normal", action }: MetricCardProps) {

@@ -20,6 +20,73 @@ export type DensityKey = "compact" | "normal" | "cozy";
 
 export type CursorStyleKey = "classic" | "halo" | "laser" | "focus";
 
+/** 界面风格：整体设计语言（排版/装饰/质感），与色彩主题（data-theme）正交组合。 */
+export type UiStyleKey = "classic" | "glass" | "editorial" | "paper" | "firefly" | "cyber" | "dynamic";
+
+export const UI_STYLES: Array<{
+  key: UiStyleKey;
+  zh: string;
+  en: string;
+  zhDesc: string;
+  enDesc: string;
+}> = [
+  {
+    key: "classic",
+    zh: "经典风格 (Classic)",
+    en: "Classic",
+    zhDesc: "温和、沉静的默认体验（默认）",
+    enDesc: "Soft & calm default experience"
+  },
+  {
+    key: "glass",
+    zh: "渐变玻璃 (Glass)",
+    en: "Glass",
+    zhDesc: "柔和渐变光斑、毛玻璃卡片与光晕点缀",
+    enDesc: "Soft gradient orbs, frosted cards & glow accents"
+  },
+  {
+    key: "editorial",
+    zh: "杂志编辑 (Editorial)",
+    en: "Editorial",
+    zhDesc: "衬线大标题、编号条目与细分割线，刊物气质",
+    enDesc: "Serif headlines, numbered entries & fine rules"
+  },
+  {
+    key: "paper",
+    zh: "温暖纸质 (Paper)",
+    en: "Paper",
+    zhDesc: "纸感底色、衬线正文与柔和投影，阅读优先",
+    enDesc: "Paper texture, serif body & soft shadows"
+  },
+  {
+    key: "firefly",
+    zh: "流萤博客 (Firefly)",
+    en: "Firefly",
+    zhDesc: "Material 3 卡片、壁纸感背景、双侧栏小组件与网格文章",
+    enDesc: "Material 3 cards, wallpaper backdrop, side widgets & post grids"
+  },
+  {
+    key: "cyber",
+    zh: "科技纪元 (Cyberpunk)",
+    en: "Cyberpunk",
+    zhDesc: "暗网格、高光边缘与动态反馈",
+    enDesc: "Dark grids, neon edges & feedback"
+  },
+  {
+    key: "dynamic",
+    zh: "动态流光 (Dynamic)",
+    en: "Dynamic",
+    zhDesc: "毛玻璃、灵动动画与流光背景",
+    enDesc: "Glassmorphism & fluid animations"
+  }
+];
+
+export const UI_STYLE_KEYS = UI_STYLES.map((style) => style.key);
+
+export function isUiStyleKey(value: string | null | undefined): value is UiStyleKey {
+  return UI_STYLES.some((style) => style.key === value);
+}
+
 export const THEMES: Array<{
   key: ThemeKey;
   label: string;

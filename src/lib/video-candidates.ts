@@ -1,14 +1,18 @@
 export type VideoLinkCandidate = {
   href: string;
   text?: string | null;
+  /** 网络嗅探（content-type 验证过的真实媒体流）来源，URL 形态可能无扩展名。 */
+  sniffed?: boolean;
 };
 
 const HLS_RE = /\.m3u8(?:[?#]|$)/i;
 const SEGMENT_RE = /\.(ts|m4s)(?:[?#]|$)/i;
 const DIRECT_VIDEO_RE = /\.(mp4|webm|mov|flv)(?:[?#]|$)/i;
-const PLATFORM_RE = /youtube|youtu\.be|bilibili|vimeo|youku|iqiyi|v\.qq\.com|dailymotion/i;
-const STRONG_MEDIA_SCORE = 700;
-const KEEP_WITH_MEDIA_SCORE = 600;
+const PLATFORM_RE = /youtube|youtu\.be|bilibili|b23\.tv|vimeo|youku|iqiyi|v\.qq\.com|dailymotion|douyin|kuaishou|ixigua/i;
+// 自动挂载的准入分：只有直链媒体（≥700）和已知视频平台（600）够格。
+// 抓取器的 ANCHOR_RE 只要 URL 里含 "video" 就算候选，会混进产品控制台、
+// 视频频道导航页之类的纯链接（100 分）——那些不是视频，挂上只会污染文章。
+const MIN_AUTO_ATTACH_SCORE = 600;
 
 // 栏目/索引页特征：抓取器的 ANCHOR_RE 只看链接里有没有 "video" 字样,
 // 因此各站点顶部导航的「视频」入口(如 /video/, /video/list.html,
@@ -20,11 +24,17 @@ export function isHlsSegmentUrl(url: string) {
   return SEGMENT_RE.test(url);
 }
 
+// 单条视频就挂在单段路径上的短链域：对它们套"单段路径=索引页"会误杀正常视频。
+const SHORTLINK_HOST_RE = /(^|\.)(youtu\.be|b23\.tv)$/i;
+
 function looksLikeIndexPage(url: string): boolean {
   if (HLS_RE.test(url) || DIRECT_VIDEO_RE.test(url)) return false;
   try {
-    const path = new URL(url).pathname.toLowerCase();
-    return INDEX_PATH_RE.test(path);
+    const parsed = new URL(url);
+    if (SHORTLINK_HOST_RE.test(parsed.hostname)) return false;
+    // youtube.com/watch?v=... 这类平台观看页：路径只有一段，视频 ID 在 query 里。
+    if (parsed.search && PLATFORM_RE.test(url)) return false;
+    return INDEX_PATH_RE.test(parsed.pathname.toLowerCase());
   } catch {
     return false;
   }
@@ -37,10 +47,12 @@ export function selectVideoLinksForPost<T extends VideoLinkCandidate>(links: rea
     const link = links[index];
     const href = link.href?.trim();
     if (!href || !isHttpUrl(href) || isHlsSegmentUrl(href)) continue;
-    if (looksLikeIndexPage(href)) continue;
+    // 嗅探流已用 content-type 验证过是真媒体：URL 无扩展名、路径像栏目页
+    // 都不影响其资格，按直链媒体保底计分；其余候选先过索引页启发式再打分。
+    if (!link.sniffed && looksLikeIndexPage(href)) continue;
 
     const key = candidateKey(href);
-    const score = candidateScore(href);
+    const score = link.sniffed ? Math.max(candidateScore(href), 700) : candidateScore(href);
     const previous = selected.get(key);
     if (!previous) {
       selected.set(key, { link, score, order: index });
@@ -53,12 +65,19 @@ export function selectVideoLinksForPost<T extends VideoLinkCandidate>(links: rea
 
   const ranked = Array.from(selected.values())
     .sort((a, b) => a.order - b.order)
-    .filter((item, _index, arr) => {
-      const hasStrongMedia = arr.some((candidate) => candidate.score >= STRONG_MEDIA_SCORE);
-      return !hasStrongMedia || item.score >= KEEP_WITH_MEDIA_SCORE;
-    });
+    .filter((item) => item.score >= MIN_AUTO_ATTACH_SCORE);
 
   return ranked.slice(0, limit).map((item) => item.link);
+}
+
+/**
+ * 单条 URL 是否达到自动挂载准入标准（与 selectVideoLinksForPost 同一套判定）。
+ * 供清理脚本判断存量自动挂载记录是否属于 ANCHOR_RE 误判的垃圾链接。
+ */
+export function isAutoAttachableVideoUrl(url: string): boolean {
+  const href = (url || "").trim();
+  if (!href || !isHttpUrl(href) || isHlsSegmentUrl(href) || looksLikeIndexPage(href)) return false;
+  return candidateScore(href) >= MIN_AUTO_ATTACH_SCORE;
 }
 
 function isHttpUrl(url: string) {

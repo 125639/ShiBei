@@ -23,7 +23,9 @@ export function WritingWorkspace() {
   const [title, setTitle] = useState("");
   const [draft, setDraft] = useState("");
   const [instruction, setInstruction] = useState("润色当前文稿,并给出可以继续展开的方向。");
-  const [provider, setProvider] = useState("canopywave");
+  // 默认「自定义」：不预选任何具体服务商，避免被误解为站点默认用某家服务。
+  // 留空 + 不填 API Key 时走管理员在后台配置的默认模型。
+  const [provider, setProvider] = useState("custom");
   const preset = MODEL_PROVIDER_PRESETS.find((item) => item.key === provider) || MODEL_PROVIDER_PRESETS[0];
   const [baseUrl, setBaseUrl] = useState(preset.baseUrl);
   const [model, setModel] = useState(preset.model);
@@ -149,6 +151,10 @@ export function WritingWorkspace() {
                 type="button"
                 className="button secondary"
                 onClick={() => {
+                  // 用户可能已开始新的输入；恢复会覆盖当前内容，先确认。
+                  if ((title.trim() || draft.trim()) && !window.confirm("恢复旧稿会覆盖当前已输入的内容，确定继续吗？")) {
+                    return;
+                  }
                   setTitle(restored.title);
                   setDraft(restored.draft);
                   if (restored.instruction) setInstruction(restored.instruction);
@@ -203,26 +209,26 @@ export function WritingWorkspace() {
           <label htmlFor="writingProvider">自定义模型服务商（可选）</label>
           <select id="writingProvider" value={provider} onChange={(event) => changeProvider(event.target.value)}>
             {MODEL_PROVIDER_PRESETS.map((item) => (
-              <option key={item.key} value={item.key}>{item.label} · {item.model}</option>
+              <option key={item.key} value={item.key}>{item.model ? `${item.label} · ${item.model}` : item.label}</option>
             ))}
           </select>
         </div>
         <div className="field-row">
           <div className="field">
             <label htmlFor="writingBaseUrl">Base URL</label>
-            <input id="writingBaseUrl" value={baseUrl} onChange={(event) => setBaseUrl(event.target.value)} />
+            <input id="writingBaseUrl" value={baseUrl} onChange={(event) => setBaseUrl(event.target.value)} placeholder="https://api.example.com/v1（配合自己的 Key 使用）" />
           </div>
           <div className="field">
             <label htmlFor="writingModel">Model</label>
-            <input id="writingModel" value={model} onChange={(event) => setModel(event.target.value)} />
+            <input id="writingModel" value={model} onChange={(event) => setModel(event.target.value)} placeholder="模型名，如 gpt-4o-mini" />
           </div>
         </div>
         <div className="field">
           <label htmlFor="writingApiKey">API Key（可选）</label>
           <input id="writingApiKey" type="password" value={apiKey} onChange={(event) => setApiKey(event.target.value)} placeholder="留空则使用管理员配置" />
         </div>
-        <button className="button" type="submit" disabled={loading || (!draft.trim() && !instruction.trim())}>{loading ? "生成中…" : "请求 AI 辅助"}</button>
-        {error ? <p className="muted-block">请求失败：{error}</p> : null}
+        <button className="button" type="submit" aria-busy={loading} disabled={loading || (!draft.trim() && !instruction.trim())}>{loading ? "生成中…" : "请求 AI 辅助"}</button>
+        {error ? <p className="muted-block creation-error" role="alert">请求失败：{error}</p> : null}
         {result ? (
           <div className="assistant-result">
             <div className="meta-row">

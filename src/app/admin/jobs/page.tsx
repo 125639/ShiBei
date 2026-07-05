@@ -1,49 +1,16 @@
 import Link from "next/link";
 import type { Prisma } from "@prisma/client";
 import { AdminShell } from "@/components/AdminShell";
+import { I18nText } from "@/components/I18nText";
 import { MetricCard } from "@/components/MetricCard";
 import { StatusPill } from "@/components/StatusPill";
+import { SubmitButton } from "@/components/SubmitButton";
 import { requireAdmin } from "@/lib/auth";
 import { JOB_STATUS_LABELS, JOB_STATUS_ORDER, isJobStatus } from "@/lib/job-status";
+import { formatDateTime, getJobDuration, getJobKindLabel, getJobTitleLabel } from "@/lib/job-utils";
 import { prisma } from "@/lib/prisma";
-import { parseKeywordResearchUrl, researchScopeLabel } from "@/lib/research";
 
 export const dynamic = "force-dynamic";
-
-type JobRow = Prisma.FetchJobGetPayload<{
-  include: {
-    source: { select: { id: true; name: true; url: true; status: true } };
-    contentTopic: { select: { id: true; name: true; slug: true } };
-    _count: { select: { rawItems: true } };
-  };
-}>;
-
-function formatDateTime(value: Date | null | undefined) {
-  if (!value) return "—";
-  return value.toLocaleString("zh-CN");
-}
-
-function getJobTitle(job: JobRow) {
-  const keywordResearch = parseKeywordResearchUrl(job.sourceUrl);
-  if (keywordResearch) return `关键词生成：${keywordResearch.keyword}`;
-  return job.contentTopic?.name || job.source?.name || job.sourceUrl;
-}
-
-function getJobKind(job: JobRow) {
-  const keywordResearch = parseKeywordResearchUrl(job.sourceUrl);
-  if (keywordResearch) {
-    return `关键词研究 · ${researchScopeLabel(keywordResearch.scope)} · ${keywordResearch.count} 篇 · ${keywordResearch.depth}`;
-  }
-  return job.sourceType;
-}
-
-function getDuration(job: JobRow) {
-  const end = job.completedAt || (job.status === "RUNNING" ? new Date() : job.updatedAt);
-  const seconds = Math.max(0, Math.round((end.getTime() - job.createdAt.getTime()) / 1000));
-  if (seconds < 60) return `${seconds} 秒`;
-  if (seconds < 3600) return `${Math.round(seconds / 60)} 分钟`;
-  return `${(seconds / 3600).toFixed(1)} 小时`;
-}
 
 export default async function AdminJobsPage({
   searchParams
@@ -86,23 +53,23 @@ export default async function AdminJobsPage({
       <div className="admin-page-header">
         <div>
           <p className="eyebrow">Jobs</p>
-          <h1>任务诊断</h1>
+          <h1><I18nText zh="任务诊断" en="Job Diagnostics" /></h1>
           {source ? (
             <p className="muted">
-              当前只看来源：<strong>{source.name}</strong> · {source.url}
+              <I18nText zh="当前只看来源：" en="Filtered by source: " /><strong>{source.name}</strong> · {source.url}
             </p>
           ) : null}
         </div>
         <div className="admin-page-actions">
-          <Link className="button secondary" href="/admin">返回仪表盘</Link>
-          {sourceId ? <Link className="button secondary" href="/admin/jobs">清除来源筛选</Link> : null}
+          <Link className="button secondary" href="/admin"><I18nText zh="返回仪表盘" en="Back to Dashboard" /></Link>
+          {sourceId ? <Link className="button secondary" href="/admin/jobs"><I18nText zh="清除来源筛选" en="Clear source filter" /></Link> : null}
         </div>
       </div>
 
       <div className="admin-grid-3">
-        <MetricCard label="等待中" value={queued} tone={queued > 0 ? "warn" : "normal"} />
-        <MetricCard label="运行中" value={running} tone={running > 0 ? "accent" : "normal"} />
-        <MetricCard label="近 7 天失败" value={recentFailed} tone={recentFailed > 0 ? "danger" : "normal"} />
+        <MetricCard label={<I18nText zh="等待中" en="Queued" />} value={queued} tone={queued > 0 ? "warn" : "normal"} />
+        <MetricCard label={<I18nText zh="运行中" en="Running" />} value={running} tone={running > 0 ? "accent" : "normal"} />
+        <MetricCard label={<I18nText zh="近 7 天失败" en="Failed (7d)" />} value={recentFailed} tone={recentFailed > 0 ? "danger" : "normal"} />
       </div>
 
       <div className="topic-tabs" style={{ marginTop: 24 }}>
@@ -111,7 +78,7 @@ export default async function AdminJobsPage({
           aria-current={!status ? "page" : undefined}
           href={sourceId ? `/admin/jobs?sourceId=${sourceId}` : "/admin/jobs"}
         >
-          全部
+          <I18nText zh="全部" en="All" />
         </Link>
         {JOB_STATUS_ORDER.map((item) => {
           const href = `/admin/jobs?status=${item}${sourceId ? `&sourceId=${sourceId}` : ""}`;
@@ -122,7 +89,7 @@ export default async function AdminJobsPage({
               aria-current={status === item ? "page" : undefined}
               href={href}
             >
-              {JOB_STATUS_LABELS[item].zh} ({totalByStatus.get(item) || 0})
+              <I18nText zh={JOB_STATUS_LABELS[item].zh} en={JOB_STATUS_LABELS[item].en} /> ({totalByStatus.get(item) || 0})
             </Link>
           );
         })}
@@ -130,15 +97,15 @@ export default async function AdminJobsPage({
 
       <section className="admin-panel" style={{ marginTop: 24 }}>
         <div className="meta-row" style={{ justifyContent: "space-between", alignItems: "center" }}>
-          <h2 style={{ margin: 0 }}>最近任务</h2>
-          <span className="muted">显示最新 {jobs.length} 条</span>
+          <h2 style={{ margin: 0 }}><I18nText zh="最近任务" en="Recent Jobs" /></h2>
+          <span className="muted"><I18nText zh={`显示最新 ${jobs.length} 条`} en={`Showing latest ${jobs.length}`} /></span>
         </div>
         {jobs.length === 0 ? (
           <div className="empty-state">
-            <p>暂无符合条件的任务。</p>
+            <p><I18nText zh="暂无符合条件的任务。" en="No jobs matched the filters." /></p>
             <div className="row-actions">
-              {(status || sourceId) ? <Link className="button secondary" href="/admin/jobs">清除筛选</Link> : null}
-              <Link className="button" href="/admin">返回仪表盘启动任务</Link>
+              {(status || sourceId) ? <Link className="button secondary" href="/admin/jobs"><I18nText zh="清除筛选" en="Clear filters" /></Link> : null}
+              <Link className="button" href="/admin"><I18nText zh="返回仪表盘启动任务" en="Start jobs from the dashboard" /></Link>
             </div>
           </div>
         ) : (
@@ -147,17 +114,17 @@ export default async function AdminJobsPage({
               <div className="table-item job-row" key={job.id}>
                 <div>
                   <div className="meta-row" style={{ alignItems: "center" }}>
-                    <strong>{getJobTitle(job)}</strong>
+                    <strong>{getJobTitleLabel(job)}</strong>
                     <StatusPill status={job.status} />
-                    {job.source?.status === "PAUSED" ? <span className="tag">来源已暂停</span> : null}
+                    {job.source?.status === "PAUSED" ? <span className="tag"><I18nText zh="来源已暂停" en="Source paused" /></span> : null}
                   </div>
                   <div className="muted">
-                    {getJobKind(job)} · 创建 {formatDateTime(job.createdAt)} · 耗时 {getDuration(job)} · 原始条目 {job._count.rawItems}
+                    {getJobKindLabel(job)} · <I18nText zh="创建" en="created" /> {formatDateTime(job.createdAt)} · <I18nText zh="耗时" en="took" /> {getJobDuration(job)} · <I18nText zh="原始条目" en="raw items" /> {job._count.rawItems}
                   </div>
                   {job.error ? <p className="job-error">{job.error.slice(0, 220)}</p> : null}
                 </div>
                 <div className="row-actions">
-                  <Link className="button secondary" href={`/admin/jobs/${job.id}`}>详情</Link>
+                  <Link className="button secondary" href={`/admin/jobs/${job.id}`}><I18nText zh="详情" en="Details" /></Link>
                   <form action="/api/admin/run" method="post">
                     {job.sourceId ? (
                       <input type="hidden" name="sourceId" value={job.sourceId} />
@@ -168,7 +135,7 @@ export default async function AdminJobsPage({
                       </>
                     )}
                     {job.contentStyleId ? <input type="hidden" name="contentStyleId" value={job.contentStyleId} /> : null}
-                    <button className="button secondary" type="submit">重跑</button>
+                    <SubmitButton className="button secondary" pendingLabel={<I18nText zh="提交中…" en="Submitting…" />}><I18nText zh="重跑" en="Re-run" /></SubmitButton>
                   </form>
                 </div>
               </div>
