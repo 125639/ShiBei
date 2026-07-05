@@ -3,10 +3,10 @@ import type { PrismaClient, CompilationKind } from "@prisma/client";
 export type DisplayMode = "grid" | "magazine" | "list" | "topic-tabs";
 
 export const displayModeOptions: Array<{ value: DisplayMode; label: string; description: string }> = [
-  { value: "grid", label: "网格", description: "卡片网格，所有文章按时间排序，等大展示。" },
-  { value: "magazine", label: "杂志大图", description: "首篇文章作为大封面，其余文章作为下方小卡片。" },
-  { value: "list", label: "时间线列表", description: "单列时间线，圆点 + 日期 + 主题 + 标题 + 摘要。" },
-  { value: "topic-tabs", label: "按主题分栏", description: "顶部主题标签条，点击切换到该主题的文章列表。" }
+  { value: "grid", label: "网格 / Grid", description: "卡片网格，所有文章按时间排序，等大展示。" },
+  { value: "magazine", label: "杂志大图 / Magazine", description: "首篇文章作为大封面，其余文章作为下方小卡片。" },
+  { value: "list", label: "时间线列表 / Timeline", description: "单列时间线，圆点 + 日期 + 主题 + 标题 + 摘要。" },
+  { value: "topic-tabs", label: "按主题分栏 / Topic tabs", description: "顶部主题标签条，点击切换到该主题的文章列表。" }
 ];
 
 export function isDisplayMode(value: string): value is DisplayMode {

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import { useUnsavedChangesGuard } from "./useUnsavedChangesGuard";
 
 type Props = {
@@ -9,8 +9,6 @@ type Props = {
   method?: "post" | "POST";
   className?: string;
   encType?: string;
-  /** 已保存提示消失的毫秒数,默认 2500ms。 */
-  savedHintMs?: number;
 };
 
 /**
@@ -26,22 +24,13 @@ export function DirtyAwareForm({
   action,
   method = "post",
   className,
-  encType,
-  savedHintMs = 2500
+  encType
 }: Props) {
   const [dirty, setDirty] = useState(false);
-  const formRef = useRef<HTMLFormElement | null>(null);
   useUnsavedChangesGuard(dirty);
-
-  useEffect(() => {
-    return () => {
-      if (savedHintMs <= 0) return;
-    };
-  }, [savedHintMs]);
 
   return (
     <form
-      ref={formRef}
       action={action}
       method={method}
       className={className}

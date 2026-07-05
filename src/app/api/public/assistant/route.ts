@@ -7,7 +7,7 @@ import { isFrontend } from "@/lib/app-mode";
 import { proxyToBackend } from "@/lib/sync/proxy";
 import { ensureBackendCallerAllowed } from "@/lib/sync/backend-auth";
 import { parseJsonBody } from "@/lib/request-validation";
-import { checkRateLimit } from "@/lib/rate-limit";
+import { checkGlobalRateLimit, checkRateLimit } from "@/lib/rate-limit";
 
 export const dynamic = "force-dynamic";
 
@@ -34,6 +34,17 @@ export async function POST(request: Request) {
       { status: 429, headers: { "Retry-After": String(limited.retryAfterSec) } }
     );
   }
+  const globalLimited = await checkGlobalRateLimit({
+    namespace: "assistant",
+    limit: envInt("AI_ASSISTANT_DAILY_LIMIT", 300),
+    windowSec: 24 * 60 * 60
+  });
+  if (!globalLimited.ok) {
+    return NextResponse.json(
+      { error: "今日 AI 助手额度已用完，请稍后再试" },
+      { status: 429, headers: { "Retry-After": String(globalLimited.retryAfterSec) } }
+    );
+  }
 
   const parsed = await parseJsonBody(request, BodySchema);
   if (!parsed.ok) return parsed.response;
@@ -43,12 +54,22 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "管理员尚未配置 AI 助手模型" }, { status: 503 });
   }
 
-  const reply = await generateAssistantReply({
-    modelConfig,
-    userMessage: body.message,
-    context: body.context,
-    language: isLanguageKey(body.language) ? body.language : "zh"
-  });
+  try {
+    const reply = await generateAssistantReply({
+      modelConfig,
+      userMessage: body.message,
+      context: body.context,
+      language: isLanguageKey(body.language) ? body.language : "zh"
+    });
+    return NextResponse.json({ reply });
+  } catch (error) {
+    // 模型侧错误细节（可能含上游响应体）只进日志，不回给公网用户。
+    console.error("[assistant] model call failed:", error);
+    return NextResponse.json({ error: "AI 助手暂时不可用，请稍后再试" }, { status: 502 });
+  }
+}
 
-  return NextResponse.json({ reply });
+function envInt(name: string, fallback: number) {
+  const value = Number(process.env[name]);
+  return Number.isFinite(value) && value > 0 ? Math.floor(value) : fallback;
 }

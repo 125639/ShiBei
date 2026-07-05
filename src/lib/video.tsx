@@ -1,6 +1,11 @@
 import type { Video } from "@prisma/client";
 import { hostFromUrl as hostFromUrlOrNull } from "./html";
-import { EMBED_IFRAME_SANDBOX, isAllowedEmbedUrl, shouldRenderVideoAsLink } from "./video-display";
+import {
+  EMBED_IFRAME_SANDBOX,
+  formatVideoDuration,
+  isAllowedEmbedUrl,
+  shouldRenderVideoAsLink
+} from "./video-display";
 
 type VideoAttribution = Pick<Video, "title" | "type" | "url"> & {
   displayMode?: string | null;
@@ -45,7 +50,7 @@ export function VideoEmbed({ video }: { video: VideoAttribution }) {
             <div>
               <strong>视频平台</strong>：{video.sourcePlatform}
               {typeof video.durationSec === "number" && video.durationSec > 0
-                ? ` · 时长 ${formatDuration(video.durationSec)}`
+                ? ` · 时长 ${formatVideoDuration(video.durationSec)}`
                 : ""}
             </div>
           )}
@@ -74,11 +79,4 @@ export function VideoEmbed({ video }: { video: VideoAttribution }) {
 
 function hostFromUrl(url: string) {
   return hostFromUrlOrNull(url) || "来源页面";
-}
-
-function formatDuration(sec: number) {
-  if (sec < 60) return `${sec}s`;
-  const m = Math.floor(sec / 60);
-  const s = sec % 60;
-  return `${m}:${String(s).padStart(2, "0")}`;
 }

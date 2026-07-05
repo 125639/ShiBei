@@ -1,7 +1,13 @@
 import { Marked } from "marked";
 import DOMPurify from "isomorphic-dompurify";
 import { escapeHtml, hostFromUrl as hostFromUrlOrNull } from "./html";
-import { EMBED_IFRAME_SANDBOX, isAllowedEmbedUrl, shouldRenderVideoAsLink, VIDEO_SHORTCODE_RE } from "./video-display";
+import {
+  EMBED_IFRAME_SANDBOX,
+  formatVideoDuration,
+  isAllowedEmbedUrl,
+  shouldRenderVideoAsLink,
+  VIDEO_SHORTCODE_RE
+} from "./video-display";
 
 // GFM 默认开启；breaks: 软换行转 <br>，更贴近写作直觉。
 const marked = new Marked({
@@ -29,14 +35,12 @@ export type MarkdownOptions = {
    * 将该位置替换为视频播放器 HTML。未提供或 ID 找不到时显示一个占位提示。
    */
   videosById?: Map<string, VideoForShortcode>;
+  /**
+   * 视频功能总开关关闭时置 true：所有 [[video:ID]] 短代码被静默移除，
+   * 不渲染播放器也不显示"未找到视频"占位——对读者而言文章就是没有视频。
+   */
+  hideVideos?: boolean;
 };
-
-function formatDuration(sec: number) {
-  if (sec < 60) return `${sec}s`;
-  const m = Math.floor(sec / 60);
-  const s = sec % 60;
-  return `${m}:${String(s).padStart(2, "0")}`;
-}
 
 function hostFromUrl(url: string): string {
   return hostFromUrlOrNull(url) || "来源页面";
@@ -67,7 +71,7 @@ export function videoShortcodeHtml(video: VideoForShortcode): string {
   if (video.sourcePlatform) {
     const dur =
       typeof video.durationSec === "number" && video.durationSec > 0
-        ? ` · 时长 ${formatDuration(video.durationSec)}`
+        ? ` · 时长 ${formatVideoDuration(video.durationSec)}`
         : "";
     attributionParts.push(
       `<div><strong>视频平台</strong>：${escapeHtml(video.sourcePlatform)}${dur}</div>`
@@ -102,7 +106,10 @@ export function videoShortcodeHtml(video: VideoForShortcode): string {
   ].join("");
 }
 
-function preprocessShortcodes(markdown: string, videosById?: Map<string, VideoForShortcode>): string {
+function preprocessShortcodes(markdown: string, videosById?: Map<string, VideoForShortcode>, hideVideos?: boolean): string {
+  if (hideVideos) {
+    return markdown.replace(VIDEO_SHORTCODE_RE, "");
+  }
   if (!videosById || videosById.size === 0) {
     // 没提供 map 时仍处理：把短代码替换为占位提示，避免把 [[video:xxx]] 原样展示给用户。
     return markdown.replace(VIDEO_SHORTCODE_RE, (_, id) => {
@@ -122,13 +129,13 @@ function preprocessShortcodes(markdown: string, videosById?: Map<string, VideoFo
 export function markdownToHtml(markdown: string, opts?: MarkdownOptions): string {
   if (!markdown) return "";
 
-  const preprocessed = preprocessShortcodes(markdown, opts?.videosById);
+  const preprocessed = preprocessShortcodes(markdown, opts?.videosById, opts?.hideVideos);
   const rawHtml = marked.parse(preprocessed, { async: false }) as string;
 
   // 清洗 HTML，避免源内容（RSS / 抓取 / AI 生成）夹带 <script> 等危险节点。
   // 视频短代码需要 iframe / video / source；按白名单允许这些标签和必要属性，
   // 同时把 iframe src 限制在已知视频 host（已在 videoShortcodeHtml 中预过滤）。
-  return DOMPurify.sanitize(rawHtml, {
+  const safeHtml = DOMPurify.sanitize(rawHtml, {
     USE_PROFILES: { html: true },
     ADD_TAGS: ["iframe", "video", "source", "figure", "figcaption", "details", "summary"],
     ADD_ATTR: [
@@ -147,4 +154,8 @@ export function markdownToHtml(markdown: string, opts?: MarkdownOptions): string
     FORBID_TAGS: ["style", "form", "input", "button"],
     FORBID_ATTR: ["onerror", "onload", "onclick", "onmouseover", "onfocus"],
   });
+
+  // 正文图片默认懒加载 + 异步解码，长文首屏不再被图片阻塞。
+  // 只补没有声明 loading 的 <img>，已有属性的保持原样。
+  return safeHtml.replace(/<img (?![^>]*\bloading=)/g, '<img loading="lazy" decoding="async" ');
 }

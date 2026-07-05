@@ -6,6 +6,7 @@ import { requireAdmin } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { redirectTo } from "@/lib/redirect";
 import { MUSIC_DIR, ensureUploadDirs } from "@/lib/storage";
+import { writeUploadedFile } from "@/lib/upload-stream";
 import { resolveUploadsPath } from "@/lib/uploads-path";
 
 export const dynamic = "force-dynamic";
@@ -38,8 +39,7 @@ export async function POST(request: Request) {
   const id = crypto.randomBytes(8).toString("hex");
   const fileName = `${id}${ext}`;
   const abs = path.join(MUSIC_DIR, fileName);
-  const buffer = Buffer.from(await file.arrayBuffer());
-  await fs.writeFile(abs, buffer);
+  const bytesWritten = await writeUploadedFile(file, abs, MAX_BYTES);
 
   const filePath = `/uploads/music/${fileName}`;
   const finalTitle = title || originalName.replace(/\.[^.]+$/, "");
@@ -51,7 +51,7 @@ export async function POST(request: Request) {
       title: finalTitle,
       artist,
       filePath,
-      fileSizeBytes: buffer.length,
+      fileSizeBytes: bytesWritten,
       sortOrder: Number.isFinite(sortOrder) ? Math.floor(sortOrder) : 0,
       isEnabled: true
     }

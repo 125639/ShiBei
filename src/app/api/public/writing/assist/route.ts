@@ -7,7 +7,7 @@ import { isFrontend } from "@/lib/app-mode";
 import { proxyToBackend } from "@/lib/sync/proxy";
 import { ensureBackendCallerAllowed } from "@/lib/sync/backend-auth";
 import { parseJsonBody } from "@/lib/request-validation";
-import { checkRateLimit } from "@/lib/rate-limit";
+import { checkGlobalRateLimit, checkRateLimit } from "@/lib/rate-limit";
 
 export const dynamic = "force-dynamic";
 
@@ -45,6 +45,17 @@ export async function POST(request: Request) {
       { status: 429, headers: { "Retry-After": String(limited.retryAfterSec) } }
     );
   }
+  const globalLimited = await checkGlobalRateLimit({
+    namespace: "writing",
+    limit: envInt("AI_WRITING_DAILY_LIMIT", 200),
+    windowSec: 24 * 60 * 60
+  });
+  if (!globalLimited.ok) {
+    return NextResponse.json(
+      { error: "今日 AI 写作额度已用完，请稍后再试" },
+      { status: 429, headers: { "Retry-After": String(globalLimited.retryAfterSec) } }
+    );
+  }
 
   const parsed = await parseJsonBody(request, BodySchema);
   if (!parsed.ok) return parsed.response;
@@ -53,20 +64,26 @@ export async function POST(request: Request) {
   const draft = [body.title.trim() ? `# ${body.title.trim()}` : "", body.draft].filter(Boolean).join("\n\n");
 
   if (body.customModel) {
-    const output = await generateWritingAssist({
-      modelConfig: {
-        baseUrl: body.customModel.baseUrl,
-        model: body.customModel.model,
-        temperature: body.customModel.temperature,
-        maxTokens: body.customModel.maxTokens,
-        apiKeyEnc: ""
-      },
-      apiKey: body.customModel.apiKey,
-      draft,
-      instruction: body.instruction,
-      language
-    });
-    return NextResponse.json({ output, usingCustomModel: true });
+    try {
+      const output = await generateWritingAssist({
+        modelConfig: {
+          baseUrl: body.customModel.baseUrl,
+          model: body.customModel.model,
+          temperature: body.customModel.temperature,
+          maxTokens: body.customModel.maxTokens,
+          apiKeyEnc: ""
+        },
+        apiKey: body.customModel.apiKey,
+        draft,
+        instruction: body.instruction,
+        language
+      });
+      return NextResponse.json({ output, usingCustomModel: true });
+    } catch (error) {
+      // 自定义模型是用户自己的配置，回显失败原因帮助排查（Key 错误 / 地址不通等）。
+      const message = error instanceof Error ? error.message : String(error);
+      return NextResponse.json({ error: `自定义模型调用失败：${message.slice(0, 300)}` }, { status: 502 });
+    }
   }
 
   const modelConfig = await getModelConfigForUse("writing");
@@ -74,11 +91,22 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "管理员尚未配置用户写作模型，请填写自己的模型 Key 后再试。" }, { status: 503 });
   }
 
-  const output = await generateWritingAssist({
-    modelConfig,
-    draft,
-    instruction: body.instruction,
-    language
-  });
-  return NextResponse.json({ output, usingCustomModel: false });
+  try {
+    const output = await generateWritingAssist({
+      modelConfig,
+      draft,
+      instruction: body.instruction,
+      language
+    });
+    return NextResponse.json({ output, usingCustomModel: false });
+  } catch (error) {
+    // 管理员模型的报错细节（含上游响应）只进日志，避免泄漏站点模型配置。
+    console.error("[writing-assist] model call failed:", error);
+    return NextResponse.json({ error: "AI 写作服务暂时不可用，请稍后再试" }, { status: 502 });
+  }
+}
+
+function envInt(name: string, fallback: number) {
+  const value = Number(process.env[name]);
+  return Number.isFinite(value) && value > 0 ? Math.floor(value) : fallback;
 }

@@ -44,7 +44,7 @@ export async function POST(request: Request) {
     }
   });
 
-  revalidatePublicContent([`/videos/${id}`, `/posts/${post.slug}`]);
+  revalidatePublicContent([`/posts/${post.slug}`]);
   return redirectTo(redirect);
 }
 

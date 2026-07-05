@@ -5,6 +5,7 @@ export const fetchQueueName = "shibei-fetch";
 export const researchQueueName = "shibei-research";
 export const audienceQueueName = "shibei-audience";
 export const scheduleQueueName = "shibei-schedule";
+export const videoDownloadQueueName = "shibei-video-download";
 
 export function createRedisConnection() {
   return new IORedis(process.env.REDIS_URL || "redis://localhost:6379", {
@@ -26,4 +27,8 @@ export function getAudienceQueue() {
 
 export function getScheduleQueue() {
   return new Queue(scheduleQueueName, { connection: createRedisConnection() });
+}
+
+export function getVideoDownloadQueue() {
+  return new Queue(videoDownloadQueueName, { connection: createRedisConnection() });
 }

@@ -35,7 +35,7 @@ const MIME_BY_EXT: Record<string, string> = {
   ".jpeg": "image/jpeg",
   ".gif": "image/gif",
   ".webp": "image/webp",
-  ".svg": "image/svg+xml",
+  ".svg": "application/octet-stream",
   ".pdf": "application/pdf",
   ".txt": "text/plain; charset=utf-8",
 };
@@ -86,14 +86,19 @@ export async function GET(
   const range = request.headers.get("range");
   const total = stat.size;
   const baseName = path.basename(abs);
+  const contentType = mimeOf(baseName);
   const headers = new Headers({
-    "Content-Type": mimeOf(baseName),
+    "Content-Type": contentType,
+    "X-Content-Type-Options": "nosniff",
     // 视频/音频要求 Range 支持以便边下边播。
     "Accept-Ranges": "bytes",
     // 与 next.config.ts 里 /uploads/:path* 的 header 配置保持一致。
     "Cache-Control": "public, max-age=3600, must-revalidate",
     "Last-Modified": stat.mtime.toUTCString(),
   });
+  if (contentType === "application/octet-stream") {
+    headers.set("Content-Disposition", `attachment; filename="${safeHeaderFilename(baseName)}"`);
+  }
 
   if (range) {
     // bytes=START-END
@@ -135,6 +140,10 @@ export async function GET(
   headers.set("Content-Length", String(total));
   const stream = fs.createReadStream(abs);
   return new Response(streamToWeb(stream), { status: 200, headers });
+}
+
+function safeHeaderFilename(filename: string) {
+  return filename.replace(/[^\w. -]/g, "_").slice(0, 120) || "download";
 }
 
 // fs.createReadStream 是 Node 流;Next/Web 需要 ReadableStream。

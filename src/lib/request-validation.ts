@@ -11,21 +11,26 @@ export async function parseJsonBody<TSchema extends z.ZodTypeAny>(
   } catch {
     return {
       ok: false,
-      response: NextResponse.json({ error: "Invalid JSON body" }, { status: 400 })
+      response: NextResponse.json({ error: "请求体不是有效的 JSON" }, { status: 400 })
     };
   }
 
   const parsed = schema.safeParse(raw);
   if (!parsed.success) {
+    const issues = parsed.error.issues.map((issue) => ({
+      path: issue.path.join("."),
+      message: issue.message
+    }));
+    // 把首个字段错误拼进顶层 error，前端的 requestJson 只读 error 字段，
+    // 这样用户能直接看到「topic: 请用一句话说明想写什么」而非笼统的「请求不合法」。
+    const first = issues[0];
+    const detail = first ? `${first.path ? `${first.path}: ` : ""}${first.message}` : "";
     return {
       ok: false,
       response: NextResponse.json(
         {
-          error: "Invalid request body",
-          issues: parsed.error.issues.map((issue) => ({
-            path: issue.path.join("."),
-            message: issue.message
-          }))
+          error: detail ? `请求参数有误（${detail}）` : "请求参数有误",
+          issues
         },
         { status: 400 }
       )

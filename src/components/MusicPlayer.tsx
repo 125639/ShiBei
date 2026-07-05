@@ -29,8 +29,11 @@ export function MusicPlayer() {
   const audioRef = useRef<HTMLAudioElement | null>(null);
 
   useEffect(() => {
+    // 8s 超时：曲库接口异常时不要让播放器一直处于「未加载」状态。
     let cancelled = false;
-    fetch("/api/public/music", { cache: "no-store" })
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 8000);
+    fetch("/api/public/music", { cache: "no-store", signal: controller.signal })
       .then((r) => (r.ok ? r.json() : { tracks: [] }))
       .then((data: { tracks?: Track[] }) => {
         if (cancelled) return;
@@ -39,9 +42,12 @@ export function MusicPlayer() {
       })
       .catch(() => {
         if (!cancelled) setLoaded(true);
-      });
+      })
+      .finally(() => clearTimeout(timeout));
     return () => {
       cancelled = true;
+      clearTimeout(timeout);
+      controller.abort();
     };
   }, []);
 
@@ -98,16 +104,7 @@ export function MusicPlayer() {
     update({ musicEnabled: false });
   }
 
-  if (collapsed) {
-    return (
-      <div className="music-player" role="region" aria-label="背景音乐">
-        <button onClick={() => setCollapsed(false)} aria-label="展开播放器" title="展开">
-          ♫
-        </button>
-      </div>
-    );
-  }
-
+  // <audio> 常驻挂载：折叠只隐藏控制条，不打断播放。
   return (
     <div className="music-player" role="region" aria-label="背景音乐">
       <audio
@@ -115,33 +112,45 @@ export function MusicPlayer() {
         src={currentTrack.filePath}
         loop={tracks.length === 1}
         onEnded={nextTrack}
+        onPlay={() => setPlaying(true)}
+        onPause={() => setPlaying(false)}
       />
-      <button onClick={togglePlay} aria-label={playing ? "暂停" : "播放"} title={playing ? "暂停" : "播放"}>
-        {playing ? "❚❚" : "▶"}
-      </button>
-      <button onClick={nextTrack} aria-label="下一首" title="下一首">
-        ⏭
-      </button>
-      <span className="music-title" title={currentTrack.title}>
-        {currentTrack.title}
-        {currentTrack.artist ? ` · ${currentTrack.artist}` : ""}
-      </span>
-      <input
-        type="range"
-        min={0}
-        max={1}
-        step={0.05}
-        value={prefs.musicVolume}
-        aria-label="音量"
-        style={{ width: 64 }}
-        onChange={(e) => update({ musicVolume: parseFloat(e.target.value) })}
-      />
-      <button onClick={() => setCollapsed(true)} aria-label="折叠" title="折叠">
-        –
-      </button>
-      <button onClick={close} aria-label="关闭" title="关闭播放器">
-        ✕
-      </button>
+      {collapsed ? (
+        <button onClick={() => setCollapsed(false)} aria-label="展开播放器" aria-expanded="false" title="展开">
+          ♫
+        </button>
+      ) : (
+        <>
+          <button onClick={togglePlay} aria-label={playing ? "暂停" : "播放"} title={playing ? "暂停" : "播放"}>
+            {playing ? "❚❚" : "▶"}
+          </button>
+          <button onClick={nextTrack} aria-label="下一首" title="下一首">
+            ⏭
+          </button>
+          <span className="music-title" title={currentTrack.title}>
+            {currentTrack.title}
+            {currentTrack.artist ? ` · ${currentTrack.artist}` : ""}
+          </span>
+          <input
+            type="range"
+            min={0}
+            max={1}
+            step={0.05}
+            value={prefs.musicVolume}
+            aria-label="音量"
+            aria-valuetext={`${Math.round(prefs.musicVolume * 100)}%`}
+            title={`音量 ${Math.round(prefs.musicVolume * 100)}%`}
+            style={{ width: 64 }}
+            onChange={(e) => update({ musicVolume: parseFloat(e.target.value) })}
+          />
+          <button onClick={() => setCollapsed(true)} aria-label="折叠播放器" aria-expanded="true" title="折叠">
+            –
+          </button>
+          <button onClick={close} aria-label="关闭" title="关闭播放器">
+            ✕
+          </button>
+        </>
+      )}
     </div>
   );
 }

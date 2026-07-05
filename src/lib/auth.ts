@@ -4,7 +4,7 @@ import { SignJWT, jwtVerify } from "jose";
 
 const cookieName = "shibei_admin_session";
 
-function getSecret() {
+export function getAuthSecret() {
   const secret = process.env.AUTH_SECRET;
   if (!secret) {
     if (process.env.NODE_ENV === "production") {
@@ -15,7 +15,7 @@ function getSecret() {
   return new TextEncoder().encode(secret);
 }
 
-function shouldUseSecureCookies() {
+export function shouldUseSecureCookies() {
   const siteUrl = process.env.NEXT_PUBLIC_SITE_URL;
   if (!siteUrl) return process.env.NODE_ENV === "production";
 
@@ -31,7 +31,7 @@ export async function createSession(userId: string) {
     .setProtectedHeader({ alg: "HS256" })
     .setIssuedAt()
     .setExpirationTime("7d")
-    .sign(getSecret());
+    .sign(getAuthSecret());
 }
 
 export async function setSessionCookie(token: string) {
@@ -56,7 +56,7 @@ export async function getSession() {
   if (!token) return null;
 
   try {
-    const { payload } = await jwtVerify(token, getSecret());
+    const { payload } = await jwtVerify(token, getAuthSecret());
     return { userId: String(payload.userId) };
   } catch {
     return null;

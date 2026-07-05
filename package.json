@@ -1,5 +1,5 @@
 {
-  "name": "shibei-blog",
+  "name": "shibei",
   "version": "0.1.0",
   "private": true,
   "scripts": {
@@ -14,6 +14,9 @@
     "prisma:deploy": "prisma migrate deploy",
     "db:seed": "tsx prisma/seed.ts",
     "repair:article-images": "tsx scripts/repair-article-images.ts",
+    "repair:post-videos": "tsx scripts/redistribute-post-videos.ts",
+    "repair:post-i18n": "tsx scripts/backfill-post-i18n.ts",
+    "repair:post-topics": "tsx scripts/backfill-post-topics.ts",
     "worker": "tsx src/worker/index.ts",
     "sync-worker": "tsx src/sync-worker/index.ts"
   },

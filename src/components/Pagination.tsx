@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { I18nText } from "@/components/I18nText";
 
 type PaginationParams = Record<string, string | number | null | undefined>;
 
@@ -15,19 +16,23 @@ export function Pagination({
 }) {
   if (totalPages <= 1) return null;
   const current = Math.min(Math.max(1, page), totalPages);
+  const prevLabel = <I18nText zh="上一页" en="Previous" />;
+  const nextLabel = <I18nText zh="下一页" en="Next" />;
 
   return (
-    <nav className="pagination-row" aria-label="Pagination">
+    <nav className="pagination-row" aria-label="分页 Pagination">
       {current > 1 ? (
-        <Link className="button secondary" href={buildHref(basePath, params, current - 1)}>上一页</Link>
+        <Link className="button secondary" rel="prev" href={buildHref(basePath, params, current - 1)}>{prevLabel}</Link>
       ) : (
-        <span className="button secondary disabled" aria-disabled="true">上一页</span>
+        <span className="button secondary disabled" aria-disabled="true" aria-hidden="true">{prevLabel}</span>
       )}
-      <span className="pagination-status">第 {current} / {totalPages} 页</span>
+      <span className="pagination-status" aria-current="page">
+        <I18nText zh={`第 ${current} / ${totalPages} 页`} en={`Page ${current} of ${totalPages}`} />
+      </span>
       {current < totalPages ? (
-        <Link className="button secondary" href={buildHref(basePath, params, current + 1)}>下一页</Link>
+        <Link className="button secondary" rel="next" href={buildHref(basePath, params, current + 1)}>{nextLabel}</Link>
       ) : (
-        <span className="button secondary disabled" aria-disabled="true">下一页</span>
+        <span className="button secondary disabled" aria-disabled="true" aria-hidden="true">{nextLabel}</span>
       )}
     </nav>
   );

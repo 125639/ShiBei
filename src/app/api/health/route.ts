@@ -17,12 +17,14 @@ export async function GET() {
     await prisma.$queryRawUnsafe("SELECT 1");
     return NextResponse.json({ ok: true, mode, db: "up", ts: new Date().toISOString() });
   } catch (err) {
+    console.error("[health] database check failed:", err);
+    const isProduction = process.env.NODE_ENV === "production";
     return NextResponse.json(
       {
         ok: false,
         mode,
         db: "down",
-        error: err instanceof Error ? err.message : String(err),
+        error: isProduction ? "database unavailable" : err instanceof Error ? err.message : String(err),
         ts: new Date().toISOString(),
       },
       { status: 503 }

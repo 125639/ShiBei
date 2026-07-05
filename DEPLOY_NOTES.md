@@ -1,3 +1,101 @@
+# 2026-07-02（三）用户反馈修复：dynamic 白屏 / 设置页排版 / 后台窄屏导航
+
+## 1. 动态流光（dynamic）公开页白屏 —— 根因与修复
+- 根因 A（级联）：`:root[data-theme="apple"] body { background: var(--paper) }` 位于文件后段，与 cyber/dynamic 的 body 背景规则同特异性、顺序更后，把它们全部压成白底；dynamic 又给组件设了白字 → 白底白字"白屏"。该规则本身冗余（html 已画纸色底），已删除并留注释防复发。
+- 根因 B（覆盖不全）：cyber/dynamic 原本只为自己的设置页写样式，从未接管公开页颜色。现为两者建立**全站颜色令牌覆盖**（--paper/--ink/--accent/--surface/--chart-* 整套 + color-scheme:dark），所有组件（含图表、表单、骨架屏、后台）自然适配。
+- 附带修复：SVG 图表坐标轴文字 fill 跟随 var(--ink)（此前深色主题下轴文字是黑色不可读）。
+
+## 2. 设置页排版
+- `.settings-shell` 由双栏 auto-fit 改单列 + 分节线：各节内容量差异大（主题 8 卡 vs 语言 2 卡），双栏行首永远无法对齐。
+- 选项卡 min-height 统一（112px；风格卡 172px），跨风格切换时几何稳定。
+- **删除 Cyber/DynamicSettingsClient 专属设置页**（连同 SettingsPageSwitcher、framer-motion 依赖入口）：所有界面风格共用同一套设置页结构，风格差异只由 data-ui 全局 CSS 承担——"切风格后框大小改变"的最大来源即来自这两套异构页面。
+
+## 3. 后台窄视口导航（≤960px，含浏览器缩放跨过断点）
+- 弃用"隐藏抽屉 + 汉堡按钮"（缩放场景下等于导航消失且难发现）。
+- 侧边栏改为**常驻 sticky 顶栏**：单行横向滚动、右缘渐隐提示、当前页高亮、全部条目（含返回前台/退出登录）始终可见可达。删除 AdminMobileNavToggle 组件与相关 CSS/JS。
+
+验证：check/tests/build 通过；Playwright 断言 dynamic/cyber 正文与卡片对比度、设置页单列、cyber 下设置页不再变形、风格卡跨风格高度一致（183px）、900px 视口后台顶栏可见（61px 高、13 个条目）。
+
+---
+
+# 2026-07-02（二）界面风格体系 + 移动端 v2 + 外部改动审查
+
+## 界面风格体系（data-ui 扩展为 6 种）
+
+用户可在 `/settings` 选择界面风格，管理员在 `/admin/settings` 设默认值：
+
+- **classic** 经典（默认，基线精修：文章卡 hover 反馈等）
+- **glass** 渐变玻璃：光斑背景、毛玻璃卡片、渐变标题文字、光晕 hover；移动端自动降级 backdrop-filter
+- **editorial** 杂志编辑：衬线大标题、条目编号（纯 CSS 计数器）、墨色方按钮、细分割线
+- **paper** 温暖纸质：固定暖褐色调 + SVG 噪点纹理、衬线标题、柔和投影（暖色不随主题 accent 变化）
+- **cyber** / **dynamic**（原有保留）
+
+实现要点：
+- 风格注册表统一在 `src/lib/themes.ts`（UI_STYLES / isUiStyleKey），预注水脚本、useUserPrefs、设置页、后台下拉、API 校验全部走它；新增风格只改一处 + CSS。
+- 风格与色彩主题（data-theme×8）正交：新风格全部用主题令牌派生颜色，任意组合成立。
+- 修复存量 bug：`useUserPrefs.update()` 此前不写 `data-ui`，切风格必须刷新才生效；Cyber/Dynamic 设置客户端卸载时用过期闭包把 data-ui 写回旧值。现在 update() 统一管理，切换即时生效，恢复默认也完整还原全部属性。
+
+## 移动端 v2（globals.css 末尾 Mobile v2 块）
+
+- sticky 页头 ~185px → **81px**：品牌单行 + 单行横向滚动导航（右缘渐隐提示）
+- hero 标题字号收敛（clamp 27–40px），CTA 按钮均分整行
+- KPI 概览改 3 列小方块（原来逐个 190px 纵向堆叠）
+- 卡片撤销强制 min-height、栅格间距收紧、章节节奏压缩
+- 筛选表单单列全宽、标签条/主题 tab 横向滚动、分页大触控目标
+- fixed 背景在 ≤820px 统一回退 scroll（含 glass）
+
+## 外部（GPT）改动审查结果
+
+保留且认可：AI 三接口每日全局预算、翻译 in-flight 锁、上传流式限长、同步导入流式读取、uploads nosniff + SVG 降级 octet-stream、health 生产不泄露 DB 错误、`npm ci`、迁移 IF NOT EXISTS 幂等、自动采集去重（DB 复查 + BullMQ 稳定 jobId 双保险）、nextRunAt 展示。
+
+修正的三处：
+1. **回退 `output: "standalone"`**（next.config + 3 个 Dockerfile + start-app.sh）。原方案在 Docker 中必然故障：standalone server.js 会 `chdir` 导致 ①静态资源目录错位全站 404；②上传写入路径脱离 compose 卷 `/app/public/uploads`（数据丢失且与 worker 分裂）；③Docker 注入的 HOSTNAME 使服务绑定容器主机名，127.0.0.1 健康检查失败。且本项目启动时要跑 prisma migrate + tsx seed，node_modules 无法省，standalone 无收益。保留了 npm ci 与 nosniff。
+2. **重写 `upload-stream.ts` 写入路径为 `stream/promises.pipeline`**：原手写循环在 await 间隙出现写流 error（ENOSPC/EACCES/EEXIST）时无监听器，未处理 error 事件会打崩进程；并且 EEXIST 时不再误删他人文件。
+3. **翻译链路**：每日预算移到锁内、缓存复查之后（缓存命中与 202 轮询不再烧预算）；重写 `LanguageAwarePost` 加载 effect——原实现把 status 放进依赖且 effect 开头就改它，cleanup 将 cancelled 置真导致**所有响应被丢弃**（翻译永远转圈，刷新才见缓存），GPT 的轮询定时器同样被废。现为单 effect 自驱动轮询（3s，上限 40 次，遵循 Retry-After，卸载清理）；per-IP 限流 12/h → 90/h 以容纳轮询。
+
+## 验证
+
+`npm run check`、`bash tests/run-all.sh`、生产构建全部通过；Playwright 实测：6 风格卡片渲染、glass/editorial 即时切换、cyber→paper 往返（旧闭包 bug 场景）、恢复默认、glass×midnight 组合、AI 助手交互、404、移动端页头 81px，零页面错误。
+
+---
+
+# 2026-07-02 前端优化迭代
+
+## 概要
+
+一次面向公开前端的整体优化：性能、可访问性、SEO、i18n 一致性与 bug 修复。`npm run check`、`tests/run-all.sh`、生产构建与 Playwright 浏览器级验证全部通过。
+
+## 性能
+- **首屏 JS -19%**（首页 gzip 198 KB → 161 KB）：`CustomCursor` 重写为原生 rAF 插值实现，framer-motion 从根布局退出主 bundle（现仅 `/settings` 页按需加载）；光标空闲 2 秒自动停帧，并用 matchMedia 守卫（触屏 / reduced-motion 不激活）。
+- 公开页外壳迁移到 `(public)/layout.tsx`：导航/页脚跨路由持久挂载，站点设置查询不再逐页重复。
+- 新增 `(public)/loading.tsx` 骨架屏：所有公开页均 force-dynamic，导航期不再白屏。
+- 正文图片自动注入 `loading="lazy" decoding="async"`（`markdownToHtml` 后处理）。
+- 移动端 `background-attachment: fixed` 改为 `scroll`（≤820px），消除滚动重绘卡顿。
+
+## Bug 修复
+- **密度设置此前是死功能**：`--space-scale` 定义后从未被消费；现 `--sp-*` 系列统一乘以该系数，紧凑/标准/舒适真实生效。
+- **音乐播放器折叠即断播**：折叠分支未渲染 `<audio>`；现常驻挂载，折叠只隐藏控制条，并用 onPlay/onPause 同步真实播放状态。
+- **AI 助手按钮双语重影**：`.ai-assistant-launcher span` 选择器过宽，把 I18nText 两个语言 span 都渲染成圆形徽章；徽章改用专属 class。
+- **hydration 告警**：`UserPreferencesScript` 预注水改写 `<html data-*>` 属性与 SSR 输出不一致；根布局加 `suppressHydrationWarning`。
+- 后台侧边栏「仪表盘」在所有子页误高亮（prefix 匹配改 exact）。
+- 文章"原始来源"外链补 `rel="noopener noreferrer"`。
+
+## SEO / 元数据
+- 根布局改 `generateMetadata`：站点名/描述取自数据库，标题模板 `%s · 站点名`，补 OG 基础字段。
+- 列表与功能页（/posts /videos /stats /about /write /settings）补 title/description/canonical；/settings 加 noindex。
+- 文章页输出 Article JSON-LD，视频页输出 VideoObject JSON-LD。
+- `viewport`/`themeColor` 迁移到 Next 15 规范导出，theme-color 按明暗双值（替换原先与任何主题都不匹配的 #9f4f2f）。
+
+## 可访问性 / UX
+- 新增品牌化 404（根 `not-found.tsx`）与错误页（`(public)/error.tsx`，含重试）。
+- 顶部导航用 ActiveLink 高亮当前页（`aria-current` + `.nav a.active` 样式）。
+- AI 助手：Esc 关闭、打开自动聚焦、面板关闭时 `inert`（不可 Tab 进入）、输入上限 4000 对齐服务端。
+- /stats 时间窗口改为 `aria-current` 链接导航（移除误用的 `role="tablist"`）。
+- /videos、/stats、/about、分页、图表空态等此前中文硬编码处全部接入 I18nText 双语。
+- 页脚新增 © 年份 + RSS + Sitemap 链接；搜索框改 `type="search"` + `enterKeyHint`；日期改 `<time dateTime>`。
+
+---
+
 # 本次迭代：博客扩展功能上线指南
 
 ## 新增功能（已完成）

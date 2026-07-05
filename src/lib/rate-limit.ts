@@ -12,6 +12,12 @@ type RateLimitResult =
   | { ok: true }
   | { ok: false; retryAfterSec: number };
 
+type GlobalRateLimitInput = {
+  namespace: string;
+  limit: number;
+  windowSec: number;
+};
+
 const memoryBuckets = new Map<string, { count: number; resetAt: number }>();
 const globalForRateLimit = globalThis as unknown as { shibeiRateLimitRedis?: IORedis };
 const MAX_MEMORY_BUCKETS = 5000;
@@ -35,16 +41,25 @@ export async function checkRateLimit(input: RateLimitInput): Promise<RateLimitRe
   const identity = clientIdentity(input.request);
   const subject = input.subject ? `${identity}:${sanitizeKeyPart(input.subject)}` : identity;
   const key = `shibei:rate:${input.namespace}:${subject}`;
+  return incrementLimitKey(key, input.limit, input.windowSec);
+}
+
+export async function checkGlobalRateLimit(input: GlobalRateLimitInput): Promise<RateLimitResult> {
+  const key = `shibei:rate:${input.namespace}:global`;
+  return incrementLimitKey(key, input.limit, input.windowSec);
+}
+
+async function incrementLimitKey(key: string, limit: number, windowSec: number): Promise<RateLimitResult> {
   const redis = getRedis();
 
   if (redis) {
     try {
       if (redis.status === "wait") await redis.connect();
       const count = await redis.incr(key);
-      if (count === 1) await redis.expire(key, input.windowSec);
-      if (count <= input.limit) return { ok: true };
+      if (count === 1) await redis.expire(key, windowSec);
+      if (count <= limit) return { ok: true };
       const ttl = await redis.ttl(key);
-      return { ok: false, retryAfterSec: ttl > 0 ? ttl : input.windowSec };
+      return { ok: false, retryAfterSec: ttl > 0 ? ttl : windowSec };
     } catch {
       // Fall through to memory buckets when Redis is unavailable.
     }
@@ -52,14 +67,14 @@ export async function checkRateLimit(input: RateLimitInput): Promise<RateLimitRe
 
   const now = Date.now();
   pruneMemoryBuckets(now);
-  const resetAt = now + input.windowSec * 1000;
+  const resetAt = now + windowSec * 1000;
   const bucket = memoryBuckets.get(key);
   if (!bucket || bucket.resetAt <= now) {
     memoryBuckets.set(key, { count: 1, resetAt });
     return { ok: true };
   }
   bucket.count += 1;
-  if (bucket.count <= input.limit) return { ok: true };
+  if (bucket.count <= limit) return { ok: true };
   return { ok: false, retryAfterSec: Math.max(1, Math.ceil((bucket.resetAt - now) / 1000)) };
 }
 

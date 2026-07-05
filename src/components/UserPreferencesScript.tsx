@@ -1,5 +1,5 @@
 import { DEFAULT_LANGUAGE } from "@/lib/language";
-import { DEFAULT_DENSITY, DEFAULT_FONT, DEFAULT_THEME, PREF_KEYS } from "@/lib/themes";
+import { DEFAULT_DENSITY, DEFAULT_FONT, DEFAULT_THEME, PREF_KEYS, UI_STYLE_KEYS } from "@/lib/themes";
 
 /**
  * Pre-hydration script: applies stored theme/font/density to <html> before
@@ -37,8 +37,9 @@ export function UserPreferencesScript({
     var font = localStorage.getItem(k.font) || def.font;
     var density = localStorage.getItem(k.density) || def.density;
     var language = localStorage.getItem(k.language) || def.language;
+    var uiKeys = ${JSON.stringify(UI_STYLE_KEYS)};
     var ui = localStorage.getItem(k.ui);
-    if (ui !== 'classic' && ui !== 'cyber' && ui !== 'dynamic') ui = def.ui;
+    if (uiKeys.indexOf(ui) === -1) ui = def.ui;
     
     doc.setAttribute('data-theme', theme);
     doc.setAttribute('data-font', font);

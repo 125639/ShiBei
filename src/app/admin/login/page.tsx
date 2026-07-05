@@ -1,4 +1,5 @@
 import { redirect } from "next/navigation";
+import { I18nText } from "@/components/I18nText";
 import { SubmitButton } from "@/components/SubmitButton";
 import { getSession } from "@/lib/auth";
 
@@ -20,20 +21,20 @@ export default async function LoginPage({ searchParams }: { searchParams: Promis
     <main className="login-shell">
       <form className="form-card form-stack" action="/api/admin/login" method="post">
         <div>
-          <p className="eyebrow">管理员入口</p>
-          <h1>登录后台</h1>
-          <p>使用管理员账号登录。</p>
+          <p className="eyebrow"><I18nText zh="管理员入口" en="Admin" /></p>
+          <h1><I18nText zh="登录后台" en="Sign in" /></h1>
+          <p><I18nText zh="使用管理员账号登录。" en="Sign in with your admin account." /></p>
         </div>
         {errorMsg && <p className="form-error" role="alert">{errorMsg}</p>}
         <div className="field">
-          <label htmlFor="username">用户名<span aria-hidden="true" className="req">*</span></label>
+          <label htmlFor="username"><I18nText zh="用户名" en="Username" /><span aria-hidden="true" className="req">*</span></label>
           <input id="username" name="username" required autoComplete="username" />
         </div>
         <div className="field">
-          <label htmlFor="password">密码<span aria-hidden="true" className="req">*</span></label>
+          <label htmlFor="password"><I18nText zh="密码" en="Password" /><span aria-hidden="true" className="req">*</span></label>
           <input id="password" name="password" type="password" required autoComplete="current-password" />
         </div>
-        <SubmitButton pendingLabel="登录中…">登录</SubmitButton>
+        <SubmitButton pendingLabel={<I18nText zh="登录中…" en="Signing in…" />}><I18nText zh="登录" en="Sign in" /></SubmitButton>
       </form>
     </main>
   );

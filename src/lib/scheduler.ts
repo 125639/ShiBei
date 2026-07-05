@@ -16,6 +16,12 @@ export function buildScheduleId(topicId: string) {
   return `topic:${topicId}`;
 }
 
+function nextRunAtFromJob(job: { timestamp?: number; delay?: number } | undefined) {
+  if (!job || typeof job.timestamp !== "number" || typeof job.delay !== "number") return null;
+  const next = new Date(job.timestamp + job.delay);
+  return Number.isNaN(next.getTime()) ? null : next;
+}
+
 async function withQueue<T>(fn: (queue: Queue) => Promise<T>): Promise<T> {
   const queue = getScheduleQueue();
   try {
@@ -46,7 +52,7 @@ export async function syncSchedule(scheduleId: string) {
       return;
     }
 
-    await queue.upsertJobScheduler(
+    const nextJob = await queue.upsertJobScheduler(
       id,
       { pattern: schedule.cron },
       {
@@ -61,7 +67,7 @@ export async function syncSchedule(scheduleId: string) {
 
     await prisma.autoSchedule.update({
       where: { id: schedule.id },
-      data: { bullJobKey: id }
+      data: { bullJobKey: id, nextRunAt: nextRunAtFromJob(nextJob) }
     });
   });
 }
@@ -71,6 +77,10 @@ export async function removeScheduleByTopicId(topicId: string) {
   await withQueue(async (queue) => {
     await queue.removeJobScheduler(id).catch(() => undefined);
   });
+  await prisma.autoSchedule.update({
+    where: { topicId },
+    data: { bullJobKey: null, nextRunAt: null }
+  }).catch(() => undefined);
 }
 
 export async function bootstrapAllSchedules() {
@@ -80,10 +90,16 @@ export async function bootstrapAllSchedules() {
       const id = buildScheduleId(schedule.topicId);
       await queue.removeJobScheduler(id).catch(() => undefined);
 
-      if (!schedule.isEnabled || !schedule.topic.isEnabled) continue;
+      if (!schedule.isEnabled || !schedule.topic.isEnabled) {
+        await prisma.autoSchedule.update({
+          where: { id: schedule.id },
+          data: { bullJobKey: null, nextRunAt: null }
+        }).catch(() => undefined);
+        continue;
+      }
 
       try {
-        await queue.upsertJobScheduler(
+        const nextJob = await queue.upsertJobScheduler(
           id,
           { pattern: schedule.cron },
           {
@@ -97,7 +113,7 @@ export async function bootstrapAllSchedules() {
         );
         await prisma.autoSchedule.update({
           where: { id: schedule.id },
-          data: { bullJobKey: id }
+          data: { bullJobKey: id, nextRunAt: nextRunAtFromJob(nextJob) }
         });
       } catch (error) {
         console.error(`Failed to bootstrap schedule for topic ${schedule.topicId}:`, error);
