@@ -68,7 +68,9 @@ export default async function ModulesPage() {
               <input id="sortOrder" name="sortOrder" type="number" defaultValue={modules.length} />
             </div>
           </div>
-          <SubmitButton pendingLabel={<I18nText zh="保存中…" en="Saving…" />}><I18nText zh="保存模块" en="Save Module" /></SubmitButton>
+          <SubmitButton className="button module-submit" pendingLabel={<I18nText zh="保存中…" en="Saving…" />}>
+            <I18nText zh="保存模块" en="Save Module" />
+          </SubmitButton>
         </form>
 
         <div className="form-card">
@@ -93,13 +95,18 @@ export default async function ModulesPage() {
                       <strong>{module.topics.length}</strong> <I18nText zh="关联 Topic" en="topics" />
                     </span>
                   </div>
-                  <div className="row" style={{ marginTop: 8 }}>
-                    <Link className="text-link" href={`/admin/sources?module=${module.slug}`}>
-                      <I18nText zh="管理本模块来源" en="Manage module sources" />
+                  <div className="module-actions">
+                    <Link
+                      className="module-action"
+                      href={`/admin/sources?module=${module.slug}`}
+                      aria-label={`管理「${module.name}」来源`}
+                      title={`管理「${module.name}」来源`}
+                    >
+                      <I18nText zh="来源" en="Sources" />
                     </Link>
-                    <form action={`/api/admin/modules/${module.id}/delete`} method="post" style={{ marginLeft: "auto" }}>
+                    <form className="module-delete-form" action={`/api/admin/modules/${module.id}/delete`} method="post">
                       <ConfirmButton
-                        className="button ghost"
+                        className="module-action module-action-danger"
                         message={`确认删除模块「${module.name}」？它关联着 ${module.sources.length} 个信息源、${module.topics.length} 个 Topic，删除后这些关联会一并解除。`}
                       >
                         <I18nText zh="删除" en="Delete" />

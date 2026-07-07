@@ -39,6 +39,7 @@ run_suite "node seed integration" bash -c "cd '$PROJECT_DIR' && [ -d node_module
 run_suite "article image cache" bash -c "cd '$PROJECT_DIR' && npx tsx --test tests/test-article-image-cache.ts"
 run_suite "article image mounting" bash -c "cd '$PROJECT_DIR' && npx tsx --test tests/test-article-images.ts"
 run_suite "content style prompts" bash -c "cd '$PROJECT_DIR' && npx tsx --test tests/test-content-style.ts"
+run_suite "source quality gate" bash -c "cd '$PROJECT_DIR' && npx tsx --test tests/test-source-quality.ts"
 run_suite "alarm schedule controls" bash -c "cd '$PROJECT_DIR' && npx tsx --test tests/test-alarm-schedule.ts"
 run_suite "url safety" bash -c "cd '$PROJECT_DIR' && npx tsx --test tests/test-url-safety.ts"
 run_suite "sync limits" bash -c "cd '$PROJECT_DIR' && npx tsx --test tests/test-sync-limits.ts"

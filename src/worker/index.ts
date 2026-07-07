@@ -38,6 +38,13 @@ import { enqueueTopicRun, parseTopicKeywords } from "../lib/auto-curation";
 import { bootstrapAllSchedules } from "../lib/scheduler";
 import { searchWithExa } from "../lib/exa";
 import {
+  assertPublishableGeneratedArticle,
+  assertUsableSourceMaterial,
+  filterUsableEvidenceItems,
+  InvalidSourceMaterialError,
+  isUsableSourceMaterial
+} from "../lib/source-quality";
+import {
   isDomesticVideoCandidate,
   isDomesticVideoUrl,
   isVideoMediaUrl
@@ -247,6 +254,11 @@ async function processWeb(fetchJobId: string) {
 
   const result = await scrapeWebPage(fetchJob.sourceUrl);
   const sourcePageUrl = result.finalUrl || fetchJob.sourceUrl;
+  assertUsableSourceMaterial({
+    title: result.title,
+    content: result.content,
+    markdown: result.markdown
+  });
   const rawItem = await prisma.rawItem.create({
     data: {
       title: result.title,
@@ -388,8 +400,17 @@ function sourcePlatformForVideo(videoUrl: string, sourcePageUrl?: string | null)
 async function processRss(fetchJobId: string) {
   const fetchJob = await prisma.fetchJob.findUniqueOrThrow({ where: { id: fetchJobId } });
   const items = await fetchRss(fetchJob.sourceUrl);
+  const usableItems = items.filter((item) =>
+    isUsableSourceMaterial({
+      title: item.title,
+      content: item.summary
+    })
+  );
+  if (!usableItems.length) {
+    throw new InvalidSourceMaterialError("RSS 源没有可用条目：疑似错误页、访问受限内容或空内容");
+  }
 
-  for (const item of items.slice(0, 3)) {
+  for (const item of usableItems.slice(0, 3)) {
     const rawItem = await prisma.rawItem.create({
       data: {
         title: item.title,
@@ -514,6 +535,7 @@ async function processKeywordResearch(fetchJobId: string, keyword: string, scope
         depth,
         evidence: rotateEvidence(evidence, index - 1)
       });
+      assertPublishableGeneratedArticle(generated);
     } catch (error) {
       generated = buildResearchFallbackDraft(keyword, scopeLabel, rotateEvidence(evidence, index - 1), error, index, count, depth);
     }
@@ -543,7 +565,7 @@ async function collectKeywordEvidence(keyword: string, scope: ResearchScope, opt
   // attention). RSS search feeds come next. Saved sources are broad topic
   // feeds and should only fill remaining slots — otherwise a busy general-AI
   // RSS source can shove unrelated items ahead of focused Exa hits.
-  for (const item of [...exaEvidence, ...searchEvidence, ...savedEvidence]) {
+  for (const item of filterUsableEvidenceItems([...exaEvidence, ...searchEvidence, ...savedEvidence])) {
     const key = normalizeEvidenceUrl(item.url);
     if (!item.url || seen.has(key)) continue;
     seen.add(key);
@@ -762,6 +784,12 @@ async function summarizeRawItem(rawItemId: string, fetchJobId: string) {
   ]);
   const { modelConfig, style } = await loadModelAndStyle(fetchJob);
 
+  assertUsableSourceMaterial({
+    title: rawItem.title,
+    content: rawItem.content,
+    markdown: rawItem.markdown
+  });
+
   if (!modelConfig || !style) {
     return createDraftFromRawItem(rawItem.id, `# ${rawItem.title}\n\n${rawItem.markdown}\n\n> 未配置模型或内容风格，已保留原始内容作为草稿。`);
   }
@@ -775,6 +803,7 @@ async function summarizeRawItem(rawItemId: string, fetchJobId: string) {
       markdown: rawItem.markdown
     }
   });
+  assertPublishableGeneratedArticle(generated);
 
   return createDraftFromRawItem(rawItem.id, generated);
 }
@@ -999,6 +1028,7 @@ async function processDigest(fetchJobId: string, topicId: string, digestKind: "D
         digestKind,
         evidence: allEvidence
       });
+      assertPublishableGeneratedArticle(generated);
     } catch (error) {
       generated = buildDigestFallback(topic.name, formatLabel, windowLabel, scopeLabel, allEvidence, error);
     }

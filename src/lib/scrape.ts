@@ -1,5 +1,6 @@
 import { chromium, type Page } from "playwright";
 import TurndownService from "turndown";
+import { InvalidSourceMaterialError } from "./source-quality";
 import { assertSafeResolvedFetchUrl, isHttpUrl, isSafeResolvedFetchUrl } from "./url-safety";
 import { VIDEO_MEDIA_URL_RE } from "./video-policy";
 
@@ -57,7 +58,12 @@ export async function scrapeWebPage(url: string) {
       }
     });
 
-    await page.goto(url, { waitUntil: "domcontentloaded", timeout: 60000 });
+    const mainResponse = await page.goto(url, { waitUntil: "domcontentloaded", timeout: 60000 });
+    const mainStatus = mainResponse?.status() ?? null;
+    if (mainStatus && mainStatus >= 400) {
+      const finalUrl = page.url();
+      throw new InvalidSourceMaterialError(`来源页面返回 HTTP ${mainStatus}: ${finalUrl}`);
+    }
     await page.waitForLoadState("load", { timeout: 10_000 }).catch(() => undefined);
     // 视频站常有长轮询/流媒体连接，networkidle 等不到不应拖垮整次抓取。
     await page.waitForLoadState("networkidle", { timeout: 5_000 }).catch(() => undefined);
