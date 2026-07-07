@@ -108,6 +108,36 @@ describe("video candidate selection", () => {
       ["variant"]
     );
   });
+
+  test("drops URL-merely-contains-video junk links but keeps platforms and media", () => {
+    const selected = selectVideoLinksForPost([
+      // 抓取器 ANCHOR_RE 命中 "video" 字样的非视频链接：产品控制台、频道导航页
+      { text: "混元生视频", href: "https://console.cloud.tencent.com/tokenhub/models/detail?modelId=hy-video-1.5" },
+      { text: "技术视频", href: "https://cloud.tencent.com/developer/video" },
+      { text: "真视频", href: "https://qcloudimg.tencent-cloud.cn/raw/abc.mp4" },
+      { text: "抖音视频", href: "https://www.douyin.com/video/7123456789" },
+      { text: "油管视频", href: "https://www.youtube.com/watch?v=abc123" },
+      { text: "短链视频", href: "https://youtu.be/abc123" },
+      { text: "B站视频索引", href: "https://www.bilibili.com/video/" }
+    ]);
+
+    assert.deepEqual(
+      selected.map((item) => item.text),
+      ["真视频", "抖音视频", "油管视频", "短链视频"]
+    );
+  });
+
+  test("keeps content-type-verified sniffed streams even without media extension", () => {
+    const selected = selectVideoLinksForPost([
+      { text: "页面播放器加载的视频流", href: "https://media.example.com/getVideo?id=42", sniffed: true },
+      { text: "同形态但未验证", href: "https://media.example.com/getVideo?id=43" }
+    ]);
+
+    assert.deepEqual(
+      selected.map((item) => item.text),
+      ["页面播放器加载的视频流"]
+    );
+  });
 });
 
 describe("video embed allowlist", () => {

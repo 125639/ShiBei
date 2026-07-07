@@ -1,3 +1,4 @@
+import { isValidCronExpression } from "@/lib/alarm-schedule";
 import { isCompileKind, isResearchDepth, isResearchScope, type CompileKind, type ResearchDepth, type ResearchScope } from "@/lib/research";
 import { slugify } from "@/lib/slug";
 
@@ -28,8 +29,9 @@ export function parseTopicForm(form: FormData): ParsedTopicForm | null {
   const depth = String(form.get("depth") || "long");
   const keywords = String(form.get("keywords") || "").trim();
   const styleIdRaw = String(form.get("styleId") || "");
+  const cron = String(form.get("cron") || "0 9 * * *").trim();
 
-  if (!isResearchScope(scope) || !isResearchDepth(depth) || !isCompileKind(compileKind)) return null;
+  if (!isResearchScope(scope) || !isResearchDepth(depth) || !isCompileKind(compileKind) || !isValidCronExpression(cron)) return null;
 
   return {
     name,
@@ -40,7 +42,7 @@ export function parseTopicForm(form: FormData): ParsedTopicForm | null {
     articleCount: clampInt(Number(form.get("articleCount") || 1), 1, 5, 1),
     keywords,
     styleId: styleIdRaw === "" ? null : styleIdRaw,
-    cron: String(form.get("cron") || "0 9 * * *").trim(),
+    cron,
     isEnabled: form.get("isEnabled") === "true",
     useExa: form.get("useExa") === "true"
   };

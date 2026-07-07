@@ -1,5 +1,6 @@
 import { DEFAULT_LANGUAGE } from "@/lib/language";
-import { DEFAULT_DENSITY, DEFAULT_FONT, DEFAULT_THEME, PREF_KEYS } from "@/lib/themes";
+import { DEFAULT_DENSITY, DEFAULT_FONT, DEFAULT_THEME, PREF_KEYS, UI_STYLE_KEYS } from "@/lib/themes";
+import { QUICK_STYLE_KEYS } from "@/lib/quick-style";
 
 /**
  * Pre-hydration script: applies stored theme/font/density to <html> before
@@ -37,8 +38,9 @@ export function UserPreferencesScript({
     var font = localStorage.getItem(k.font) || def.font;
     var density = localStorage.getItem(k.density) || def.density;
     var language = localStorage.getItem(k.language) || def.language;
+    var uiKeys = ${JSON.stringify(UI_STYLE_KEYS)};
     var ui = localStorage.getItem(k.ui);
-    if (ui !== 'classic' && ui !== 'cyber' && ui !== 'dynamic') ui = def.ui;
+    if (uiKeys.indexOf(ui) === -1) ui = def.ui;
     
     doc.setAttribute('data-theme', theme);
     doc.setAttribute('data-font', font);
@@ -46,6 +48,19 @@ export function UserPreferencesScript({
     doc.setAttribute('data-language', language);
     doc.setAttribute('data-ui', ui);
     doc.lang = language === 'en' ? 'en' : 'zh-CN';
+
+    // 快速美化（色相/壁纸/布局/横幅）：与 lib/quick-style.ts 的 applyQuickStyle 一致
+    var qk = ${JSON.stringify(QUICK_STYLE_KEYS)};
+    var hue = localStorage.getItem(qk.hue);
+    if (hue !== null && hue !== '' && isFinite(Number(hue))) {
+      doc.setAttribute('data-hue', 'on');
+      doc.style.setProperty('--user-hue', String(Math.min(360, Math.max(0, Math.round(Number(hue))))));
+    }
+    var wp = localStorage.getItem(qk.wallpaper);
+    if (wp === 'aurora' || wp === 'plain') doc.setAttribute('data-wallpaper', wp);
+    var pl = localStorage.getItem(qk.postsLayout);
+    if (pl === 'grid' || pl === 'list') doc.setAttribute('data-posts-layout', pl);
+    if (localStorage.getItem(qk.ffBanner) === 'off') doc.setAttribute('data-ff-banner', 'off');
   } catch (e) { /* localStorage may be blocked; defaults still apply via CSS */ }
 })();
 `.trim();

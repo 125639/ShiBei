@@ -11,10 +11,12 @@ import {
   FontKey,
   PREF_KEYS,
   ThemeKey,
+  UiStyleKey,
   isCursorStyleKey,
   isDensityKey,
   isFontKey,
-  isThemeKey
+  isThemeKey,
+  isUiStyleKey
 } from "@/lib/themes";
 import { DEFAULT_LANGUAGE, isLanguageKey, type LanguageKey } from "@/lib/language";
 
@@ -23,7 +25,7 @@ export type UserPrefs = {
   font: FontKey;
   density: DensityKey;
   language: LanguageKey;
-  ui: "system" | "classic" | "cyber" | "dynamic";
+  ui: "system" | UiStyleKey;
   customCursor: boolean;
   cursorStyle: CursorStyleKey;
   musicEnabled: boolean;
@@ -65,7 +67,7 @@ function readPrefs(siteDefaults?: Partial<UserPrefs>): UserPrefs {
       font: isFontKey(font) ? font : fallback.font,
       density: isDensityKey(density) ? density : fallback.density,
       language: isLanguageKey(language) ? language : fallback.language,
-      ui: (ui === "classic" || ui === "cyber" || ui === "dynamic") ? ui : fallback.ui,
+      ui: isUiStyleKey(ui) ? ui : fallback.ui,
       customCursor: customCursor === null ? fallback.customCursor : customCursor === "true",
       cursorStyle: isCursorStyleKey(cursorStyle) ? cursorStyle : fallback.cursorStyle,
       musicEnabled: musicEnabled === null ? fallback.musicEnabled : musicEnabled === "true",
@@ -106,6 +108,7 @@ export function useUserPrefs(siteDefaults?: Partial<UserPrefs>) {
   }, [siteDefaultsKey]);
 
   const update = useCallback((partial: Partial<UserPrefs>) => {
+    const defaults = { ...DEFAULT_PREFS, ...(siteDefaults || {}) };
     setPrefsState((prev) => {
       const next = { ...prev, ...partial };
       try {
@@ -128,6 +131,9 @@ export function useUserPrefs(siteDefaults?: Partial<UserPrefs>) {
         document.documentElement.setAttribute("data-font", next.font);
         document.documentElement.setAttribute("data-density", next.density);
         document.documentElement.setAttribute("data-language", next.language);
+        // "system" 代表跟随管理员默认，落到 DOM 时解析为具体风格，切换即时生效。
+        const effectiveUi = next.ui === "system" ? (defaults.ui === "system" ? "classic" : defaults.ui) : next.ui;
+        document.documentElement.setAttribute("data-ui", effectiveUi);
         if (next.customCursor) {
           document.documentElement.setAttribute("data-cursor", "custom");
           document.documentElement.setAttribute("data-cursor-style", next.cursorStyle);
@@ -142,7 +148,8 @@ export function useUserPrefs(siteDefaults?: Partial<UserPrefs>) {
       }
       return next;
     });
-  }, []);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- siteDefaults 以 JSON key 稳定化
+  }, [siteDefaultsKey]);
 
   const reset = useCallback(() => {
     try {
@@ -151,9 +158,17 @@ export function useUserPrefs(siteDefaults?: Partial<UserPrefs>) {
     } catch {
       /* ignore */
     }
-    setPrefsState({ ...DEFAULT_PREFS, ...(siteDefaults || {}) });
+    const defaults = { ...DEFAULT_PREFS, ...(siteDefaults || {}) };
+    setPrefsState(defaults);
     document.documentElement.removeAttribute("data-cursor");
     document.documentElement.removeAttribute("data-cursor-style");
+    const defaultUi = defaults.ui === "system" ? "classic" : defaults.ui;
+    document.documentElement.setAttribute("data-ui", defaultUi);
+    document.documentElement.setAttribute("data-theme", defaults.theme);
+    document.documentElement.setAttribute("data-font", defaults.font);
+    document.documentElement.setAttribute("data-density", defaults.density);
+    document.documentElement.setAttribute("data-language", defaults.language);
+    document.documentElement.lang = defaults.language === "en" ? "en" : "zh-CN";
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [siteDefaultsKey]);
 

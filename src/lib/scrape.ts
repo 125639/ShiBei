@@ -3,7 +3,10 @@ import TurndownService from "turndown";
 import { assertSafeResolvedFetchUrl, isHttpUrl, isSafeResolvedFetchUrl } from "./url-safety";
 import { VIDEO_MEDIA_URL_RE } from "./video-policy";
 
-const MEDIA_CONTENT_TYPE_RE = /^(video\/|application\/(vnd\.apple\.mpegurl|x-mpegurl|dash\+xml|octet-stream))/i;
+// 注意 octet-stream 不能无条件算媒体：字体（.woff2/.ttf）、下载文件等也常用
+// 这个 content-type 返回，曾把财新/AP News 的网页字体嗅探成"页面视频流"。
+// octet-stream 只有在 URL 本身就是媒体文件形态时才算数（见 response 监听）。
+const MEDIA_CONTENT_TYPE_RE = /^(video\/|application\/(vnd\.apple\.mpegurl|x-mpegurl|dash\+xml))/i;
 
 type SniffedMedia = { href: string; bytes: number; contentType: string };
 
@@ -328,10 +331,10 @@ export async function scrapeWebPage(url: string) {
     const sniffedSorted = Array.from(sniffed.values())
       .filter((m) => !/\.(ts|m4s)(?:[?#]|$)/i.test(m.href))
       .sort((a, b) => sniffedMediaScore(b) - sniffedMediaScore(a) || b.bytes - a.bytes)
-      .map((m) => ({ text: "页面播放器加载的视频流", href: m.href }));
+      .map((m) => ({ text: "页面播放器加载的视频流", href: m.href, sniffed: true }));
 
     const seen = new Set<string>();
-    const merged: Array<{ text: string; href: string }> = [];
+    const merged: Array<{ text: string; href: string; sniffed?: boolean }> = [];
     for (const item of [...sniffedSorted, ...result.videos]) {
       if (!item.href || seen.has(item.href)) continue;
       seen.add(item.href);

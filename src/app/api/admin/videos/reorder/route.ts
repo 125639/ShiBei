@@ -46,7 +46,7 @@ export async function POST(request: Request) {
 
   const postId = body.postId ? String(body.postId).trim() : "";
 
-  const revalidatePaths: string[] = items.map((item) => `/videos/${item.id}`);
+  const revalidatePaths: string[] = [];
 
   await prisma.$transaction(async (tx) => {
     for (const item of items) {

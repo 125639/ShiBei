@@ -1,3 +1,4 @@
+import crypto from "node:crypto";
 import { prisma } from "./prisma";
 import { getModelConfigForUse } from "./model-selection";
 import { getResearchQueue } from "./queue";
@@ -30,9 +31,15 @@ export function parseTopicKeywords(raw: string): string[] {
  * - SINGLE_ARTICLE: one keyword-research FetchJob per keyword (reuses processKeywordResearch).
  * - DAILY_DIGEST / WEEKLY_ROUNDUP: one digest FetchJob covering the full topic.
  */
-export async function enqueueTopicRun(topicId: string) {
+export type TopicRunResult = {
+  enqueued: number;
+  skipped: number;
+  reason: "ok" | "topic-not-found" | "no-keywords" | "already-running";
+};
+
+export async function enqueueTopicRun(topicId: string): Promise<TopicRunResult> {
   const topic = await prisma.contentTopic.findUnique({ where: { id: topicId } });
-  if (!topic) return { enqueued: 0, reason: "topic-not-found" as const };
+  if (!topic) return { enqueued: 0, skipped: 0, reason: "topic-not-found" };
 
   const modelConfig = await getModelConfigForUse("content");
   const style = topic.styleId
@@ -47,43 +54,102 @@ export async function enqueueTopicRun(topicId: string) {
 
   const queue = getResearchQueue();
   let enqueued = 0;
+  let skipped = 0;
 
   try {
     if (topic.compileKind === "SINGLE_ARTICLE") {
       const keywords = parseTopicKeywords(topic.keywords);
       if (!keywords.length) {
-        return { enqueued: 0, reason: "no-keywords" as const };
+        return { enqueued: 0, skipped: 0, reason: "no-keywords" };
       }
 
       for (const keyword of keywords) {
-        const job = await prisma.fetchJob.create({
-          data: {
-            sourceUrl: buildKeywordResearchUrl(keyword, scope, topic.articleCount, depth),
-            sourceType: "WEB",
-            modelConfigId: modelConfig?.id,
-            contentStyleId: fallbackStyle?.id,
-            contentTopicId: topic.id
-          }
+        const sourceUrl = buildKeywordResearchUrl(keyword, scope, topic.articleCount, depth);
+        const added = await enqueueResearchFetchJob({
+          topicId: topic.id,
+          sourceUrl,
+          modelConfigId: modelConfig?.id ?? null,
+          contentStyleId: fallbackStyle?.id ?? null,
+          queueJobName: "topic-keyword",
+          queueJobId: buildTopicQueueJobId(topic.id, sourceUrl)
         });
-        await queue.add("topic-keyword", { fetchJobId: job.id }, { priority: 2 });
-        enqueued++;
+        if (added === "enqueued") enqueued++;
+        else skipped++;
       }
     } else {
-      const job = await prisma.fetchJob.create({
-        data: {
-          sourceUrl: buildDigestUrl(topic.id, topic.compileKind),
-          sourceType: "WEB",
-          modelConfigId: modelConfig?.id,
-          contentStyleId: fallbackStyle?.id,
-          contentTopicId: topic.id
-        }
+      const sourceUrl = buildDigestUrl(topic.id, topic.compileKind);
+      const added = await enqueueResearchFetchJob({
+        topicId: topic.id,
+        sourceUrl,
+        modelConfigId: modelConfig?.id ?? null,
+        contentStyleId: fallbackStyle?.id ?? null,
+        queueJobName: "topic-digest",
+        queueJobId: buildTopicQueueJobId(topic.id, sourceUrl)
       });
-      await queue.add("topic-digest", { fetchJobId: job.id }, { priority: 2 });
-      enqueued = 1;
+      if (added === "enqueued") enqueued = 1;
+      else skipped = 1;
     }
   } finally {
     await queue.close();
   }
 
-  return { enqueued, reason: "ok" as const };
+  return { enqueued, skipped, reason: enqueued > 0 ? "ok" : "already-running" };
+
+  async function enqueueResearchFetchJob(input: {
+    topicId: string;
+    sourceUrl: string;
+    modelConfigId: string | null;
+    contentStyleId: string | null;
+    queueJobName: string;
+    queueJobId: string;
+  }): Promise<"enqueued" | "duplicate"> {
+    const existing = await prisma.fetchJob.findFirst({
+      where: {
+        contentTopicId: input.topicId,
+        sourceUrl: input.sourceUrl,
+        status: { in: ["QUEUED", "RUNNING"] }
+      },
+      select: { id: true }
+    });
+    if (existing) return "duplicate";
+
+    const fetchJob = await prisma.fetchJob.create({
+      data: {
+        sourceUrl: input.sourceUrl,
+        sourceType: "WEB",
+        modelConfigId: input.modelConfigId,
+        contentStyleId: input.contentStyleId,
+        contentTopicId: input.topicId
+      }
+    });
+
+    const queueJob = await queue.add(
+      input.queueJobName,
+      { fetchJobId: fetchJob.id },
+      {
+        jobId: input.queueJobId,
+        priority: 2,
+        removeOnComplete: true,
+        removeOnFail: true
+      }
+    );
+
+    if (queueJob.data.fetchJobId !== fetchJob.id) {
+      await prisma.fetchJob.update({
+        where: { id: fetchJob.id },
+        data: {
+          status: "FAILED",
+          error: `Duplicate topic run suppressed by queue job ${input.queueJobId}`
+        }
+      }).catch(() => undefined);
+      return "duplicate";
+    }
+
+    return "enqueued";
+  }
+}
+
+function buildTopicQueueJobId(topicId: string, sourceUrl: string) {
+  const hash = crypto.createHash("sha256").update(sourceUrl).digest("hex").slice(0, 20);
+  return `topic-${topicId}-${hash}`;
 }

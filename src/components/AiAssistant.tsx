@@ -109,15 +109,34 @@ export function AiAssistant({
   const [open, setOpen] = useState(false);
   const [ready, setReady] = useState(false);
   const logRef = useRef<HTMLDivElement | null>(null);
+  const inputRef = useRef<HTMLTextAreaElement | null>(null);
+  const mountedRef = useRef(true);
 
   useEffect(() => {
+    // StrictMode 下 effect 会跑「挂载→清理→再挂载」，这里必须重新置 true，
+    // 否则 mountedRef 停留在 false，所有 AI 回复都会被当作「已卸载」丢弃。
+    mountedRef.current = true;
     setReady(true);
+    return () => {
+      mountedRef.current = false;
+    };
   }, []);
 
   useEffect(() => {
     if (!open || !logRef.current) return;
     logRef.current.scrollTop = logRef.current.scrollHeight;
   }, [messages, loading, open]);
+
+  // 打开面板：聚焦输入框；Esc 随时可关闭。
+  useEffect(() => {
+    if (!open) return;
+    inputRef.current?.focus();
+    const onKeyDown = (event: globalThis.KeyboardEvent) => {
+      if (event.key === "Escape") setOpen(false);
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [open]);
 
   async function sendMessage(rawMessage: string) {
     const message = rawMessage.trim();
@@ -140,11 +159,12 @@ export function AiAssistant({
       });
       const data = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(data.error || "AI assistant failed");
+      if (!mountedRef.current) return;
       setMessages((current) => [...current, { role: "assistant", content: String(data.reply || "") }]);
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+      if (mountedRef.current) setError(err instanceof Error ? err.message : String(err));
     } finally {
-      setLoading(false);
+      if (mountedRef.current) setLoading(false);
     }
   }
 
@@ -171,11 +191,12 @@ export function AiAssistant({
         aria-controls="ai-assistant-panel"
         onClick={() => setOpen((current) => !current)}
       >
-        <span aria-hidden>AI</span>
+        <span className="ai-assistant-launcher-badge" aria-hidden>AI</span>
         <strong><I18nText zh="助手" en="Assistant" /></strong>
       </button>
 
-      <section className="ai-assistant-panel" id="ai-assistant-panel">
+      {/* inert：面板视觉隐藏时同时移出焦点链与无障碍树，防止 Tab 进入不可见区域 */}
+      <section className="ai-assistant-panel" id="ai-assistant-panel" inert={!open}>
         <div className="ai-assistant-topbar">
           <div>
             <p className="eyebrow">AI Assistant</p>
@@ -194,7 +215,7 @@ export function AiAssistant({
           </div>
         </div>
 
-        <div className="assistant-chat-log" ref={logRef}>
+        <div className="assistant-chat-log" ref={logRef} role="log" aria-live="polite">
           {messages.length === 0 ? (
             <div className="assistant-welcome">
               <span className="assistant-spark" aria-hidden>*</span>
@@ -232,22 +253,25 @@ export function AiAssistant({
               <AssistantMessageContent content={message.content} />
             </div>
           ))}
-          {loading ? <p className="muted-block"><I18nText zh="AI 正在思考…" en="AI is thinking…" /></p> : null}
+          {loading ? <p className="muted-block" role="status"><I18nText zh="AI 正在思考…" en="AI is thinking…" /></p> : null}
           {error ? <p className="muted-block" role="alert"><I18nText zh="暂时无法获取回复,请稍后重试。" en="Couldn't get a reply right now. Please try again shortly." /></p> : null}
         </div>
 
         <form className="assistant-input-row" onSubmit={submit}>
           <textarea
+            ref={inputRef}
             value={input}
             onChange={(event) => setInput(event.target.value)}
             onKeyDown={handleInputKeyDown}
-            placeholder={hydrated && prefs.language === "en" ? "Tell me what you want to know. Shift + Enter for a new line." : "写下你想了解的内容,Shift + Enter 换行"}
+            placeholder={hydrated && prefs.language === "en" ? "Tell me what you want to know. Shift + Enter for a new line." : "写下你想了解的内容，Shift + Enter 换行"}
             aria-label={hydrated && prefs.language === "en" ? "AI Assistant Input" : "AI 助手输入"}
             rows={3}
+            maxLength={4000}
+            enterKeyHint="send"
           />
           <div className="assistant-input-footer">
             <span><I18nText zh="内容由 AI 生成，仅供参考。" en="AI-generated content is for reference only." /></span>
-            <button className="button" type="submit" disabled={loading || !input.trim()} aria-label={hydrated && prefs.language === "en" ? "Send" : "发送"}>
+            <button className="button" type="submit" disabled={loading || !input.trim()} aria-busy={loading} aria-label={hydrated && prefs.language === "en" ? "Send" : "发送"}>
               <span aria-hidden="true">↑</span>
             </button>
           </div>

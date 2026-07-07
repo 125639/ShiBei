@@ -3,6 +3,7 @@ import { PrismaClient } from "@prisma/client";
 import { encryptSecret } from "../src/lib/crypto";
 import { seedDefaultTopics } from "../src/lib/topics";
 import { seedDefaultModules } from "../src/lib/source-modules";
+import { seedDefaultCreationGenres } from "../src/lib/creation";
 import { buildAdminUpsertArgs, shouldSeedAiModel } from "./seed-helpers.mjs";
 
 const prisma = new PrismaClient();
@@ -50,6 +51,7 @@ async function main() {
 
   await seedDefaultTopics(prisma);
   await seedDefaultModules(prisma);
+  await seedDefaultCreationGenres(prisma);
 
   // scripts/init.sh 写入的 INIT_AI_* 在首次 seed 时落盘为默认 ModelConfig。
   // shouldSeedAiModel 兼任输入校验 + 幂等守卫：已经有任何模型配置时不重复写。

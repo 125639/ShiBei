@@ -24,8 +24,6 @@ export default async function SettingsPage({
     reportStorage().catch(() => null)
   ]);
 
-  const s = site as Record<string, unknown> | null;
-
   const storageProps = storage ? {
     uploadsBytes: formatBytes(storage.uploadsBytes),
     imageBytes: formatBytes(storage.imageBytes),
@@ -45,7 +43,7 @@ export default async function SettingsPage({
       <h1 style={{ marginBottom: "28px" }}><I18nText zh="系统设置" en="System Settings" /></h1>
 
       <SettingsClient
-        site={s}
+        site={site}
         modelConfigs={modelConfigs}
         styles={styles}
         admin={admin}

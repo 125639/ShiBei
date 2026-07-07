@@ -1,10 +1,11 @@
 import { Worker } from "bullmq";
-import { CompilationKind, Source, VideoType } from "@prisma/client";
+import { CompilationKind, Source } from "@prisma/client";
 import {
   generateDigest,
   generateContentArticle,
   generateSummary,
   estimateAudience,
+  translateTitleSummaryToEnglish,
   type EvidenceItem
 } from "../lib/ai";
 import {
@@ -12,8 +13,10 @@ import {
   createRedisConnection,
   fetchQueueName,
   researchQueueName,
-  scheduleQueueName
+  scheduleQueueName,
+  videoDownloadQueueName
 } from "../lib/queue";
+import { downloadVideoToLocal } from "../lib/video-download";
 import { fetchRss } from "../lib/rss";
 import {
   digestWindowLabel,
@@ -41,7 +44,12 @@ import {
 } from "../lib/video-policy";
 import { selectVideoLinksForPost } from "../lib/video-candidates";
 import { runStorageCleanup } from "../lib/storage";
-import { insertMarkdownBlock } from "../lib/video-display";
+import {
+  detectVideoType,
+  distributeVideoShortcodes,
+  normalizeEmbedUrl,
+  removePlaceholderVideoSections
+} from "../lib/video-display";
 import {
   canonicalizeArticleImageUrl,
   embedArticleImagesInPostContent,
@@ -49,6 +57,8 @@ import {
   type ArticleImageCandidate
 } from "../lib/article-images";
 import { hostFromUrl } from "../lib/html";
+import { extractTitleAndSummary } from "../lib/post-derive";
+import { classifyTopic } from "../lib/topic-classify";
 
 function workerConcurrency(envName: string, fallback = 1) {
   const n = Number(process.env[envName] || fallback);
@@ -62,6 +72,10 @@ type FetchJobData = {
 
 type ScheduleJobData = {
   topicId: string;
+};
+
+type VideoDownloadJobData = {
+  videoId: string;
 };
 
 // ── 共享辅助 ──────────────────────────────────────────────
@@ -82,27 +96,6 @@ async function loadModelAndStyle(fetchJob: { modelConfigId: string | null; conte
   return { modelConfig, style };
 }
 
-/** 封装 prisma.video.create 的类型断言，避免在多处重复 `as unknown as ...` 体操 */
-async function createVideoRecord(data: Record<string, unknown>): Promise<{ id: string }> {
-  return (prisma as unknown as {
-    video: { create: (args: { data: Record<string, unknown> }) => Promise<{ id: string }> };
-  }).video.create({ data });
-}
-
-function extractTitleAndSummary(markdown: string, fallbackTitle: string) {
-  const title = markdown.match(/^#\s+(.+)$/m)?.[1]?.trim() || fallbackTitle;
-  const plain = markdown
-    .replace(/^#+\s+/gm, "")
-    .replace(/[-*]\s+/g, "")
-    .replace(/\[[^\]]+\]\([^\)]+\)/g, "")
-    .replace(/\s+/g, " ")
-    .trim();
-  return {
-    title: title.slice(0, 120),
-    summary: plain.slice(0, 220) || "AI 已生成草稿，请管理员审核。"
-  };
-}
-
 async function createDraftFromRawItem(rawItemId: string, generated: string) {
   const rawItem = await prisma.rawItem.findUniqueOrThrow({
     where: { id: rawItemId },
@@ -113,6 +106,19 @@ async function createDraftFromRawItem(rawItemId: string, generated: string) {
   const slug = `${slugBase}-${Date.now().toString(36)}`;
   const publication = await getPublicationData();
   const topicLink = await resolveTopicLink(rawItem.fetchJob?.contentTopicId);
+
+  // 抓取来源（web/rss）的文章没有显式主题，用词库归类器自动挂一个分类，
+  // 否则前台「按主题分栏」对这批文章永远失效（历史上 8 成文章无分类）。
+  let autoTopicId: string | null = null;
+  if (!topicLink.connect) {
+    autoTopicId = await classifyTopicForContent({
+      title: parsed.title,
+      summary: parsed.summary,
+      content: generated,
+      sourceId: rawItem.sourceId
+    });
+  }
+  const connectTopicId = topicLink.connect || autoTopicId;
 
   return prisma.post.create({
     data: {
@@ -125,9 +131,49 @@ async function createDraftFromRawItem(rawItemId: string, generated: string) {
       sourceUrl: rawItem.url,
       rawItemId: rawItem.id,
       kind: topicLink.kind,
-      ...(topicLink.connect ? { topics: { connect: { id: topicLink.connect } } } : {})
+      ...(connectTopicId ? { topics: { connect: { id: connectTopicId } } } : {})
     }
   });
+}
+
+/**
+ * 词库自动归类（见 src/lib/topic-classify.ts）。任何失败都返回 null——
+ * 归类只是锦上添花，绝不能让抓取任务因此 FAILED。
+ */
+async function classifyTopicForContent(input: {
+  title: string;
+  summary: string;
+  content: string;
+  sourceId?: string | null;
+}): Promise<string | null> {
+  try {
+    const [topics, source] = await Promise.all([
+      // 注意不过滤 isEnabled：启停只控制定时自动生产，分类体系对全部主题有效。
+      prisma.contentTopic.findMany({
+        orderBy: { createdAt: "asc" },
+        select: { id: true, slug: true, name: true, keywords: true }
+      }),
+      input.sourceId
+        ? prisma.source.findUnique({
+            where: { id: input.sourceId },
+            select: { modules: { select: { slug: true } } }
+          })
+        : Promise.resolve(null)
+    ]);
+    const result = classifyTopic(
+      {
+        title: input.title,
+        summary: input.summary,
+        content: input.content,
+        moduleSlugs: source?.modules.map((m) => m.slug) || []
+      },
+      topics
+    );
+    return result?.topicId ?? null;
+  } catch (error) {
+    console.error("[topic-classify] failed:", error);
+    return null;
+  }
 }
 
 async function createDraftFromResearch(fetchJobId: string, keyword: string, scopeLabel: string, evidence: EvidenceItem[], generated: string, index?: number) {
@@ -218,8 +264,8 @@ async function processWeb(fetchJobId: string) {
     await embedArticleImagesInPostContent(post.id, withImageSource(result.images || [], sourcePageUrl, result.title));
   }
 
-  if (textOnly) {
-    // pure-text mode: skip video collection entirely.
+  if (textOnly || !videosFeatureEnabled(settings)) {
+    // 纯文本模式或视频功能未开启：完全跳过视频收集。
     return;
   }
 
@@ -227,22 +273,21 @@ async function processWeb(fetchJobId: string) {
 
   for (const link of selectVideoLinksForPost(result.videos, 4)) {
     const url = link.href;
-    const region = isDomesticVideoCandidate(url, sourcePageUrl) ? "DOMESTIC" : "INTERNATIONAL";
-    const baseData: Record<string, unknown> = {
-      title: link.text || "相关视频资源",
-      type: "LINK",
-      url,
-      displayMode: "link",
-      summary: "从来源页面自动识别到的相关视频链接。",
-      postId: post.id,
-      region,
-      sourcePageUrl,
-      sourcePlatform: sourcePlatformForVideo(url, sourcePageUrl)
-    };
-
-    baseData.attribution = `来源页：${sourcePageUrl}\n视频链接：${url}\n自动流程仅保留链接，不下载视频文件。`;
-
-    const created = await createVideoRecord(baseData);
+    const created = await prisma.video.create({
+      data: {
+        title: link.text || "相关视频资源",
+        type: "LINK",
+        url,
+        displayMode: "link",
+        summary: "从来源页面自动识别到的相关视频链接。",
+        postId: post.id,
+        region: isDomesticVideoCandidate(url, sourcePageUrl) ? "DOMESTIC" : "INTERNATIONAL",
+        sourcePageUrl,
+        sourcePlatform: sourcePlatformForVideo(url, sourcePageUrl),
+        attribution: `来源页：${sourcePageUrl}\n视频链接：${url}\n自动流程仅保留链接，不下载视频文件。`
+      },
+      select: { id: true }
+    });
     createdVideoIds.push(created.id);
   }
 
@@ -252,38 +297,47 @@ async function processWeb(fetchJobId: string) {
 }
 
 /**
- * 把 [[video:ID]] 短代码插入到 post.content（以及英文翻译，如果已生成）参考来源前。
- * 渲染层（news/[slug]/page.tsx + markdown.ts）会把短代码替换为播放器，并把
- * 已内嵌的视频从文末"相关视频"列表里去重，因此追加不会造成重复展示。
+ * 把 [[video:ID]] 短代码穿插进 post.content（以及英文翻译，如果已生成）：
+ * 每个视频按标题/摘要与各章节的关键词相关性落到最合适的章节末尾（每节最多
+ * 一个），与任何章节都不相关的才集中放到参考来源前。插入前先清掉 AI 生成
+ * 的「相关视频」占位小节，避免"本文无相关视频"紧挨着一排播放器的自相矛盾。
+ * 渲染层（posts/[slug]/page.tsx + markdown.ts）会把短代码替换为播放器，并把
+ * 已内嵌的视频从文末"相关视频"列表里去重，因此插入不会造成重复展示。
  */
 async function embedVideosInPostContent(postId: string, videoIds: string[]) {
   if (!videoIds.length) return;
-  const post = await prisma.post
-    .findUnique({ where: { id: postId }, select: { content: true } })
-    .catch(() => null);
-  if (!post) return;
-  const block = videoIds.map((id) => `[[video:${id}]]`).join("\n\n");
-  const nextContent = insertMarkdownBlock(post.content, block, "before-references");
+  try {
+    const [post, videos] = await Promise.all([
+      prisma.post.findUnique({ where: { id: postId }, select: { content: true, contentEn: true } }),
+      prisma.video.findMany({ where: { id: { in: videoIds } }, select: { id: true, title: true, summary: true } })
+    ]);
+    if (!post || !videos.length) return;
 
-  const existingEn = await (prisma as unknown as {
-    post: { findUnique: (args: unknown) => Promise<{ contentEn: string | null } | null> };
-  }).post.findUnique({ where: { id: postId }, select: { contentEn: true } }).catch(() => null);
-  const nextContentEn = existingEn?.contentEn
-    ? insertMarkdownBlock(existingEn.contentEn, block, "before-references")
-    : null;
+    // findMany 不保证顺序，按调用方给的创建顺序排回去，保证同节竞争时先创建的优先。
+    const orderIndex = new Map(videoIds.map((id, index) => [id, index]));
+    videos.sort((a, b) => (orderIndex.get(a.id) ?? 0) - (orderIndex.get(b.id) ?? 0));
 
-  await (prisma as unknown as {
-    post: { update: (args: unknown) => Promise<unknown> };
-  }).post.update({
-    where: { id: postId },
-    data: nextContentEn ? { content: nextContent, contentEn: nextContentEn } : { content: nextContent }
-  }).catch((err) => {
+    const weave = (markdown: string) =>
+      distributeVideoShortcodes(removePlaceholderVideoSections(markdown), videos);
+    const nextContent = weave(post.content);
+    const nextContentEn = post.contentEn ? weave(post.contentEn) : null;
+
+    await prisma.post.update({
+      where: { id: postId },
+      data: nextContentEn ? { content: nextContent, contentEn: nextContentEn } : { content: nextContent }
+    });
+  } catch (err) {
     console.error(`[video-embed] failed to inline shortcodes for post ${postId}:`, err);
-  });
+  }
 }
 
 function autoImageSearchEnabled(settings: unknown) {
   return (settings as { autoImageSearchEnabled?: boolean } | null)?.autoImageSearchEnabled !== false;
+}
+
+/** 视频功能总开关（后台 设置→媒体）。默认关闭：不勾选就不收集、不展示任何视频。 */
+function videosFeatureEnabled(settings: unknown) {
+  return (settings as { videosEnabled?: boolean } | null)?.videosEnabled === true;
 }
 
 async function attachImagesFromEvidence(postId: string, evidence: EvidenceItem[]) {
@@ -390,22 +444,24 @@ async function processVideo(fetchJobId: string) {
     }
   });
 
-  const type = detectVideoType(originalUrl);
-  const region = isDomesticVideoCandidate(originalUrl, originalUrl) ? "DOMESTIC" : "INTERNATIONAL";
-  const baseData: Record<string, unknown> = {
-    title,
-    type,
-    url: normalizeEmbedUrl(originalUrl),
-    displayMode: textOnly ? "link" : "embed",
-    summary,
-    postId: post.id,
-    region,
-    sourcePageUrl: originalUrl,
-    sourcePlatform: sourcePlatformForVideo(originalUrl, originalUrl),
-    attribution: `来源页：${originalUrl}\n原视频：${originalUrl}`
-  };
+  // 视频功能关闭时只保留文字版 Post（内容里已有"视频来源"链接），不建 Video 行。
+  if (!videosFeatureEnabled(settings)) return;
 
-  const video = await createVideoRecord(baseData);
+  const video = await prisma.video.create({
+    data: {
+      title,
+      type: detectVideoType(originalUrl),
+      url: normalizeEmbedUrl(originalUrl),
+      displayMode: textOnly ? "link" : "embed",
+      summary,
+      postId: post.id,
+      region: isDomesticVideoCandidate(originalUrl, originalUrl) ? "DOMESTIC" : "INTERNATIONAL",
+      sourcePageUrl: originalUrl,
+      sourcePlatform: sourcePlatformForVideo(originalUrl, originalUrl),
+      attribution: `来源页：${originalUrl}\n原视频：${originalUrl}`
+    },
+    select: { id: true }
+  });
   await prisma.post.update({
     where: { id: post.id },
     data: {
@@ -723,20 +779,6 @@ async function summarizeRawItem(rawItemId: string, fetchJobId: string) {
   return createDraftFromRawItem(rawItem.id, generated);
 }
 
-function detectVideoType(url: string): VideoType {
-  if (/\.mp4($|\?)/i.test(url)) return "LOCAL";
-  if (/youtube|youtu\.be|bilibili|vimeo/i.test(url)) return "EMBED";
-  return "LINK";
-}
-
-function normalizeEmbedUrl(url: string) {
-  const youtube = url.match(/(?:youtube\.com\/watch\?v=|youtu\.be\/)([A-Za-z0-9_-]+)/);
-  if (youtube) return `https://www.youtube.com/embed/${youtube[1]}`;
-  const bilibili = url.match(/bilibili\.com\/video\/([A-Za-z0-9]+)/);
-  if (bilibili) return `https://player.bilibili.com/player.html?bvid=${bilibili[1]}`;
-  return url;
-}
-
 /**
  * 从任意自由文本(标题/摘要/链接)里抽出指向视频平台或直链 mp4/m3u8 的 URL。
  * 不做网络请求,纯 regex。结果按出现先后去重(忽略 query/hash 部分),让上层
@@ -773,28 +815,30 @@ function extractVideoUrlsFromText(text: string): string[] {
 async function attachVideosFromEvidence(postId: string, evidence: EvidenceItem[], contextLabel: string) {
   const settings = await prisma.siteSettings.findUnique({ where: { id: "site" } });
   if ((settings as { textOnlyMode?: boolean } | null)?.textOnlyMode === true) return;
+  if (!videosFeatureEnabled(settings)) return;
   const picks = await collectEvidenceVideoPicks(evidence, 6);
   if (!picks.length) return;
 
   const createdIds: string[] = [];
   for (const v of picks) {
-    const region = isDomesticVideoCandidate(v.url, v.sourcePageUrl) ? "DOMESTIC" : "INTERNATIONAL";
-    const baseData: Record<string, unknown> = {
-      title: v.title,
-      type: "LINK",
-      url: v.url,
-      displayMode: "link",
-      summary: `从${v.sourceName}的文章中自动识别到的相关视频链接。`,
-      postId,
-      region,
-      sourcePageUrl: v.sourcePageUrl,
-      sourcePlatform: sourcePlatformForVideo(v.url, v.sourcePageUrl)
-    };
-
-    baseData.attribution = `来源页：${v.sourcePageUrl}\n视频链接：${v.url}\n（基于${contextLabel}的研究资料自动提取；不下载视频文件）`;
-
+    // sourceName 可能带 "[Exa]" / "[搜索]" 之类的内部渠道标记，展示文案里去掉。
+    const sourceLabel = v.sourceName.replace(/^\[[^\]]+\]\s*/, "").trim() || "来源页面";
     try {
-      const created = await createVideoRecord(baseData);
+      const created = await prisma.video.create({
+        data: {
+          title: v.title,
+          type: "LINK",
+          url: v.url,
+          displayMode: "link",
+          summary: `从${sourceLabel}的文章中自动识别到的相关视频链接。`,
+          postId,
+          region: isDomesticVideoCandidate(v.url, v.sourcePageUrl) ? "DOMESTIC" : "INTERNATIONAL",
+          sourcePageUrl: v.sourcePageUrl,
+          sourcePlatform: sourcePlatformForVideo(v.url, v.sourcePageUrl),
+          attribution: `来源页：${v.sourcePageUrl}\n视频链接：${v.url}\n（基于${contextLabel}的研究资料自动提取；不下载视频文件）`
+        },
+        select: { id: true }
+      });
       createdIds.push(created.id);
     } catch (error) {
       console.error(`[video-attach] failed for ${v.url}:`, error);
@@ -1144,7 +1188,7 @@ const scheduleHandler = async (job: { data: ScheduleJobData }) => {
     where: { topicId },
     data: { lastRunAt: new Date() }
   }).catch(() => undefined);
-  console.log(`[schedule] topic ${topic.name} (${topicId}) — enqueued ${result.enqueued} jobs (${result.reason})`);
+  console.log(`[schedule] topic ${topic.name} (${topicId}) — enqueued ${result.enqueued}, skipped ${result.skipped} jobs (${result.reason})`);
 };
 
 const fetchWorker = new Worker<FetchJobData>(
@@ -1171,7 +1215,18 @@ const scheduleWorker = new Worker<ScheduleJobData>(
   { connection: createRedisConnection(), concurrency: workerConcurrency("SCHEDULE_WORKER_CONCURRENCY"), lockDuration: 60000 }
 );
 
-for (const worker of [fetchWorker, researchWorker, audienceWorker, scheduleWorker]) {
+// 视频下载串行执行（concurrency 1）：yt-dlp + ffmpeg 是 CPU/带宽大户，
+// 并发跑会挤占抓取与生成任务。lockDuration 略大于 lib 内 15 分钟的下载超时。
+const videoDownloadWorker = new Worker<VideoDownloadJobData>(
+  videoDownloadQueueName,
+  async (job) => {
+    const outcome = await downloadVideoToLocal(job.data.videoId);
+    console.log(`[video-download] ${outcome.videoId} -> ${outcome.fileName} (${outcome.fileSizeBytes} bytes)`);
+  },
+  { connection: createRedisConnection(), concurrency: 1, lockDuration: 16 * 60 * 1000 }
+);
+
+for (const worker of [fetchWorker, researchWorker, audienceWorker, scheduleWorker, videoDownloadWorker]) {
   worker.on("completed", (job) => {
     console.log(`Completed job ${job.id}`);
   });
@@ -1190,11 +1245,14 @@ async function shutdown(signal: string) {
   console.log(`[worker] received ${signal}, draining workers...`);
   clearTimeout(cleanupBootTimer);
   clearInterval(cleanupInterval);
+  clearTimeout(listI18nBootTimer);
+  clearInterval(listI18nInterval);
   await Promise.allSettled([
     fetchWorker.close(),
     researchWorker.close(),
     audienceWorker.close(),
     scheduleWorker.close(),
+    videoDownloadWorker.close(),
   ]);
   console.log("[worker] all workers closed; exiting.");
   // 退出码 0 让 docker 把"被信号终止"理解为预期内的优雅退出。
@@ -1226,4 +1284,53 @@ async function tickCleanup() {
 const cleanupBootTimer = setTimeout(() => { void tickCleanup(); }, 60 * 1000);
 const cleanupInterval = setInterval(() => { void tickCleanup(); }, CLEANUP_INTERVAL_MS);
 
-console.log(`ShiBei worker started: ${fetchQueueName}, ${researchQueueName}, ${audienceQueueName}, ${scheduleQueueName}`);
+// 列表英文回填：titleEn/summaryEn 原本只在访客打开详情页触发整篇翻译时才写入，
+// 列表页英文模式因此长期回退中文。这里周期性小批量补齐标题+摘要（轻量、不翻正文，
+// 正文仍由详情页按需翻译）。不占用公共翻译接口的每日预算，靠批次上限自我节流；
+// 存量补完后每个周期查询命中 0 行，自然只剩新发布文章的增量。
+const LIST_I18N_INTERVAL_MS = 10 * 60 * 1000;
+function listI18nBatchSize() {
+  const n = Number(process.env.LIST_TRANSLATION_BATCH ?? 6);
+  if (!Number.isFinite(n)) return 6;
+  return Math.min(Math.max(Math.floor(n), 0), 20); // 0 表示关闭
+}
+async function tickListTranslationBackfill() {
+  try {
+    const batchSize = listI18nBatchSize();
+    if (!batchSize) return;
+    const posts = await prisma.post.findMany({
+      where: { status: "PUBLISHED", OR: [{ titleEn: null }, { summaryEn: null }] },
+      orderBy: { publishedAt: "desc" },
+      take: batchSize,
+      select: { id: true, title: true, summary: true }
+    });
+    if (!posts.length) return;
+    const modelConfig = await getModelConfigForUse("translation");
+    if (!modelConfig) return;
+    let done = 0;
+    for (const post of posts) {
+      try {
+        const translated = await translateTitleSummaryToEnglish({
+          modelConfig,
+          title: post.title,
+          summary: post.summary
+        });
+        await prisma.post.update({
+          where: { id: post.id },
+          data: { titleEn: translated.title, summaryEn: translated.summary }
+        });
+        done += 1;
+      } catch (error) {
+        console.error(`[i18n] list backfill failed for post ${post.id}:`, error);
+        break; // 多半是模型端点故障，别再撞剩余批次，等下个周期
+      }
+    }
+    if (done) console.log(`[i18n] backfilled list translations for ${done}/${posts.length} posts`);
+  } catch (error) {
+    console.error("[i18n] list translation backfill tick failed:", error);
+  }
+}
+const listI18nBootTimer = setTimeout(() => { void tickListTranslationBackfill(); }, 90 * 1000);
+const listI18nInterval = setInterval(() => { void tickListTranslationBackfill(); }, LIST_I18N_INTERVAL_MS);
+
+console.log(`ShiBei worker started: ${fetchQueueName}, ${researchQueueName}, ${audienceQueueName}, ${scheduleQueueName}, ${videoDownloadQueueName}`);

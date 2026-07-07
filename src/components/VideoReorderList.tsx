@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   DndContext,
   PointerSensor,
@@ -19,6 +19,7 @@ import {
   verticalListSortingStrategy
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
+import { I18nText } from "@/components/I18nText";
 import type { VideoPlacement } from "@/lib/video-display";
 
 type VideoRow = {
@@ -29,6 +30,9 @@ type VideoRow = {
   displayMode: string;
   lastPlacement: string | null;
   fileSizeBytes: number | null;
+  localPath: string | null;
+  downloadStatus: string | null;
+  downloadError: string | null;
   postId: string | null;
   postTitle: string | null;
 };
@@ -39,9 +43,9 @@ type PostOption = {
 };
 
 const PLACEMENT_LABEL: Record<VideoPlacement, string> = {
-  "after-intro": "导语之后",
-  "before-references": "参考来源之前",
-  end: "文章末尾"
+  "after-intro": "导语之后 / After intro",
+  "before-references": "参考来源之前 / Before references",
+  end: "文章末尾 / End"
 };
 
 function normalizePlacement(value: string | null): VideoPlacement {
@@ -60,7 +64,17 @@ export function VideoReorderList({
 }) {
   const [videos, setVideos] = useState<VideoRow[]>(initialVideos);
   const [savingId, setSavingId] = useState<string | null>(null);
+  const [savedId, setSavedId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // 连续拖拽/改位置时的并发保护：只认最后一次请求的结果，旧响应不回写 UI。
+  const saveSeqRef = useRef(0);
+  const savedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (savedTimerRef.current) clearTimeout(savedTimerRef.current);
+    };
+  }, []);
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
@@ -89,7 +103,18 @@ export function VideoReorderList({
         placement: normalizePlacement(video?.lastPlacement || null)
       };
     });
-    setSavingId(postKey);
+    await submitReorder(postKey, postId, items);
+  }
+
+  /** 发送重排请求；用递增序号丢弃过期响应，避免连续拖拽时旧结果覆盖新状态。 */
+  async function submitReorder(
+    uiKey: string,
+    postId: string | null,
+    items: Array<{ id: string; sortOrder: number; placement: VideoPlacement }>
+  ) {
+    const seq = ++saveSeqRef.current;
+    setSavingId(uiKey);
+    setSavedId(null);
     setError(null);
     try {
       const res = await fetch("/api/admin/videos/reorder", {
@@ -101,10 +126,16 @@ export function VideoReorderList({
         const json = (await res.json().catch(() => ({}))) as { error?: string };
         throw new Error(json.error || `保存失败 (HTTP ${res.status})`);
       }
+      if (seq !== saveSeqRef.current) return;
+      // 短暂显示「已保存」，让拖拽结果有明确回执。
+      setSavedId(uiKey);
+      if (savedTimerRef.current) clearTimeout(savedTimerRef.current);
+      savedTimerRef.current = setTimeout(() => setSavedId(null), 2000);
     } catch (err) {
+      if (seq !== saveSeqRef.current) return;
       setError(err instanceof Error ? err.message : "网络错误");
     } finally {
-      setSavingId(null);
+      if (seq === saveSeqRef.current) setSavingId(null);
     }
   }
 
@@ -143,20 +174,7 @@ export function VideoReorderList({
       sortOrder: idx,
       placement: normalizePlacement(v.lastPlacement)
     }));
-    setSavingId(postId);
-    setError(null);
-    fetch("/api/admin/videos/reorder", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ postId, items })
-    })
-      .then((res) => {
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      })
-      .catch((err) => {
-        setError(err instanceof Error ? err.message : "网络错误");
-      })
-      .finally(() => setSavingId(null));
+    void submitReorder(postId, postId, items);
   }
 
   function moveBy(postKey: string, videoId: string, delta: -1 | 1) {
@@ -184,25 +202,25 @@ export function VideoReorderList({
   return (
     <div className="video-reorder-root" style={{ display: "flex", flexDirection: "column", gap: 24 }}>
       {error ? (
-        <div className="muted-block" style={{ color: "var(--color-danger, #c44)" }}>
-          排序保存失败：{error}
+        <div className="muted-block" role="alert" style={{ color: "var(--color-danger, #c44)" }}>
+          <I18nText zh="排序保存失败：" en="Failed to save order: " />{error}
         </div>
       ) : null}
 
       {groupEntries.map(([postKey, group]) => {
-        const postTitle = postKey === "__unattached__" ? "未挂载视频" : group[0]?.postTitle || postKey;
+        const postTitle = postKey === "__unattached__" ? <I18nText zh="未挂载视频" en="Unattached videos" /> : group[0]?.postTitle || postKey;
         return (
           <div key={postKey} className="form-card" style={{ padding: 20 }}>
             <div className="meta-row" style={{ alignItems: "center", justifyContent: "space-between" }}>
               <div>
                 <strong>{postTitle}</strong>
-                <div className="muted" style={{ fontSize: 12 }}>
-                  共 {group.length} 个视频
-                  {savingId === postKey ? " · 正在保存…" : ""}
+                <div className="muted" style={{ fontSize: 12 }} role="status">
+                  <I18nText zh={`共 ${group.length} 个视频`} en={`${group.length} videos`} />
+                  {savingId === postKey ? <I18nText zh=" · 正在保存…" en=" · Saving…" /> : savedId === postKey ? <I18nText zh=" · ✓ 已保存" en=" · ✓ Saved" /> : ""}
                 </div>
               </div>
               {postKey !== "__unattached__" ? (
-                <a className="text-link" href={`/admin/posts/${postKey}`}>编辑文章</a>
+                <a className="text-link" href={`/admin/posts/${postKey}`}><I18nText zh="编辑文章" en="Edit post" /></a>
               ) : null}
             </div>
 
@@ -233,7 +251,10 @@ export function VideoReorderList({
       })}
 
       <p className="muted" style={{ fontSize: 12 }}>
-        提示：拖动行可以调整视频在文章中的相对顺序，三档预设决定每个视频插入文章正文的位置；改完会自动保存。
+        <I18nText
+          zh="提示：拖动行可以调整视频在文章中的相对顺序，三档预设决定每个视频插入文章正文的位置；改完会自动保存。"
+          en="Tip: drag rows to reorder videos within a post; the three placement presets decide where each one is inserted. Changes save automatically."
+        />
       </p>
     </div>
   );
@@ -333,21 +354,23 @@ function SortableVideoRow({
           <input type="hidden" name="id" value={video.id} />
           <input type="hidden" name="redirect" value="/admin/videos" />
           <select name="postId" defaultValue={video.postId || ""} style={{ maxWidth: 240 }}>
-            <option value="">—— 解除挂载 ——</option>
+            <option value="">—— 解除挂载 / Detach ——</option>
             {posts.map((p) => (
               <option key={p.id} value={p.id}>{p.title}</option>
             ))}
           </select>
           <select name="displayMode" defaultValue={displayMode}>
-            <option value="embed">嵌入</option>
-            <option value="link">链接</option>
+            <option value="embed">嵌入 / Embed</option>
+            <option value="link">链接 / Link</option>
           </select>
-          <button className="button secondary" type="submit">更新挂载</button>
+          <button className="button secondary" type="submit"><I18nText zh="更新挂载" en="Update" /></button>
         </form>
+
+        <DownloadControl video={video} />
 
         {video.postId ? (
           <label className="meta-row" style={{ gap: 6, alignItems: "center", fontSize: 13 }}>
-            <span className="muted">位置：</span>
+            <span className="muted"><I18nText zh="位置：" en="Placement: " /></span>
             <select
               value={placement}
               onChange={(event) => onPlacementChange(video.id, normalizePlacement(event.target.value))}
@@ -368,11 +391,59 @@ function SortableVideoRow({
             type="submit"
             className="text-link"
             style={{ color: "var(--color-danger, #c44)", background: "none", border: 0, padding: 0, cursor: "pointer" }}
+            onClick={(event) => {
+              if (!window.confirm(`确认删除视频「${video.title}」？本地文件会一并清理，此操作不可撤销。`)) {
+                event.preventDefault();
+              }
+            }}
           >
-            删除视频
+            <I18nText zh="删除视频" en="Delete" />
           </button>
         </form>
       </div>
     </div>
+  );
+}
+
+/**
+ * 「下载到本地」控件：外链/嵌入视频排队交给 worker 用 yt-dlp 拉回本地。
+ * 下载完成后视频转为 LOCAL、文章内短代码直接以本地播放器渲染，不再依赖外站。
+ * 状态存在 Video.downloadStatus 上；页面是 force-dynamic 的，刷新即可看到进展。
+ */
+function DownloadControl({ video }: { video: VideoRow }) {
+  if (video.type === "LOCAL" && (video.localPath || video.url)) {
+    return (
+      <span className="tag" title={video.localPath || video.url}>
+        ✓ <I18nText zh="已下载到本地" en="Downloaded locally" />
+      </span>
+    );
+  }
+  if (video.downloadStatus === "queued" || video.downloadStatus === "running") {
+    return (
+      <span className="muted" style={{ fontSize: 13 }} role="status">
+        {video.downloadStatus === "queued"
+          ? <I18nText zh="⏳ 已加入下载队列（刷新页面查看进度）" en="⏳ Queued for download (refresh to see progress)" />
+          : <I18nText zh="⬇ 正在后台下载（刷新页面查看进度）" en="⬇ Downloading in background (refresh to see progress)" />}
+      </span>
+    );
+  }
+  return (
+    <form action="/api/admin/videos/download" method="post" className="meta-row" style={{ gap: 8, alignItems: "center" }}>
+      <input type="hidden" name="videoId" value={video.id} />
+      <input type="hidden" name="redirect" value="/admin/videos" />
+      <button className="button secondary" type="submit">
+        {video.downloadStatus === "failed" ? <I18nText zh="重试下载" en="Retry download" /> : <I18nText zh="下载到本地" en="Download locally" />}
+      </button>
+      {video.downloadStatus === "failed" && video.downloadError ? (
+        <span
+          className="muted"
+          role="alert"
+          title={video.downloadError}
+          style={{ fontSize: 12, color: "var(--color-danger, #c44)", maxWidth: 320, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
+        >
+          <I18nText zh="上次失败：" en="Last attempt failed: " />{video.downloadError}
+        </span>
+      ) : null}
+    </form>
   );
 }

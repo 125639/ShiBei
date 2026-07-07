@@ -27,9 +27,9 @@ const FRONTEND_BLOCKED_PREFIXES = [
   "/api/admin/model-configs",
 ];
 
-// 在 backend 模式下,公开页面(/posts, /news, /videos, /stats, /settings, /about, /write 等)
+// 在 backend 模式下,公开页面(/posts, /news, /stats, /settings, /about, /write 等)
 // 不面向最终用户,统一重定向到 admin。
-const BACKEND_PUBLIC_PREFIXES = ["/posts", "/news", "/videos", "/stats", "/settings", "/about", "/write"];
+const BACKEND_PUBLIC_PREFIXES = ["/posts", "/news", "/stats", "/settings", "/about", "/write"];
 
 function buildRedirectUrl(request: NextRequest, path: string): URL {
   const xfHost = request.headers.get("x-forwarded-host");

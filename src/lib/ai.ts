@@ -188,8 +188,14 @@ export function sourceBoundaryRules() {
     "- 只能使用来源材料中明确出现的信息。",
     "- 来源不足以确认时，明确写出「来源未提及」「资料不足以确认」或「仍需进一步确认」。",
     "- 不编造数据、引语、时间线、因果关系、人物态度或未给出的背景。",
+    "- 归因纪律：转述观点或引语时，「谁说的、说的是什么对象」必须与来源一致。代词（他/它/该公司/这款产品）按来源上下文还原，禁止凭常识、话题热度或任何倾向改写归因——某人称赞「自家产品」的话绝不能写成称赞别家产品。",
+    "- 多来源交叉：同一事实有多条来源时优先采用相互印证的表述；只有单一来源提到的关键论断，行文注明「据 XX 报道」。",
     "- 不复制粘贴原文长段落，要用自己的语言重组。",
-    "- 文末必须保留「## 参考来源」，用 Markdown 链接列出使用到的来源。"
+    "- 文末必须保留「## 参考来源」，用 Markdown 链接列出使用到的来源。",
+    // 即使管理员风格里配置了「相关视频」结构也要压掉：模型在写稿时并不知道
+    // 系统会挂哪些视频，只会写出"来源未提供视频"之类的占位说明，而发布流程
+    // 会把真实视频自动穿插进正文，两者叠加就是自相矛盾的版面。
+    "- 不要生成「相关视频」章节或任何视频占位说明；相关视频由系统在发布时自动嵌入正文。"
   ].join("\n");
 }
 
@@ -568,6 +574,43 @@ export async function translatePostToEnglish(input: {
   };
 }
 
+/**
+ * 只翻译标题和摘要的轻量版本，给列表页英文回填用。
+ * 整篇 content 的翻译仍走 translatePostToEnglish（详情页按需触发），
+ * 列表回填不该为每篇文章支付整篇正文的 token 开销。
+ */
+export async function translateTitleSummaryToEnglish(input: {
+  modelConfig: ChatModelConfig;
+  title: string;
+  summary: string;
+}) {
+  const prompt = [
+    "Translate the following Chinese blog post title and summary into natural, publication-quality English.",
+    "",
+    "Rules:",
+    "1. Return strict JSON only with keys: title, summary.",
+    "2. Do NOT wrap the JSON in code fences or add any text outside the JSON.",
+    "3. Do not add, remove, or change any facts.",
+    "4. Keep proper nouns (person names, company names, place names) in their commonly used English forms.",
+    "5. Translate Chinese idioms into natural English equivalents, not literal translations.",
+    "",
+    `Title: ${input.title}`,
+    "",
+    `Summary: ${input.summary}`
+  ].join("\n");
+
+  const raw = await requestChatCompletion(
+    input.modelConfig,
+    prompt,
+    "You are a professional bilingual blog translator (Chinese to English). Produce natural, publication-ready English while preserving meaning, names and numbers. Output strict JSON only."
+  );
+  const parsed = parseJsonObject(raw) as { title?: string; summary?: string };
+  return {
+    title: String(parsed.title || input.title).slice(0, 240),
+    summary: String(parsed.summary || input.summary)
+  };
+}
+
 export async function generateAssistantReply(input: {
   modelConfig: ChatModelConfig;
   userMessage: string;
@@ -633,7 +676,7 @@ export async function generateWritingAssist(input: {
   return requestChatCompletion(input.modelConfig, prompt, writingSystem);
 }
 
-function parseJsonObject(raw: string) {
+export function parseJsonObject(raw: string) {
   const trimmed = raw.trim().replace(/^```(?:json)?\s*/i, "").replace(/```$/i, "").trim();
   try {
     return JSON.parse(trimmed);
@@ -642,4 +685,94 @@ function parseJsonObject(raw: string) {
     if (match) return JSON.parse(match[0]);
     throw new Error("Model did not return valid JSON");
   }
+}
+
+export type ArticleRevisionScope = "content" | "full";
+
+export type ArticleRevisionResult = {
+  title?: string;
+  summary?: string;
+  content: string;
+};
+
+/**
+ * 管理员编辑文章时的 AI 辅助调整：按指令返回修订后的成品文本。
+ *
+ * 与 generateWritingAssist（公开写作页，对话式建议）不同，这里要求模型
+ * 输出"可直接替换编辑框"的结果：scope=content 只回修订后的正文 markdown，
+ * scope=full 回 JSON（title/summary/content）。[[video:ID]] 短代码与图片
+ * 语法必须原样保留——它们是站内媒体的挂载点，被模型"顺手删掉"会直接丢媒体。
+ */
+export async function generateArticleRevision(input: {
+  modelConfig: ChatModelConfig;
+  title: string;
+  summary: string;
+  content: string;
+  instruction: string;
+  scope: ArticleRevisionScope;
+}): Promise<ArticleRevisionResult> {
+  const shared = [
+    "【角色】",
+    "你是博客管理员的编辑助手。管理员正在修改一篇已有文章，你的任务是按指令产出修订后的成品文本。",
+    "",
+    "【硬性规则】",
+    "- 正文中的 [[video:xxx]] 短代码、图片（![...](...) 与 <figure>…</figure>）、链接必须原样保留在语义合适的位置，禁止删除或改写其地址。",
+    "- 保持 markdown 结构合法；不要虚构事实或新增未提供的信息来源。",
+    "- 除指令要求外，不要改变文章的语言（中文文章仍用中文）。",
+    "",
+    "【管理员指令】",
+    input.instruction,
+    "",
+    "【文章标题】",
+    input.title,
+    "",
+    "【文章摘要】",
+    input.summary || "（无）",
+    "",
+    "【文章正文（markdown）】",
+    input.content.slice(0, 40000)
+  ];
+
+  if (input.scope === "full") {
+    const prompt = [
+      ...shared,
+      "",
+      "【输出格式】",
+      '只输出一个 JSON 对象，形如 {"title": "...", "summary": "...", "content": "..."}，',
+      "content 是修订后的完整正文 markdown。不要输出任何 JSON 之外的说明文字。"
+    ].join("\n");
+    const raw = await requestChatCompletion(
+      input.modelConfig,
+      prompt,
+      "你是严谨的中文编辑，只输出要求的 JSON，不闲聊。"
+    );
+    try {
+      const parsed = parseJsonObject(raw) as Partial<ArticleRevisionResult>;
+      if (typeof parsed.content === "string" && parsed.content.trim()) {
+        return {
+          title: typeof parsed.title === "string" && parsed.title.trim() ? parsed.title.trim() : undefined,
+          summary: typeof parsed.summary === "string" && parsed.summary.trim() ? parsed.summary.trim() : undefined,
+          content: parsed.content
+        };
+      }
+    } catch {
+      // JSON 解析失败时把原始输出当正文兜底：内容不丢，管理员可自行取舍。
+    }
+    return { content: raw.trim() };
+  }
+
+  const prompt = [
+    ...shared,
+    "",
+    "【输出格式】",
+    "只输出修订后的完整正文 markdown，从正文第一行开始；不要输出解释、前言或代码围栏。"
+  ].join("\n");
+  const raw = await requestChatCompletion(
+    input.modelConfig,
+    prompt,
+    "你是严谨的中文编辑，只输出修订后的正文本身，不闲聊。"
+  );
+  // 个别模型仍会包一层 ``` 围栏，剥掉。
+  const content = raw.trim().replace(/^```(?:markdown|md)?\s*\n?/i, "").replace(/\n?```\s*$/i, "");
+  return { content };
 }

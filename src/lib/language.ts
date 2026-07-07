@@ -3,6 +3,11 @@ export type ContentLanguageMode = "default-language" | "bilingual";
 
 export const DEFAULT_LANGUAGE: LanguageKey = "zh";
 
+// 管理后台界面语言与前台访客偏好（shibei.language）刻意分离：
+// 后台用独立的 localStorage 键保存，互不影响。
+export const ADMIN_LANGUAGE_STORAGE_KEY = "shibei.admin.language";
+export const ADMIN_LANGUAGE_EVENT = "shibei:admin-language-change";
+
 export const LANGUAGE_OPTIONS: Array<{ value: LanguageKey; label: string; description: string }> = [
   { value: "zh", label: "中文", description: "默认显示中文界面与中文正文。" },
   { value: "en", label: "English", description: "用户打开文章时可自动翻译为英文。" }
@@ -11,12 +16,12 @@ export const LANGUAGE_OPTIONS: Array<{ value: LanguageKey; label: string; descri
 export const CONTENT_LANGUAGE_MODE_OPTIONS: Array<{ value: ContentLanguageMode; label: string; description: string }> = [
   {
     value: "default-language",
-    label: "默认语种模式",
+    label: "默认语种模式 / Default language",
     description: "前台默认显示中文；用户可在设置中切换英文，打开文章时按需 AI 翻译。"
   },
   {
     value: "bilingual",
-    label: "双语模式",
+    label: "双语模式 / Bilingual",
     description: "文章页同时展示中文与英文缓存；英文缺失时打开文章会自动生成。"
   }
 ];

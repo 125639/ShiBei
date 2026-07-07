@@ -18,7 +18,7 @@ FROM base AS deps
 COPY package.json package-lock.json* ./
 # 跳过 Playwright 的 postinstall 浏览器下载,前端模式不需要
 ENV PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1
-RUN npm install
+RUN npm ci
 
 FROM deps AS builder
 COPY . .

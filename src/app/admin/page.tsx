@@ -2,27 +2,19 @@ import Link from "next/link";
 import type { Prisma } from "@prisma/client";
 import { AdminShell } from "@/components/AdminShell";
 import { ContentStyleSelect } from "@/components/ContentStyleSelect";
+import { I18nText } from "@/components/I18nText";
 import { MetricCard } from "@/components/MetricCard";
 import { RelativeTime } from "@/components/RelativeTime";
 import { StatusPill } from "@/components/StatusPill";
+import { SubmitButton } from "@/components/SubmitButton";
 import { requireAdmin } from "@/lib/auth";
+import { getJobKindLabel, getJobTitleLabel } from "@/lib/job-utils";
 import { prisma } from "@/lib/prisma";
-import { parseKeywordResearchUrl, researchScopeLabel } from "@/lib/research";
 
 type DashboardJob = Prisma.FetchJobGetPayload<{ include: { source: true } }>;
 
-function getJobTitle(job: DashboardJob) {
-  const keywordResearch = parseKeywordResearchUrl(job.sourceUrl);
-  if (keywordResearch) return `关键词生成：${keywordResearch.keyword}`;
-  return job.source?.name || job.sourceUrl;
-}
-
 function getJobMeta(job: DashboardJob) {
-  const keywordResearch = parseKeywordResearchUrl(job.sourceUrl);
-  const type = keywordResearch
-    ? `关键词研究 · ${researchScopeLabel(keywordResearch.scope)} · ${keywordResearch.count} 篇 · ${keywordResearch.depth}`
-    : job.sourceType;
-  return `${type} · ${job.createdAt.toLocaleString("zh-CN")}`;
+  return `${getJobKindLabel(job)} · ${job.createdAt.toLocaleString("zh-CN")}`;
 }
 
 export default async function AdminDashboardPage() {
@@ -55,97 +47,102 @@ export default async function AdminDashboardPage() {
       <div className="admin-page-header">
         <div>
           <p className="eyebrow">Dashboard</p>
-          <h1>管理后台</h1>
+          <h1><I18nText zh="管理后台" en="Admin Dashboard" /></h1>
         </div>
         <div className="admin-page-actions">
-          <Link className="button secondary" href="/admin/jobs">查看任务诊断</Link>
-          <Link className="button secondary" href="/admin/settings">系统设置</Link>
+          <Link className="button secondary" href="/admin/jobs"><I18nText zh="查看任务诊断" en="Job Diagnostics" /></Link>
+          <Link className="button secondary" href="/admin/settings"><I18nText zh="系统设置" en="Settings" /></Link>
         </div>
       </div>
 
       <div className="admin-grid-3">
-        <MetricCard value={drafts} label="待审核草稿" action={{ href: "/admin/posts", label: "打开" }} />
-        <MetricCard value={runningJobs} label="运行中任务" action={{ href: "/admin/jobs?status=RUNNING", label: "打开" }} />
-        <MetricCard value={failed7d} label="近 7 天失败任务" tone={failed7d > 0 ? "danger" : "normal"} action={{ href: "/admin/jobs?status=FAILED", label: "打开" }} />
-        <MetricCard value={`${defaultSources} / ${sources}`} label="默认 / 总来源" action={{ href: "/admin/sources", label: "打开" }} />
-        <MetricCard value={published} label="已发布文章" action={{ href: "/admin/posts", label: "打开" }} />
-        <MetricCard value={videos} label="视频资源" action={{ href: "/admin/videos", label: "打开" }} />
+        <MetricCard value={drafts} label={<I18nText zh="待审核草稿" en="Pending drafts" />} action={{ href: "/admin/posts", label: <I18nText zh="打开" en="Open" /> }} />
+        <MetricCard value={runningJobs} label={<I18nText zh="运行中任务" en="Running jobs" />} action={{ href: "/admin/jobs?status=RUNNING", label: <I18nText zh="打开" en="Open" /> }} />
+        <MetricCard value={failed7d} label={<I18nText zh="近 7 天失败任务" en="Failed jobs (7d)" />} tone={failed7d > 0 ? "danger" : "normal"} action={{ href: "/admin/jobs?status=FAILED", label: <I18nText zh="打开" en="Open" /> }} />
+        <MetricCard value={`${defaultSources} / ${sources}`} label={<I18nText zh="默认 / 总来源" en="Default / total sources" />} action={{ href: "/admin/sources", label: <I18nText zh="打开" en="Open" /> }} />
+        <MetricCard value={published} label={<I18nText zh="已发布文章" en="Published posts" />} action={{ href: "/admin/posts", label: <I18nText zh="打开" en="Open" /> }} />
+        <MetricCard value={videos} label={<I18nText zh="视频资源" en="Videos" />} action={{ href: "/admin/videos", label: <I18nText zh="打开" en="Open" /> }} />
       </div>
 
       <div className="admin-action-grid" style={{ marginTop: 24 }}>
         <section className="admin-panel">
-          <h2>默认来源抓取</h2>
+          <h2><I18nText zh="默认来源抓取" en="Fetch Default Sources" /></h2>
           <form className="form-stack" action="/api/admin/run" method="post">
             <ContentStyleSelect styles={contentStyles} id="defaultContentStyleId" />
-            <button className="button" type="submit">开始抓取</button>
-            <p className="muted">当前会从 {defaultSources} 个启用的默认来源创建任务。</p>
+            <SubmitButton pendingLabel={<I18nText zh="正在创建任务…" en="Creating jobs…" />}><I18nText zh="开始抓取" en="Start Fetching" /></SubmitButton>
+            <p className="muted">
+              <I18nText
+                zh={`当前会从 ${defaultSources} 个启用的默认来源创建任务。`}
+                en={`Jobs will be created from ${defaultSources} enabled default sources.`}
+              />
+            </p>
           </form>
         </section>
         <section className="admin-panel">
-          <h2>关键词生成文章</h2>
+          <h2><I18nText zh="关键词生成文章" en="Generate from Keyword" /></h2>
           <form className="form-stack" action="/api/admin/run" method="post">
             <div className="field">
-              <label htmlFor="keyword">关键词或选题</label>
+              <label htmlFor="keyword"><I18nText zh="关键词或选题" en="Keyword or topic" /></label>
               <input id="keyword" name="keyword" required placeholder="例如：人工智能监管 / Nvidia 财报" />
             </div>
             <div className="field-row">
               <div className="field">
-                <label htmlFor="keywordScope">搜索范围</label>
+                <label htmlFor="keywordScope"><I18nText zh="搜索范围" en="Search scope" /></label>
                 <select id="keywordScope" name="keywordScope" defaultValue="all">
-                  <option value="all">国内 + 国外</option>
-                  <option value="domestic">国内来源</option>
-                  <option value="international">国外来源</option>
+                  <option value="all">国内 + 国外 / All</option>
+                  <option value="domestic">国内来源 / Domestic</option>
+                  <option value="international">国外来源 / International</option>
                 </select>
               </div>
               <div className="field">
-                <label htmlFor="articleCount">生成篇数</label>
+                <label htmlFor="articleCount"><I18nText zh="生成篇数" en="Article count" /></label>
                 <input id="articleCount" name="articleCount" type="number" min="1" max="5" defaultValue="1" />
               </div>
             </div>
             <div className="field">
-              <label htmlFor="articleDepth">文章长度</label>
+              <label htmlFor="articleDepth"><I18nText zh="文章长度" en="Article length" /></label>
               <select id="articleDepth" name="articleDepth" defaultValue="long">
-                <option value="standard">标准文章（至少 1100 字，目标 1200）</option>
-                <option value="long">长文章（至少 1900 字，目标 2000）</option>
-                <option value="deep">深度长文（至少 3000 字，目标 3200）</option>
+                <option value="standard">标准（≥1100 字）/ Standard</option>
+                <option value="long">长文（≥1900 字）/ Long</option>
+                <option value="deep">深度长文（≥3000 字）/ In-depth</option>
               </select>
             </div>
             <ContentStyleSelect styles={contentStyles} id="keywordContentStyleId" />
-            <button className="button" type="submit">生成草稿</button>
+            <SubmitButton pendingLabel={<I18nText zh="正在创建任务…" en="Creating jobs…" />}><I18nText zh="生成草稿" en="Generate Draft" /></SubmitButton>
           </form>
         </section>
       </div>
 
       <section className="admin-panel" style={{ marginTop: 24 }}>
-        <h2>工作成效</h2>
+        <h2><I18nText zh="工作成效" en="Throughput" /></h2>
         <div className="stats-grid">
-          <MetricBar label="近 7 天生成文章" value={postsCreated7d} max={maxMetric} />
-          <MetricBar label="近 7 天发布文章" value={published7d} max={maxMetric} />
-          <MetricBar label="近 7 天失败任务" value={failed7d} max={maxMetric} />
+          <MetricBar label={<I18nText zh="近 7 天生成文章" en="Posts created (7d)" />} value={postsCreated7d} max={maxMetric} />
+          <MetricBar label={<I18nText zh="近 7 天发布文章" en="Posts published (7d)" />} value={published7d} max={maxMetric} />
+          <MetricBar label={<I18nText zh="近 7 天失败任务" en="Failed jobs (7d)" />} value={failed7d} max={maxMetric} />
         </div>
         <div className="stats-grid" style={{ marginTop: 24 }}>
           {jobStats.map((item) => (
-            <MetricBar key={item.status} label={`任务 ${item.status}`} value={item.count} max={maxJobCount} />
+            <MetricBar key={item.status} label={<I18nText zh={`任务 ${item.status}`} en={`Jobs ${item.status}`} />} value={item.count} max={maxJobCount} />
           ))}
         </div>
       </section>
 
       <section className="admin-panel" style={{ marginTop: 24 }}>
         <div className="meta-row" style={{ justifyContent: "space-between", alignItems: "center" }}>
-          <h2 style={{ margin: 0 }}>最近任务</h2>
-          <Link className="text-link" href="/admin/jobs">查看全部任务</Link>
+          <h2 style={{ margin: 0 }}><I18nText zh="最近任务" en="Recent Jobs" /></h2>
+          <Link className="text-link" href="/admin/jobs"><I18nText zh="查看全部任务" en="View all jobs" /></Link>
         </div>
         <div className="table-list">
           {jobs.map((job) => (
             <div className="table-item" key={job.id}>
               <div>
-                <strong>{getJobTitle(job)}</strong>
+                <strong>{getJobTitleLabel(job)}</strong>
                 <div className="muted">{getJobMeta(job)} · <RelativeTime value={job.createdAt} /> · {getJobDuration(job)}</div>
-                {job.error ? <p className="muted">错误：{job.error}</p> : null}
+                {job.error ? <p className="muted"><I18nText zh="错误" en="Error" />：{job.error}</p> : null}
               </div>
               <div className="row-actions">
                 <StatusPill status={job.status} />
-                <Link className="button secondary" href={`/admin/jobs/${job.id}`}>详情</Link>
+                <Link className="button secondary" href={`/admin/jobs/${job.id}`}><I18nText zh="详情" en="Details" /></Link>
               </div>
             </div>
           ))}
@@ -155,7 +152,7 @@ export default async function AdminDashboardPage() {
   );
 }
 
-function MetricBar({ label, value, max }: { label: string; value: number; max: number }) {
+function MetricBar({ label, value, max }: { label: React.ReactNode; value: number; max: number }) {
   return (
     <div className="metric-card">
       <div className="meta-row">
@@ -172,6 +169,6 @@ function MetricBar({ label, value, max }: { label: string; value: number; max: n
 function getJobDuration(job: DashboardJob) {
   const end = job.completedAt || (job.status === "RUNNING" ? new Date() : job.updatedAt);
   const seconds = Math.max(0, Math.round((end.getTime() - job.createdAt.getTime()) / 1000));
-  if (seconds < 60) return `耗时 ${seconds} 秒`;
-  return `耗时 ${Math.round(seconds / 60)} 分钟`;
+  if (seconds < 60) return `${seconds}s`;
+  return `${Math.round(seconds / 60)}min`;
 }

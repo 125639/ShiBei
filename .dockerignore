@@ -1,9 +1,13 @@
 node_modules
 .next
 .env
+.env.local
 .git
 postgres-data
 redis-data
 playwright-report
 npm-debug.log
 public/uploads
+.demo-pg
+picture
+tsconfig.tsbuildinfo

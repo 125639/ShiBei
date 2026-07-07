@@ -1,29 +1,143 @@
-/* eslint-disable @typescript-eslint/no-explicit-any */
 "use client";
 
 import { useState, useEffect } from "react";
+import type { AdminUser, ContentStyle, ModelConfig, SiteSettings } from "@prisma/client";
 import { ConfirmButton } from "@/components/ConfirmButton";
 import { I18nText } from "@/components/I18nText";
 import { MetricCard } from "@/components/MetricCard";
+import { SubmitButton } from "@/components/SubmitButton";
 import { CONTENT_MODE_OPTIONS, contentModeLabel } from "@/lib/content-style";
 import { LANGUAGE_OPTIONS, CONTENT_LANGUAGE_MODE_OPTIONS } from "@/lib/language";
 import { MODEL_PROVIDER_PRESETS, providerLabel } from "@/lib/model-providers";
-import { FONTS, THEMES } from "@/lib/themes";
+import { FONTS, THEMES, UI_STYLES } from "@/lib/themes";
 
 const SETTINGS_TABS = [
-  { key: "site", zh: "基础展示", en: "Site", icon: "□" },
-  { key: "content", zh: "内容生产", en: "Content", icon: "✎" },
-  { key: "models", zh: "模型", en: "Models", icon: "◆" },
-  { key: "prompts", zh: "提示词", en: "Prompts", icon: "❝" },
-  { key: "media", zh: "媒体视频", en: "Media", icon: "▷" },
-  { key: "storage", zh: "存储清理", en: "Storage", icon: "⚙" },
-  { key: "external", zh: "外部服务", en: "External", icon: "⇄" },
-  { key: "account", zh: "账号", en: "Account", icon: "○" }
+  { key: "site", zh: "基础展示", en: "Site" },
+  { key: "content", zh: "内容生产", en: "Content" },
+  { key: "models", zh: "模型", en: "Models" },
+  { key: "prompts", zh: "提示词", en: "Prompts" },
+  { key: "media", zh: "媒体视频", en: "Media" },
+  { key: "storage", zh: "存储清理", en: "Storage" },
+  { key: "external", zh: "外部服务", en: "External" },
+  { key: "account", zh: "账号", en: "Account" }
 ] as const;
+
+// Plain Unicode glyphs (□ ✎ ◆ ❝ ⚙ ...) come from unrelated Unicode blocks and
+// render at inconsistent sizes/baselines across fonts — no CSS alignment fixes
+// that, since the mismatch is baked into each glyph's own metrics. A small
+// shared SVG set with one viewBox/stroke-width guarantees they all line up.
+const TAB_ICON_PROPS = {
+  viewBox: "0 0 18 18",
+  fill: "none",
+  stroke: "currentColor",
+  strokeWidth: 1.4,
+  strokeLinecap: "round" as const,
+  strokeLinejoin: "round" as const
+};
+
+const TAB_ICONS: Record<(typeof SETTINGS_TABS)[number]["key"], React.ReactNode> = {
+  site: (
+    <svg {...TAB_ICON_PROPS}>
+      <rect x="2.5" y="3.5" width="13" height="11" rx="1.5" />
+      <line x1="2.5" y1="7" x2="15.5" y2="7" />
+    </svg>
+  ),
+  content: (
+    <svg {...TAB_ICON_PROPS}>
+      <path d="M11.5 3.5l3 3L6 15H3v-3z" />
+    </svg>
+  ),
+  models: (
+    <svg {...TAB_ICON_PROPS}>
+      <path d="M9 2.5L15.5 9 9 15.5 2.5 9z" />
+    </svg>
+  ),
+  prompts: (
+    <svg {...TAB_ICON_PROPS}>
+      <rect x="3" y="6" width="4" height="5" rx="1" />
+      <rect x="11" y="6" width="4" height="5" rx="1" />
+    </svg>
+  ),
+  media: (
+    <svg {...TAB_ICON_PROPS}>
+      <path d="M6 4l8 5-8 5V4z" />
+    </svg>
+  ),
+  storage: (
+    <svg {...TAB_ICON_PROPS}>
+      <circle cx="9" cy="9" r="2.6" />
+      <path d="M9 2.8v2M9 12.2v2M2.8 9h2M13.2 9h2M4.5 4.5l1.4 1.4M12.1 12.1l1.4 1.4M4.5 13.5l1.4-1.4M12.1 5.9l1.4-1.4" />
+    </svg>
+  ),
+  external: (
+    <svg {...TAB_ICON_PROPS}>
+      <path d="M2.5 6.5h11M10.5 3.5l3 3-3 3" />
+      <path d="M15.5 11.5h-11M7.5 14.5l-3-3 3-3" />
+    </svg>
+  ),
+  account: (
+    <svg {...TAB_ICON_PROPS}>
+      <circle cx="9" cy="6.2" r="3" />
+      <path d="M3 15c0-3 2.7-5 6-5s6 2 6 5" />
+    </svg>
+  )
+};
 
 type SettingsTab = typeof SETTINGS_TABS[number]["key"];
 
 const SITE_FORM_TABS = new Set<SettingsTab>(["site", "content", "models", "media", "storage", "external"]);
+
+type SettingsSite = Partial<Pick<
+  SiteSettings,
+  | "name"
+  | "description"
+  | "ownerName"
+  | "defaultTheme"
+  | "defaultFont"
+  | "defaultLanguage"
+  | "defaultSettingsUI"
+  | "autoPublish"
+  | "contentLanguageMode"
+  | "globalPromptPrefix"
+  | "contentModelConfigId"
+  | "assistantModelConfigId"
+  | "writingModelConfigId"
+  | "translationModelConfigId"
+  | "autoImageSearchEnabled"
+  | "textOnlyMode"
+  | "videosEnabled"
+  | "musicEnabledDefault"
+  | "maxStorageMb"
+  | "cleanupAfterDays"
+  | "cleanupCustomEnabled"
+  | "exaEnabled"
+  | "exaApiKeyEnc"
+>>;
+
+type ModelConfigItem = Pick<
+  ModelConfig,
+  "id" | "provider" | "name" | "baseUrl" | "model" | "temperature" | "maxTokens" | "stream" | "isDefault"
+>;
+
+type ContentStyleItem = Pick<
+  ContentStyle,
+  "id" | "name" | "contentMode" | "tone" | "length" | "focus" | "outputStructure" | "customInstructions" | "isDefault"
+>;
+
+type AdminItem = Pick<AdminUser, "username"> | null;
+
+type StorageSummary = {
+  uploadsBytes: string;
+  imageBytes: string;
+  musicBytes: string;
+  videoBytes: string;
+  postCount: number;
+  rawItemCount: number;
+  fetchJobCount: number;
+  approxDbBytesEstimate: string;
+  maxStorageMb: number;
+  cleanupAfterDays: number;
+} | null;
 
 function isSettingsTab(value: string): value is SettingsTab {
   return SETTINGS_TABS.some((tab) => tab.key === value);
@@ -38,16 +152,30 @@ export function SettingsClient({
   initialTab = "site",
   savedFlag = false
 }: {
-  site: any;
-  modelConfigs: any[];
-  styles: any[];
-  admin: any;
-  storage: any;
+  site: SettingsSite | null;
+  modelConfigs: ModelConfigItem[];
+  styles: ContentStyleItem[];
+  admin: AdminItem;
+  storage: StorageSummary;
   initialTab?: string;
   savedFlag?: boolean;
 }) {
   const [activeTab, setActiveTab] = useState<SettingsTab>(isSettingsTab(initialTab) ? initialTab : "site");
   const [savedVisible, setSavedVisible] = useState<boolean>(savedFlag);
+
+  // 切换标签时同步到 ?tab=，这样刷新 / 分享链接不会丢当前所在的设置页。
+  // 用 replaceState 而不是 router.replace：纯 URL 记录，不需要触发服务端重取。
+  function switchTab(next: SettingsTab) {
+    setActiveTab(next);
+    try {
+      const url = new URL(window.location.href);
+      url.searchParams.set("tab", next);
+      url.searchParams.delete("saved");
+      window.history.replaceState(null, "", url.toString());
+    } catch {
+      /* URL 操作失败不影响功能 */
+    }
+  }
 
   // 让"已保存"提示在 ~2.5s 后淡出，避免一直占着视野。
   // savedFlag 由 server 根据 ?saved=1 query 传入，刷新页面只在保存后那一次显示。
@@ -57,7 +185,7 @@ export function SettingsClient({
     return () => clearTimeout(t);
   }, [savedFlag]);
 
-  const s = site || {};
+  const s: SettingsSite = site || {};
 
   return (
     <div className="settings-layout">
@@ -71,16 +199,16 @@ export function SettingsClient({
           const idx = order.indexOf(activeTab);
           if (event.key === "ArrowDown" || event.key === "ArrowRight") {
             event.preventDefault();
-            setActiveTab(order[(idx + 1) % order.length]);
+            switchTab(order[(idx + 1) % order.length]);
           } else if (event.key === "ArrowUp" || event.key === "ArrowLeft") {
             event.preventDefault();
-            setActiveTab(order[(idx - 1 + order.length) % order.length]);
+            switchTab(order[(idx - 1 + order.length) % order.length]);
           } else if (event.key === "Home") {
             event.preventDefault();
-            setActiveTab(order[0]);
+            switchTab(order[0]);
           } else if (event.key === "End") {
             event.preventDefault();
-            setActiveTab(order[order.length - 1]);
+            switchTab(order[order.length - 1]);
           }
         }}
       >
@@ -99,9 +227,9 @@ export function SettingsClient({
               aria-selected={isActive}
               tabIndex={isActive ? 0 : -1}
               className={isActive ? "active" : ""}
-              onClick={() => setActiveTab(tab.key)}
+              onClick={() => switchTab(tab.key)}
             >
-              <span className="settings-side-nav-icon" aria-hidden="true">{tab.icon}</span>
+              <span className="settings-side-nav-icon" aria-hidden="true">{TAB_ICONS[tab.key]}</span>
               <I18nText zh={tab.zh} en={tab.en} />
             </button>
           );
@@ -162,11 +290,11 @@ export function SettingsClient({
                 </select>
               </div>
               <div className="field">
-                <label htmlFor="defaultSettingsUI"><I18nText zh="前台设置页风格" en="Frontend Settings UI" /></label>
+                <label htmlFor="defaultSettingsUI"><I18nText zh="默认界面风格" en="Default UI Style" /></label>
                 <select id="defaultSettingsUI" name="defaultSettingsUI" defaultValue={String(s?.defaultSettingsUI ?? "classic")}>
-                  <option value="classic">经典风格</option>
-                  <option value="cyber">科技风格</option>
-                  <option value="dynamic">动态风格</option>
+                  {UI_STYLES.map((style) => (
+                    <option key={style.key} value={style.key}>{style.zh}</option>
+                  ))}
                 </select>
               </div>
             </div>
@@ -221,6 +349,10 @@ export function SettingsClient({
             <SectionTitle title={<I18nText zh="媒体与视频策略" en="Media & Video" />} />
             <div className="settings-check-list">
               <label>
+                <input type="checkbox" name="videosEnabled" value="true" defaultChecked={Boolean(s?.videosEnabled)} />{" "}
+                <I18nText zh="启用视频功能（默认关闭：前台不展示任何视频，自动抓取也不收集视频链接）" en="Enable videos (off by default: nothing renders publicly and crawls skip video links)" />
+              </label>
+              <label>
                 <input type="hidden" name="autoImageSearchEnabled" value="false" />
                 <input type="checkbox" name="autoImageSearchEnabled" value="true" defaultChecked={s?.autoImageSearchEnabled !== false} />{" "}
                 <I18nText zh="自动搜索并插入相关图片" en="Automatically search and insert related images" />
@@ -236,8 +368,8 @@ export function SettingsClient({
             </div>
             <p className="muted-block">
               <I18nText
-                zh="自动流程只搜索相关视频链接或可嵌入播放器，不再下载视频文件；本地上传的视频可在文章中以嵌入或链接方式展示，并支持拖拽排序与三档预设位置。"
-                en="Automatic runs only keep video links or embeddable players; no video files are downloaded. Manually uploaded videos render as embeds or links and support drag reordering with three preset placements."
+                zh="视频没有独立页面，只以短代码嵌入在文章正文中。开启视频功能后，自动流程会把识别到的视频以原平台链接形式挂进文章；管理员可在「视频库」把某条视频下载到本地，之后文章内直接用本地播放器播放。"
+                en="Videos have no standalone page; they only embed inside posts via shortcodes. With videos enabled, automatic runs attach discovered videos as links to their original platform; from the Videos library the admin can download one locally so the post plays it with a local player."
               />
             </p>
           </section>
@@ -272,9 +404,9 @@ export function SettingsClient({
             </div>
           </section>
 
-          <button className="button" type="submit">
+          <SubmitButton pendingLabel={<I18nText zh="保存中…" en="Saving…" />}>
             <I18nText zh="保存当前设置" en="Save Settings" />
-          </button>
+          </SubmitButton>
         </form>
       ) : null}
 
@@ -284,23 +416,23 @@ export function SettingsClient({
             <h2 style={{ marginTop: 0 }}><I18nText zh="新增模型配置" en="New Model Config" /></h2>
             <div className="field">
               <label htmlFor="provider"><I18nText zh="模型服务商预设" en="Model Provider Preset" /></label>
-              <select id="provider" name="provider" defaultValue="canopywave">
+              <select id="provider" name="provider" defaultValue="custom">
                 {MODEL_PROVIDER_PRESETS.map((preset) => (
-                  <option key={preset.key} value={preset.key}>{preset.label} · {preset.model}</option>
+                  <option key={preset.key} value={preset.key}>{preset.model ? `${preset.label} · ${preset.model}` : preset.label}</option>
                 ))}
               </select>
             </div>
             <div className="field">
               <label htmlFor="modelName"><I18nText zh="配置名称" en="Config Name" /></label>
-              <input id="modelName" name="name" required placeholder="例如：CanopyWave Kimi" />
+              <input id="modelName" name="name" required placeholder="例如：我的模型" />
             </div>
             <div className="field">
               <label htmlFor="baseUrl">Base URL</label>
-              <input id="baseUrl" name="baseUrl" required placeholder="https://inference.canopywave.io/v1" />
+              <input id="baseUrl" name="baseUrl" required placeholder="https://api.example.com/v1" />
             </div>
             <div className="field">
               <label htmlFor="model">Model</label>
-              <input id="model" name="model" required placeholder="moonshotai/kimi-k2.6" />
+              <input id="model" name="model" required placeholder="模型名，例如 gpt-4o-mini" />
             </div>
             <div className="field">
               <label htmlFor="apiKey">API Key</label>
@@ -318,7 +450,7 @@ export function SettingsClient({
             </div>
             <label><input type="checkbox" name="stream" value="true" /> <I18nText zh="启用流式生成" en="Enable Streaming" /></label>
             <label><input type="checkbox" name="isDefault" value="true" defaultChecked /> <I18nText zh="设为默认模型" en="Set as Default Model" /></label>
-            <button className="button" type="submit"><I18nText zh="保存模型配置" en="Save Model Config" /></button>
+            <SubmitButton pendingLabel={<I18nText zh="保存中…" en="Saving…" />}><I18nText zh="保存模型配置" en="Save Model Config" /></SubmitButton>
           </form>
 
           <section className="admin-panel">
@@ -330,13 +462,13 @@ export function SettingsClient({
                     <div className="meta-row" style={{ alignItems: "center", justifyContent: "space-between" }}>
                       <div>
                         <strong>{config.name}</strong>
-                        <div className="muted">{providerLabel((config as { provider?: string }).provider)} · {config.baseUrl} · {config.model}</div>
+                        <div className="muted">{providerLabel(config.provider)} · {config.baseUrl} · {config.model}</div>
                       </div>
                       <span className="tag">{config.isDefault ? <I18nText zh="默认" en="Default" /> : <I18nText zh="备用" en="Backup" />}</span>
                     </div>
                     <div className="field-row">
                       <div className="field">
-                        <label htmlFor={`model-name-${config.id}`}>名称</label>
+                        <label htmlFor={`model-name-${config.id}`}><I18nText zh="名称" en="Name" /></label>
                         <input id={`model-name-${config.id}`} name="name" defaultValue={config.name} required />
                       </div>
                       <div className="field">
@@ -359,13 +491,13 @@ export function SettingsClient({
                       </div>
                     </div>
                     <div className="field">
-                      <label htmlFor={`api-key-${config.id}`}>替换 API Key</label>
+                      <label htmlFor={`api-key-${config.id}`}><I18nText zh="替换 API Key" en="Replace API Key" /></label>
                       <input id={`api-key-${config.id}`} name="apiKey" type="password" placeholder="留空则不修改；解密失败时在这里重新填写" />
                     </div>
                     <div className="meta-row" style={{ alignItems: "center" }}>
-                      <label><input type="checkbox" name="stream" value="true" defaultChecked={config.stream} /> 流式</label>
-                      <label><input type="checkbox" name="isDefault" value="true" defaultChecked={config.isDefault} /> 设为默认</label>
-                      <button className="button secondary" type="submit">更新此模型</button>
+                      <label><input type="checkbox" name="stream" value="true" defaultChecked={config.stream} /> <I18nText zh="流式" en="Streaming" /></label>
+                      <label><input type="checkbox" name="isDefault" value="true" defaultChecked={config.isDefault} /> <I18nText zh="设为默认" en="Default" /></label>
+                      <SubmitButton className="button secondary" pendingLabel={<I18nText zh="更新中…" en="Updating…" />}><I18nText zh="更新此模型" en="Update Model" /></SubmitButton>
                     </div>
                   </form>
                 </div>
@@ -427,7 +559,7 @@ export function SettingsClient({
               <textarea id="customInstructions" name="customInstructions" defaultValue="写一篇有深度的中文博客文章，要求正式标题、导语段落、分章节连贯叙述，禁止写成摘要或要点列表。" />
             </div>
             <label><input type="checkbox" name="isDefault" value="true" /> <I18nText zh="设为默认风格" en="Set as Default Style" /></label>
-            <button className="button" type="submit"><I18nText zh="保存内容风格" en="Save Content Style" /></button>
+            <SubmitButton pendingLabel={<I18nText zh="保存中…" en="Saving…" />}><I18nText zh="保存内容风格" en="Save Content Style" /></SubmitButton>
           </form>
 
           <section className="admin-panel">
@@ -445,11 +577,11 @@ export function SettingsClient({
                     </div>
                     <div className="field-row">
                       <div className="field">
-                        <label htmlFor={`style-name-${style.id}`}>名称</label>
+                        <label htmlFor={`style-name-${style.id}`}><I18nText zh="名称" en="Name" /></label>
                         <input id={`style-name-${style.id}`} name="name" defaultValue={style.name} required />
                       </div>
                       <div className="field">
-                        <label htmlFor={`style-mode-${style.id}`}>内容体裁</label>
+                        <label htmlFor={`style-mode-${style.id}`}><I18nText zh="内容体裁" en="Content mode" /></label>
                         <select id={`style-mode-${style.id}`} name="contentMode" defaultValue={style.contentMode || "report"}>
                           {CONTENT_MODE_OPTIONS.map((mode) => (
                             <option key={mode.value} value={mode.value}>{mode.label}</option>
@@ -459,11 +591,11 @@ export function SettingsClient({
                     </div>
                     <div className="field-row">
                       <div className="field">
-                        <label htmlFor={`style-tone-${style.id}`}>输出风格</label>
+                        <label htmlFor={`style-tone-${style.id}`}><I18nText zh="输出风格" en="Tone" /></label>
                         <input id={`style-tone-${style.id}`} name="tone" defaultValue={style.tone} />
                       </div>
                       <div className="field">
-                        <label htmlFor={`style-length-${style.id}`}>篇幅</label>
+                        <label htmlFor={`style-length-${style.id}`}><I18nText zh="篇幅" en="Length" /></label>
                         <select id={`style-length-${style.id}`} name="length" defaultValue={style.length || "中"}>
                           <option>短</option>
                           <option>中</option>
@@ -472,20 +604,20 @@ export function SettingsClient({
                       </div>
                     </div>
                     <div className="field">
-                      <label htmlFor={`style-focus-${style.id}`}>关注重点</label>
+                      <label htmlFor={`style-focus-${style.id}`}><I18nText zh="关注重点" en="Focus" /></label>
                       <input id={`style-focus-${style.id}`} name="focus" defaultValue={style.focus} />
                     </div>
                     <div className="field">
-                      <label htmlFor={`style-output-${style.id}`}>输出结构</label>
+                      <label htmlFor={`style-output-${style.id}`}><I18nText zh="输出结构" en="Output structure" /></label>
                       <input id={`style-output-${style.id}`} name="outputStructure" defaultValue={style.outputStructure} />
                     </div>
                     <div className="field">
-                      <label htmlFor={`style-custom-${style.id}`}>自定义提示词</label>
+                      <label htmlFor={`style-custom-${style.id}`}><I18nText zh="自定义提示词" en="Custom instructions" /></label>
                       <textarea id={`style-custom-${style.id}`} name="customInstructions" defaultValue={style.customInstructions || ""} />
                     </div>
                     <div className="meta-row" style={{ alignItems: "center" }}>
-                      <label><input type="checkbox" name="isDefault" value="true" defaultChecked={style.isDefault} /> 设为默认</label>
-                      <button className="button secondary" type="submit">更新风格</button>
+                      <label><input type="checkbox" name="isDefault" value="true" defaultChecked={style.isDefault} /> <I18nText zh="设为默认" en="Default" /></label>
+                      <SubmitButton className="button secondary" pendingLabel="更新中…">更新风格</SubmitButton>
                       <ConfirmButton
                         message={`确定删除写作风格「${style.name}」?此操作无法撤销。`}
                         name="_intent"
@@ -519,7 +651,7 @@ export function SettingsClient({
             <MetricCard label={<I18nText zh="清理阈值" en="Cleanup Threshold" />} value={`> ${storage.cleanupAfterDays} days`} />
           </div>
           <form action="/api/admin/storage/cleanup" method="post" style={{ marginTop: 16 }}>
-            <button className="button secondary" type="submit"><I18nText zh="立即按当前规则清理" en="Clean Up Now" /></button>
+            <SubmitButton className="button secondary" pendingLabel={<I18nText zh="清理中…" en="Cleaning…" />}><I18nText zh="立即按当前规则清理" en="Clean Up Now" /></SubmitButton>
           </form>
         </section>
       ) : null}
@@ -535,7 +667,7 @@ export function SettingsClient({
             <label htmlFor="password"><I18nText zh="新密码" en="New Password" /></label>
             <input id="password" name="password" type="password" placeholder="留空则不修改" />
           </div>
-          <button className="button" type="submit"><I18nText zh="保存账号" en="Save Account" /></button>
+          <SubmitButton pendingLabel={<I18nText zh="保存中…" en="Saving…" />}><I18nText zh="保存账号" en="Save Account" /></SubmitButton>
         </form>
       ) : null}
       </main>
@@ -547,7 +679,7 @@ function SectionTitle({ title }: { title: React.ReactNode }) {
   return <h2 style={{ marginTop: 0 }}>{title}</h2>;
 }
 
-function ModelSelect({ id, label, value, configs }: { id: string; label: React.ReactNode; value: string; configs: any[] }) {
+function ModelSelect({ id, label, value, configs }: { id: string; label: React.ReactNode; value: string; configs: ModelConfigItem[] }) {
   return (
     <div className="field">
       <label htmlFor={id}>{label}</label>

@@ -3,7 +3,7 @@ import { requireAdmin } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { revalidatePublicContent } from "@/lib/revalidate-public";
 import { redirectTo } from "@/lib/redirect";
-import { normalizeVideoDisplayMode } from "@/lib/video-display";
+import { normalizeVideoDisplayMode, removeVideoShortcode } from "@/lib/video-display";
 
 // 把 Video 关联到 / 解除关联到 一篇文章。
 // POST /api/admin/videos/attach
@@ -20,7 +20,10 @@ export async function POST(request: Request) {
     : {};
   if (!id) return NextResponse.json({ error: "missing video id" }, { status: 400 });
 
-  const video = await prisma.video.findUnique({ where: { id }, include: { post: { select: { slug: true } } } });
+  const video = await prisma.video.findUnique({
+    where: { id },
+    include: { post: { select: { id: true, slug: true, content: true, contentEn: true } } }
+  });
   if (!video) return NextResponse.json({ error: "video not found" }, { status: 404 });
 
   let nextPostSlug: string | null = null;
@@ -39,12 +42,29 @@ export async function POST(request: Request) {
     });
   }
 
+  // 挂到别的文章或解除关联时，把原文章正文里的短代码一并清掉：
+  // 渲染层按 ID 解析短代码而不看归属，留着会让"已移走"的视频继续内嵌展示。
+  const previousPost = video.post;
+  if (previousPost && previousPost.id !== postIdRaw && postContainsShortcode(previousPost, id)) {
+    await prisma.post.update({
+      where: { id: previousPost.id },
+      data: {
+        content: removeVideoShortcode(previousPost.content, id),
+        ...(previousPost.contentEn ? { contentEn: removeVideoShortcode(previousPost.contentEn, id) } : {})
+      }
+    });
+  }
+
   revalidatePublicContent([
-    `/videos/${id}`,
-    video.post ? `/posts/${video.post.slug}` : null,
+    previousPost ? `/posts/${previousPost.slug}` : null,
     nextPostSlug ? `/posts/${nextPostSlug}` : null
   ]);
   return redirectTo(redirect);
+}
+
+function postContainsShortcode(post: { content: string; contentEn: string | null }, videoId: string) {
+  const token = `[[video:${videoId}]]`;
+  return post.content.includes(token) || Boolean(post.contentEn?.includes(token));
 }
 
 function safeRedirectPath(value: string) {

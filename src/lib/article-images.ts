@@ -11,6 +11,7 @@ import {
 import { escapeHtml, hostFromUrl } from "./html";
 import { prisma } from "./prisma";
 import { IMAGE_DIR } from "./storage";
+import { extractKeywords } from "./text-keywords";
 import { insertMarkdownBlock, normalizeVideoPlacement, type VideoPlacement } from "./video-display";
 
 export type ScrapedArticleImage = {
@@ -44,28 +45,6 @@ export type EmbedArticleImagesResult = {
 
 const IMAGE_TRACKER_DOMAINS = ["trk.", "px.", "tracker.", "pixel.", "gravatar.com", "stats."];
 
-const CN_STOPWORDS = new Set([
-  "的", "了", "是", "在", "和", "与", "或", "及", "对", "对于", "为", "为了", "等",
-  "也", "都", "就", "而", "但", "及其", "其", "之", "之类", "这", "那", "我们", "他们",
-  "她们", "它们", "你们", "我", "你", "他", "她", "它", "我们的", "本", "该", "这些",
-  "那些", "从", "到", "向", "上", "下", "中", "里", "外", "前", "后", "如", "若", "并",
-  "并且", "而且", "或者", "因为", "所以", "如果", "因此", "据", "据悉", "表示", "认为",
-  "已经", "已", "可以", "可能", "不", "没有", "没"
-]);
-
-const EN_STOPWORDS = new Set([
-  "the", "a", "an", "and", "or", "but", "of", "to", "in", "on", "at", "for", "by",
-  "with", "from", "as", "is", "are", "was", "were", "be", "been", "being", "this",
-  "that", "these", "those", "it", "its", "they", "them", "their", "we", "our", "us",
-  "you", "your", "he", "she", "him", "her", "his", "hers", "i", "my", "me", "mine",
-  "yours", "ours", "theirs", "do", "does", "did", "have", "has", "had", "will",
-  "would", "could", "should", "may", "might", "can", "must", "not", "no", "yes",
-  "if", "then", "than", "so", "such", "what", "which", "who", "whom", "whose",
-  "where", "when", "why", "how", "about", "after", "before", "between", "during",
-  "into", "out", "over", "under", "again", "further", "more", "most", "some", "any",
-  "all", "each", "every", "few", "many", "other", "another"
-]);
-
 export function normalizeArticleImagePlacement(value: unknown): ArticleImagePlacement {
   return normalizeVideoPlacement(value);
 }
@@ -76,28 +55,7 @@ export function withImageSource(images: ScrapedArticleImage[], sourcePageUrl: st
 
 export function extractPostKeywords(title: string, summary: string): string[] {
   // 只取标题和摘要里的高频词，作为图片 alt 相关性打分的轻量信号。
-  const text = `${title || ""} ${(summary || "").slice(0, 200)}`.toLowerCase();
-  const counts = new Map<string, number>();
-
-  const enMatches = text.match(/[a-z0-9][a-z0-9-]{2,}/g) || [];
-  for (const word of enMatches) {
-    if (EN_STOPWORDS.has(word)) continue;
-    counts.set(word, (counts.get(word) || 0) + 1);
-  }
-
-  const cjkRuns = text.match(/[一-鿿]+/g) || [];
-  for (const run of cjkRuns) {
-    for (let i = 0; i < run.length - 1; i += 1) {
-      const bigram = run.slice(i, i + 2);
-      if (CN_STOPWORDS.has(bigram) || CN_STOPWORDS.has(bigram[0]) || CN_STOPWORDS.has(bigram[1])) continue;
-      counts.set(bigram, (counts.get(bigram) || 0) + 1);
-    }
-  }
-
-  return [...counts.entries()]
-    .sort((a, b) => b[1] - a[1])
-    .slice(0, 8)
-    .map(([key]) => key);
+  return extractKeywords(`${title || ""} ${(summary || "").slice(0, 200)}`, 8);
 }
 
 export function canonicalizeArticleImageUrl(url: string): string {

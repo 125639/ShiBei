@@ -18,5 +18,7 @@
     "paths": { "@/*": ["./src/*"] }
   },
   "include": ["next-env.d.ts", "**/*.ts", "**/*.tsx", ".next/types/**/*.ts"],
-  "exclude": ["node_modules"]
+  // scripts/demo-db.ts 是本机演示辅助脚本，依赖临时安装（--no-save）的
+  // embedded-postgres，不参与部署构建，排除出类型检查。
+  "exclude": ["node_modules", "scripts/demo-db.ts"]
 }

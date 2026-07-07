@@ -1,6 +1,9 @@
+import Link from "next/link";
 import { AdminShell } from "@/components/AdminShell";
 import { BulkSourceActions, type ListSource } from "@/components/BulkSourceActions";
 import { ContentStyleSelect } from "@/components/ContentStyleSelect";
+import { I18nText } from "@/components/I18nText";
+import { SubmitButton } from "@/components/SubmitButton";
 import { requireAdmin } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 
@@ -88,31 +91,42 @@ export default async function SourcesPage({
   return (
     <AdminShell>
       <p className="eyebrow">Sources</p>
-      <h1>信息源与视频源</h1>
+      <h1><I18nText zh="信息源与视频源" en="Information & Video Sources" /></h1>
 
       {modules.length > 0 && (
         <div className="topic-tabs">
-          <a className={!filterModule ? "active" : ""} href="/admin/sources">
-            全部
-          </a>
+          <Link className={!filterModule ? "active" : ""} href="/admin/sources" aria-current={!filterModule ? "page" : undefined}>
+            <I18nText zh="全部" en="All" />
+          </Link>
           {modules.map((m) => (
-            <a
+            <Link
               key={m.id}
               className={filterModule === m.slug ? "active" : ""}
+              aria-current={filterModule === m.slug ? "page" : undefined}
               href={`/admin/sources?module=${m.slug}`}
               style={{ borderColor: m.color }}
             >
               {m.name}
-            </a>
+            </Link>
           ))}
         </div>
       )}
 
+      {filterModule && sources.length === 0 ? (
+        <p className="muted-block">
+          <I18nText
+            zh={`模块「${modules.find((m) => m.slug === filterModule)?.name || filterModule}」下还没有信息源。`}
+            en={`No sources in module "${modules.find((m) => m.slug === filterModule)?.name || filterModule}" yet.`}
+          />{" "}
+          <Link className="text-link" href="/admin/sources"><I18nText zh="查看全部来源" en="View all sources" /></Link>
+        </p>
+      ) : null}
+
       <div className="admin-grid">
         <form className="form-card form-stack" action="/api/admin/sources" method="post">
-          <h2>添加信息源</h2>
+          <h2><I18nText zh="添加信息源" en="Add Source" /></h2>
           <div className="field">
-            <label htmlFor="name">名称</label>
+            <label htmlFor="name"><I18nText zh="名称" en="Name" /></label>
             <input id="name" name="name" required placeholder="例如：某博客 RSS / 行业站点" />
           </div>
           <div className="field">
@@ -121,26 +135,26 @@ export default async function SourcesPage({
           </div>
           <div className="field-row">
             <div className="field">
-              <label htmlFor="type">类型</label>
+              <label htmlFor="type"><I18nText zh="类型" en="Type" /></label>
               <select id="type" name="type" defaultValue="WEB">
-                <option value="WEB">网页 URL</option>
+                <option value="WEB"><I18nText zh="网页 URL" en="Web URL" /></option>
                 <option value="RSS">RSS</option>
-                <option value="VIDEO">视频资源</option>
-                <option value="EXA">Exa 检索</option>
+                <option value="VIDEO"><I18nText zh="视频资源" en="Video" /></option>
+                <option value="EXA"><I18nText zh="Exa 检索" en="Exa Search" /></option>
               </select>
             </div>
             <div className="field">
-              <label htmlFor="region">地区</label>
+              <label htmlFor="region"><I18nText zh="地区" en="Region" /></label>
               <select id="region" name="region" defaultValue="UNKNOWN">
-                <option value="UNKNOWN">未指定</option>
-                <option value="DOMESTIC">国内</option>
-                <option value="INTERNATIONAL">国外</option>
+                <option value="UNKNOWN"><I18nText zh="未指定" en="Unknown" /></option>
+                <option value="DOMESTIC"><I18nText zh="国内" en="Domestic" /></option>
+                <option value="INTERNATIONAL"><I18nText zh="国外" en="International" /></option>
               </select>
             </div>
           </div>
           {modules.length > 0 && (
             <div className="field">
-              <label>所属模块（可多选）</label>
+              <label><I18nText zh="所属模块（可多选）" en="Modules (multiple)" /></label>
               <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
                 {modules.map((m) => (
                   <label key={m.id} className="tag" style={{ cursor: "pointer", borderColor: m.color }}>
@@ -152,62 +166,62 @@ export default async function SourcesPage({
             </div>
           )}
           <div className="field">
-            <label htmlFor="popularity">知名度（选填，留空将自动估算）</label>
+            <label htmlFor="popularity"><I18nText zh="知名度（选填，留空将自动估算）" en="Popularity (optional, auto-estimated if empty)" /></label>
             <input id="popularity" name="popularity" type="number" min="0" placeholder="例如：1200000" />
           </div>
-          <label><input type="checkbox" name="isDefault" value="true" /> 设为默认来源</label>
-          <button className="button" type="submit">保存来源</button>
+          <label><input type="checkbox" name="isDefault" value="true" /> <I18nText zh="设为默认来源" en="Set as default source" /></label>
+          <SubmitButton pendingLabel={<I18nText zh="保存中…" en="Saving…" />}><I18nText zh="保存来源" en="Save Source" /></SubmitButton>
         </form>
 
         <form className="form-card form-stack" action="/api/admin/run" method="post">
-          <h2>临时抓取</h2>
-          <p>不保存为默认来源，也可以临时添加到本次任务。</p>
+          <h2><I18nText zh="临时抓取" en="Temporary Fetch" /></h2>
+          <p><I18nText zh="不保存为默认来源，也可以临时添加到本次任务。" en="Fetch without saving as default source." /></p>
           <div className="field">
-            <label htmlFor="tempUrl">临时 URL</label>
+            <label htmlFor="tempUrl"><I18nText zh="临时 URL" en="Temporary URL" /></label>
             <input id="tempUrl" name="tempUrl" type="url" placeholder="https://example.com/posts" />
           </div>
           <div className="field">
-            <label htmlFor="tempType">类型</label>
+            <label htmlFor="tempType"><I18nText zh="类型" en="Type" /></label>
             <select id="tempType" name="tempType" defaultValue="WEB">
-              <option value="WEB">网页 URL</option>
+              <option value="WEB"><I18nText zh="网页 URL" en="Web URL" /></option>
               <option value="RSS">RSS</option>
-              <option value="VIDEO">视频资源</option>
+              <option value="VIDEO"><I18nText zh="视频资源" en="Video" /></option>
             </select>
           </div>
-          <label><input type="checkbox" name="saveTemp" value="true" /> 保存为默认来源</label>
+          <label><input type="checkbox" name="saveTemp" value="true" /> <I18nText zh="保存为默认来源" en="Save as default source" /></label>
           <ContentStyleSelect styles={contentStyles} id="tempContentStyleId" />
-          <button className="button" type="submit">抓取临时来源</button>
+          <SubmitButton pendingLabel={<I18nText zh="正在创建任务…" en="Creating job…" />}><I18nText zh="抓取临时来源" en="Fetch Temporary Source" /></SubmitButton>
         </form>
 
         <form className="form-card form-stack" action="/api/admin/run" method="post">
-          <h2>关键词生成文章</h2>
-          <p>输入选题后，系统会先搜索资料，再按选定风格生成文章草稿。</p>
+          <h2><I18nText zh="关键词生成文章" en="Generate Article from Keywords" /></h2>
+          <p><I18nText zh="输入选题后，系统会先搜索资料，再按选定风格生成文章草稿。" en="Enter a topic and the system will search for materials and generate an article draft." /></p>
           <div className="field">
-            <label htmlFor="keyword">关键词或选题</label>
+            <label htmlFor="keyword"><I18nText zh="关键词或选题" en="Keywords or Topic" /></label>
             <input id="keyword" name="keyword" required placeholder="例如：电动汽车价格战 / OpenAI 新模型" />
           </div>
           <div className="field">
-            <label htmlFor="keywordScope">搜索范围</label>
+            <label htmlFor="keywordScope"><I18nText zh="搜索范围" en="Search Scope" /></label>
             <select id="keywordScope" name="keywordScope" defaultValue="all">
-              <option value="all">国内 + 国外</option>
-              <option value="domestic">国内来源</option>
-              <option value="international">国外来源</option>
+              <option value="all"><I18nText zh="国内 + 国外" en="Domestic + International" /></option>
+              <option value="domestic"><I18nText zh="国内来源" en="Domestic Sources" /></option>
+              <option value="international"><I18nText zh="国外来源" en="International Sources" /></option>
             </select>
           </div>
           <div className="field">
-            <label htmlFor="articleCount">生成篇数</label>
+            <label htmlFor="articleCount"><I18nText zh="生成篇数" en="Number of Articles" /></label>
             <input id="articleCount" name="articleCount" type="number" min="1" max="5" defaultValue="1" />
           </div>
           <div className="field">
-            <label htmlFor="articleDepth">文章长度</label>
+            <label htmlFor="articleDepth"><I18nText zh="文章长度" en="Article Length" /></label>
             <select id="articleDepth" name="articleDepth" defaultValue="long">
-              <option value="standard">标准文章（至少 1100 字，目标 1200）</option>
-              <option value="long">长文章（至少 1900 字，目标 2000）</option>
-              <option value="deep">深度长文（至少 3000 字，目标 3200）</option>
+              <option value="standard"><I18nText zh="标准文章（至少 1100 字，目标 1200）" en="Standard (min 1100 words, target 1200)" /></option>
+              <option value="long"><I18nText zh="长文章（至少 1900 字，目标 2000）" en="Long (min 1900 words, target 2000)" /></option>
+              <option value="deep"><I18nText zh="深度长文（至少 3000 字，目标 3200）" en="Deep (min 3000 words, target 3200)" /></option>
             </select>
           </div>
           <ContentStyleSelect styles={contentStyles} id="sourceKeywordContentStyleId" />
-          <button className="button" type="submit">搜索资料并生成文章草稿</button>
+          <SubmitButton pendingLabel={<I18nText zh="正在创建任务…" en="Creating job…" />}><I18nText zh="搜索资料并生成文章草稿" en="Search & Generate Draft" /></SubmitButton>
         </form>
       </div>
 

@@ -4,7 +4,6 @@ export function revalidatePublicContent(paths: Array<string | null | undefined> 
   const allPaths = new Set([
     "/",
     "/posts",
-    "/videos",
     "/stats",
     "/feed.xml",
     "/sitemap.xml",
@@ -12,4 +11,6 @@ export function revalidatePublicContent(paths: Array<string | null | undefined> 
   ]);
   for (const path of allPaths) revalidatePath(path);
   revalidateTag("stats");
+  // 首页数据缓存（见 (public)/page.tsx getHomePageData）：内容一变立即失效。
+  revalidateTag("public-content");
 }
