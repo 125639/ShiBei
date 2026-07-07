@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { ActiveLink } from "@/components/ActiveLink";
+import { ArticleToc } from "@/components/ArticleToc";
 import { FFCalendar } from "@/components/FFCalendar";
 import { I18nText } from "@/components/I18nText";
 import { MusicPlayer } from "@/components/MusicPlayer";
@@ -174,6 +175,10 @@ export async function PublicShell({ children }: { children: React.ReactNode }) {
               </div>
             </dl>
           </section>
+
+          {/* 文章目录：官方 Firefly 的侧栏小组件形态。放在最后 + sticky，
+              前面的组件滚过后目录钉在视口跟随全文；非文章页自动隐藏（null）。 */}
+          <ArticleToc variant="ff-widget" />
         </aside>
       </div>
 

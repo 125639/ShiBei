@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { usePathname } from "next/navigation";
 import { I18nText } from "./I18nText";
 
 type TocItem = { id: string; text: string; level: 2 | 3 };
@@ -11,8 +12,20 @@ type TocItem = { id: string; text: string; level: 2 | 3 };
  *
  * 内容是客户端渲染的（语言切换 / 翻译到达时会整块替换），
  * 所以用 MutationObserver 监听容器变化后重扫，而不是只在挂载时扫一次。
+ *
+ * variant="ff-widget"：包上 Firefly 侧栏小组件外框（对齐官方主题的
+ * 「文章目录」侧栏组件）。该实例挂在 PublicShell（layout，跨导航常驻），
+ * 所以观察目标在容器缺席时退回 document.body，并随 pathname 重扫，
+ * 保证从列表页导航进文章后目录能出现。没有标题时整个组件返回 null。
  */
-export function ArticleToc({ containerSelector = "article.prose" }: { containerSelector?: string }) {
+export function ArticleToc({
+  containerSelector = "article.prose",
+  variant = "plain"
+}: {
+  containerSelector?: string;
+  variant?: "plain" | "ff-widget";
+}) {
+  const pathname = usePathname();
   const [items, setItems] = useState<TocItem[]>([]);
   const [activeId, setActiveId] = useState("");
   const didHashScroll = useRef(false);
@@ -38,19 +51,20 @@ export function ArticleToc({ containerSelector = "article.prose" }: { containerS
 
   useEffect(() => {
     scan();
+    // 容器还没渲染（页面流式到达/尚在列表页）时观察 body 等它出现；
+    // 一旦有容器就只观察容器，避免整页级别的无谓回调。
     const container = document.querySelector(containerSelector);
-    if (!container) return;
     let timer: ReturnType<typeof setTimeout> | undefined;
     const observer = new MutationObserver(() => {
       clearTimeout(timer);
       timer = setTimeout(scan, 150);
     });
-    observer.observe(container, { childList: true, subtree: true });
+    observer.observe(container ?? document.body, { childList: true, subtree: true });
     return () => {
       observer.disconnect();
       clearTimeout(timer);
     };
-  }, [scan, containerSelector]);
+  }, [scan, containerSelector, pathname]);
 
   // 滚动高亮：最后一个顶部越过阅读线（顶栏下方）的小节即当前小节
   useEffect(() => {
@@ -101,11 +115,13 @@ export function ArticleToc({ containerSelector = "article.prose" }: { containerS
 
   if (items.length < 2) return null;
 
-  return (
+  const nav = (
     <nav className="article-toc" aria-label="文章小节导航">
-      <p className="article-toc-title">
-        <I18nText zh="本文小节" en="On this page" />
-      </p>
+      {variant === "plain" ? (
+        <p className="article-toc-title">
+          <I18nText zh="本文小节" en="On this page" />
+        </p>
+      ) : null}
       <ol>
         {items.map((item) => (
           <li key={item.id} className={item.level === 3 ? "toc-depth-2" : undefined}>
@@ -122,4 +138,17 @@ export function ArticleToc({ containerSelector = "article.prose" }: { containerS
       </ol>
     </nav>
   );
+
+  if (variant === "ff-widget") {
+    return (
+      <section className="ff-widget ff-toc-widget">
+        <h2 className="ff-widget-title">
+          <I18nText zh="文章目录" en="On this page" />
+        </h2>
+        {nav}
+      </section>
+    );
+  }
+
+  return nav;
 }
