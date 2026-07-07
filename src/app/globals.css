@@ -6245,6 +6245,27 @@ button:disabled {
   box-shadow: var(--ff-shadow-hover);
 }
 
+/* 文章目录小组件（对齐官方 Firefly 的侧栏「文章目录」）：
+   放在右栏最后 + sticky，前面的组件滚过后目录钉住跟随全文。
+   右栏必须 align-self:stretch——.ff-body 是 align-items:start，
+   不拉伸则栏高=内容高，sticky 没有可移动区间（与 .article-toc-rail 同款陷阱）。 */
+:root[data-ui="firefly"] .ff-rail-right {
+  align-self: stretch;
+}
+
+:root[data-ui="firefly"] .ff-toc-widget {
+  position: sticky;
+  top: 96px;
+  max-height: calc(100vh - 128px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+:root[data-ui="firefly"] .ff-toc-widget .article-toc a {
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
 :root[data-ui="firefly"] .ff-widget-title {
   position: relative;
   margin: 0 0 12px;
@@ -7069,6 +7090,12 @@ button:disabled {
   :root[data-ui="firefly"] .ff-rail-right {
     display: none;
   }
+
+  /* 右栏（含目录小组件）在此宽度隐藏，而 ≥1200px 的通用规则又藏起了
+     折叠目录——把折叠目录还给 firefly 的 1200-1280 区间，避免无目录可用 */
+  :root[data-ui="firefly"] .article-toc-mobile {
+    display: block;
+  }
 }
 
 @media (max-width: 980px) {
@@ -7870,6 +7897,16 @@ a.bento-card:hover .text-link {
     /* 父网格 align-items:start 会把本列压缩成目录自身高度，
        sticky 失去可移动区间——拉伸满行高才能全程跟随滚动 */
     align-self: stretch;
+  }
+
+  /* Firefly：目录是右侧栏小组件（见 PublicShell 的 ff-toc-widget，
+     对齐官方主题），正文卡片不再分出 216px 列挤压行宽 */
+  :root[data-ui="firefly"] .article-body-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  :root[data-ui="firefly"] .article-toc-rail {
+    display: none;
   }
 
   .article-toc-mobile {

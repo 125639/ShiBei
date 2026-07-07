@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState, type FormEvent, type KeyboardEvent, type ReactNode } from "react";
+import { createPortal } from "react-dom";
 import { useUserPrefs } from "./useUserPrefs";
 import { I18nText } from "./I18nText";
 
@@ -179,9 +180,15 @@ export function AiAssistant({
     void sendMessage(input);
   }
 
-  return (
+  // Portal 到 body：dock 由页面内容渲染，但视觉上是全局悬浮层。若留在
+  // 页面子树里，祖先 .route-transition 的 transform 进入动画（fill-mode
+  // 保持填充）会成为 position:fixed 的包含块，把「悬浮」按钮钉到文章
+  // 最底部（2026-07-07 线上实际发生）。挂到 body 后与任何动画容器解耦。
+  if (!ready) return null;
+
+  return createPortal(
     <aside
-      className={`ai-assistant-dock${open ? " open" : ""}${ready ? " ready" : ""}`}
+      className={`ai-assistant-dock ready${open ? " open" : ""}`}
       aria-label={hydrated && prefs.language === "en" ? "AI Assistant" : "AI 助手"}
     >
       <button
@@ -277,6 +284,7 @@ export function AiAssistant({
           </div>
         </form>
       </section>
-    </aside>
+    </aside>,
+    document.body
   );
 }
