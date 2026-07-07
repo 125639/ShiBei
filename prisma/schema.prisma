@@ -72,6 +72,7 @@ model SiteSettings {
   defaultTheme             String   @default("apple")
   defaultFont              String   @default("sans-cjk")
   textOnlyMode             Boolean  @default(false)
+  videosEnabled            Boolean  @default(false)
   maxStorageMb             Int      @default(2048)
   cleanupAfterDays         Int      @default(30)
   cleanupCustomEnabled     Boolean  @default(false)
@@ -247,6 +248,8 @@ model Video {
   sourcePageUrl  String?
   localPath      String?
   fileSizeBytes  Int?
+  downloadStatus String?      @db.VarChar(16)
+  downloadError  String?      @db.Text
   attribution    String?      @db.Text
   postId         String?
   post           Post?        @relation(fields: [postId], references: [id], onDelete: SetNull)
@@ -317,6 +320,87 @@ model AutoSchedule {
   updatedAt  DateTime     @updatedAt
 
   @@index([isEnabled, nextRunAt])
+}
+
+// ============ 共创工作室（读者访谈式创作） ============
+
+enum CreationMode {
+  VOICE_FIRST // 读者的话为主：AI 只补结构和连接
+  AI_FIRST // AI 的话为主：读者回答作为素材
+}
+
+enum CreationDepth {
+  SHORT // 3 个问题 → 短评
+  FULL // 8-10 个问题 → 完整文章
+}
+
+enum CreationStatus {
+  INTERVIEWING
+  DRAFT
+  SHARED
+}
+
+model MemberUser {
+  id           String         @id @default(cuid())
+  email        String         @unique
+  passwordHash String
+  displayName  String?
+  createdAt    DateTime       @default(now())
+  updatedAt    DateTime       @updatedAt
+  works        CreativeWork[]
+}
+
+// 题材即评分标尺：选题材的同时确定评分维度、权重与公开阈值。
+// dimensions 是 JSON 数组 [{ key, label, weight, hint }]，权重和为 1。
+model CreationGenre {
+  id          String         @id @default(cuid())
+  slug        String         @unique
+  name        String
+  description String         @default("")
+  dimensions  String         @db.Text
+  threshold   Int            @default(70)
+  sortOrder   Int            @default(0)
+  isEnabled   Boolean        @default(true)
+  createdAt   DateTime       @default(now())
+  updatedAt   DateTime       @updatedAt
+  works       CreativeWork[]
+}
+
+// 读者与 AI 共创的作品。默认私有：只有 status=SHARED 才对外可见。
+// 匿名创作用 anonId(cookie) 标识所有权、clientIp 做未登录生成配额；
+// scoredHash 记录评分时的内容哈希，发布时哈希不一致必须重新评分。
+model CreativeWork {
+  id               String         @id @default(cuid())
+  slug             String?        @unique
+  ownerId          String?
+  owner            MemberUser?    @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  anonId           String?
+  clientIp         String?
+  genreId          String
+  genre            CreationGenre  @relation(fields: [genreId], references: [id], onDelete: Restrict)
+  mode             CreationMode
+  depth            CreationDepth
+  status           CreationStatus @default(INTERVIEWING)
+  topic            String
+  interview        String         @default("[]") @db.Text
+  pendingQuestion  String?        @db.Text
+  title            String         @default("")
+  summary          String         @default("") @db.Text
+  content          String         @default("") @db.Text
+  draftGeneratedAt DateTime?
+  score            Float?
+  scoreDetail      String?        @db.Text
+  scoredAt         DateTime?
+  scoredHash       String?
+  publishedAt      DateTime?
+  createdAt        DateTime       @default(now())
+  updatedAt        DateTime       @updatedAt
+
+  @@index([status, publishedAt])
+  @@index([ownerId, updatedAt])
+  @@index([anonId, updatedAt])
+  @@index([clientIp, draftGeneratedAt])
+  @@index([genreId])
 }
 
 // Frontend / backend / full 间的同步状态。仅一行（id="sync"）。

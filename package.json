@@ -14,6 +14,9 @@
     "prisma:deploy": "prisma migrate deploy",
     "db:seed": "tsx prisma/seed.ts",
     "repair:article-images": "tsx scripts/repair-article-images.ts",
+    "repair:post-videos": "tsx scripts/redistribute-post-videos.ts",
+    "repair:post-i18n": "tsx scripts/backfill-post-i18n.ts",
+    "repair:post-topics": "tsx scripts/backfill-post-topics.ts",
     "worker": "tsx src/worker/index.ts",
     "sync-worker": "tsx src/sync-worker/index.ts"
   },
@@ -26,7 +29,6 @@
     "bcryptjs": "^2.4.3",
     "bullmq": "^5.34.3",
     "feedparser": "^2.2.10",
-    "framer-motion": "^12.38.0",
     "ioredis": "^5.4.2",
     "isomorphic-dompurify": "^3.12.0",
     "jose": "^5.9.6",

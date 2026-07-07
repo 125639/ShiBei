@@ -2,6 +2,8 @@
 
 import Link from "next/link";
 import { useState } from "react";
+import { I18nText } from "./I18nText";
+import { SubmitButton } from "./SubmitButton";
 
 export type ListSource = {
   id: string;
@@ -31,7 +33,10 @@ function formatPopularity(value: number): string {
 export function BulkSourceActions({ sources, label }: { sources: ListSource[]; label: string }) {
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [editId, setEditId] = useState<string | null>(null);
-  const allSelected = sources.length > 0 && selectedIds.length === sources.length;
+  // 服务端重渲染后列表可能变化（删除/筛选），丢弃已不存在的选择，避免「已选 3 / 2」这类错乱。
+  const validIds = new Set(sources.map((s) => s.id));
+  const activeSelectedIds = selectedIds.filter((id) => validIds.has(id));
+  const allSelected = sources.length > 0 && activeSelectedIds.length === sources.length;
   const formKey = label.replace(/\s/g, "");
 
   function toggleAll(checked: boolean) {
@@ -45,148 +50,156 @@ export function BulkSourceActions({ sources, label }: { sources: ListSource[]; l
   function healthLabel(source: ListSource) {
     const failed = source.failed7d || 0;
     const success = source.success7d || 0;
-    if (!source.lastJobStatus) return "未验证";
-    if (source.lastJobStatus === "FAILED") return "最近失败";
-    if (failed >= 3 && success === 0) return "需检查";
-    if (success > 0) return "正常";
-    return source.lastJobStatus;
+    if (!source.lastJobStatus) return { zh: "未验证", en: "Not verified" };
+    if (source.lastJobStatus === "FAILED") return { zh: "最近失败", en: "Recent failure" };
+    if (failed >= 3 && success === 0) return { zh: "需检查", en: "Needs check" };
+    if (success > 0) return { zh: "正常", en: "Normal" };
+    return { zh: source.lastJobStatus, en: source.lastJobStatus };
   }
 
   function healthClass(source: ListSource) {
     const label = healthLabel(source);
-    if (label === "正常") return "source-health source-health-ok";
-    if (label === "最近失败" || label === "需检查") return "source-health source-health-bad";
+    if (label.zh === "正常") return "source-health source-health-ok";
+    if (label.zh === "最近失败" || label.zh === "需检查") return "source-health source-health-bad";
     return "source-health";
   }
 
   return (
     <section className="admin-panel" style={{ marginTop: 18 }}>
-      <h2>{label}</h2>
+      <h2><I18nText zh={label} en={label === "信息源" ? "Information Sources" : "Video Sources"} /></h2>
 
       <div className="bulk-toolbar">
         <label>
-          <input type="checkbox" checked={allSelected} onChange={(e) => toggleAll(e.target.checked)} /> 全选
+          <input type="checkbox" checked={allSelected} onChange={(e) => toggleAll(e.target.checked)} /> <I18nText zh="全选" en="Select All" />
         </label>
-        <span className="muted">已选择 {selectedIds.length} / {sources.length}</span>
+        <span className="muted"><I18nText zh={`已选择 ${activeSelectedIds.length} / ${sources.length}`} en={`Selected ${activeSelectedIds.length} / ${sources.length}`} /></span>
         <div style={{ display: "flex", gap: 8 }}>
           <form id={`bulk-estimate-${formKey}`} action="/api/admin/sources/estimate" method="post" style={{ display: "inline" }}>
-            {selectedIds.map((id) => (
+            {activeSelectedIds.map((id) => (
               <input key={id} type="hidden" name="sourceId" value={id} />
             ))}
-            <button className="button secondary" type="submit" disabled={!selectedIds.length} style={{ fontSize: 13, padding: "6px 10px" }}>
-              批量估算知名度
-            </button>
+            <SubmitButton
+              className="button secondary"
+              disabled={!activeSelectedIds.length}
+              style={{ fontSize: 13, padding: "6px 10px" }}
+              pendingLabel={<I18nText zh="估算中…" en="Estimating…" />}
+            >
+              <I18nText zh="批量估算知名度" en="Batch Estimate Popularity" />
+            </SubmitButton>
           </form>
           <form
             action="/api/admin/sources/delete"
             method="post"
             style={{ display: "inline" }}
             onSubmit={(e) => {
-              if (!selectedIds.length || !confirm(`确认删除选中的 ${selectedIds.length} 个来源？此操作不可撤销。`)) {
+              if (!activeSelectedIds.length || !confirm(`确认删除选中的 ${activeSelectedIds.length} 个来源？此操作不可撤销。`)) {
                 e.preventDefault();
               }
             }}
           >
-            {selectedIds.map((id) => (
+            {activeSelectedIds.map((id) => (
               <input key={id} type="hidden" name="sourceId" value={id} />
             ))}
-            <button className="danger-button" type="submit" disabled={!selectedIds.length} style={{ fontSize: 13, padding: "6px 10px" }}>
-              批量删除
+            <button className="danger-button" type="submit" disabled={!activeSelectedIds.length} style={{ fontSize: 13, padding: "6px 10px" }}>
+              <I18nText zh="批量删除" en="Batch Delete" />
             </button>
           </form>
         </div>
       </div>
 
       <div className="table-list" style={{ marginTop: 14 }}>
-        {sources.map((source) => (
-          <div className="table-item selectable-row" key={source.id}>
-            <label className="row-checkbox" aria-label={`选择 ${source.name}`}>
-              <input
-                type="checkbox"
-                checked={selectedIds.includes(source.id)}
-                onChange={(e) => toggleSource(source.id, e.target.checked)}
-              />
-            </label>
-            <div>
-              <strong>{source.name}</strong>
-              <div className="muted">{source.url}</div>
-              <div className="meta-row">
-                <span className="tag">{source.type}</span>
-                <span className="tag">{source.region || "UNKNOWN"}</span>
-                <span className="tag">{source.status}</span>
-                {source.isDefault ? <span className="tag">默认</span> : null}
-                <span
-                  className={healthClass(source)}
-                  title={source.lastJobAt ? `最近任务: ${new Date(source.lastJobAt).toLocaleString("zh-CN")}` : undefined}
-                >
-                  {healthLabel(source)}
-                </span>
-                <span className="tag">7 天成功 {source.success7d || 0}</span>
-                <span className="tag">7 天失败 {source.failed7d || 0}</span>
-                {source.popularity > 0 || source.popularityUpdatedAt ? (
+        {sources.map((source) => {
+          const health = healthLabel(source);
+          return (
+            <div className="table-item selectable-row" key={source.id}>
+              <label className="row-checkbox" aria-label={`选择 ${source.name}`}>
+                <input
+                  type="checkbox"
+                  checked={activeSelectedIds.includes(source.id)}
+                  onChange={(e) => toggleSource(source.id, e.target.checked)}
+                />
+              </label>
+              <div>
+                <strong>{source.name}</strong>
+                <div className="muted">{source.url}</div>
+                <div className="meta-row">
+                  <span className="tag">{source.type}</span>
+                  <span className="tag">{source.region || "UNKNOWN"}</span>
+                  <span className="tag">{source.status}</span>
+                  {source.isDefault ? <span className="tag"><I18nText zh="默认" en="Default" /></span> : null}
                   <span
-                    className="tag"
-                    title={source.popularityUpdatedAt ? `上次更新: ${new Date(source.popularityUpdatedAt).toLocaleString("zh-CN")}` : undefined}
+                    className={healthClass(source)}
+                    title={source.lastJobAt ? `最近任务: ${new Date(source.lastJobAt).toLocaleString("zh-CN")}` : undefined}
                   >
-                    知名度 {formatPopularity(source.popularity)}
+                    <I18nText zh={health.zh} en={health.en} />
                   </span>
-                ) : (
-                  <span className="tag" style={{ opacity: 0.55 }}>待估算</span>
-                )}
+                  <span className="tag"><I18nText zh={`7 天成功 ${source.success7d || 0}`} en={`7d success ${source.success7d || 0}`} /></span>
+                  <span className="tag"><I18nText zh={`7 天失败 ${source.failed7d || 0}`} en={`7d failed ${source.failed7d || 0}`} /></span>
+                  {source.popularity > 0 || source.popularityUpdatedAt ? (
+                    <span
+                      className="tag"
+                      title={source.popularityUpdatedAt ? `上次更新: ${new Date(source.popularityUpdatedAt).toLocaleString("zh-CN")}` : undefined}
+                    >
+                      <I18nText zh={`知名度 ${formatPopularity(source.popularity)}`} en={`Popularity ${formatPopularity(source.popularity)}`} />
+                    </span>
+                  ) : (
+                    <span className="tag" style={{ opacity: 0.55 }}><I18nText zh="待估算" en="Pending" /></span>
+                  )}
+                </div>
+                {source.lastJobError ? <p className="job-error">{source.lastJobError.slice(0, 180)}</p> : null}
+                {editId === source.id ? (
+                  <form
+                    className="form-stack"
+                    action="/api/admin/sources/update"
+                    method="post"
+                    style={{ marginTop: 8 }}
+                  >
+                    <input type="hidden" name="sourceId" value={source.id} />
+                    <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                      <input
+                        name="popularity"
+                        type="number"
+                        min="0"
+                        defaultValue={source.popularity}
+                        style={{ width: 160, padding: "6px 8px", border: "1px solid var(--line)", background: "rgba(255,250,242,0.86)", color: "var(--ink)" }}
+                        autoFocus
+                      />
+                      <button className="button" type="submit" style={{ padding: "6px 12px", fontSize: 13 }}><I18nText zh="保存" en="Save" /></button>
+                      <button className="button secondary" type="button" onClick={() => setEditId(null)} style={{ padding: "6px 12px", fontSize: 13 }}><I18nText zh="取消" en="Cancel" /></button>
+                    </div>
+                  </form>
+                ) : null}
               </div>
-              {source.lastJobError ? <p className="job-error">{source.lastJobError.slice(0, 180)}</p> : null}
-              {editId === source.id ? (
-                <form
-                  className="form-stack"
-                  action="/api/admin/sources/update"
-                  method="post"
-                  style={{ marginTop: 8 }}
-                >
+              <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "flex-start" }}>
+                <Link className="button secondary" href={`/admin/jobs?sourceId=${source.id}`} style={{ fontSize: 13, padding: "6px 10px" }}>
+                  <I18nText zh="任务" en="Jobs" />
+                </Link>
+                <form action="/api/admin/sources/estimate" method="post">
                   <input type="hidden" name="sourceId" value={source.id} />
-                  <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-                    <input
-                      name="popularity"
-                      type="number"
-                      min="0"
-                      defaultValue={source.popularity}
-                      style={{ width: 160, padding: "6px 8px", border: "1px solid var(--line)", background: "rgba(255,250,242,0.86)", color: "var(--ink)" }}
-                      autoFocus
-                    />
-                    <button className="button" type="submit" style={{ padding: "6px 12px", fontSize: 13 }}>保存</button>
-                    <button className="button secondary" type="button" onClick={() => setEditId(null)} style={{ padding: "6px 12px", fontSize: 13 }}>取消</button>
-                  </div>
+                  <SubmitButton className="button secondary" style={{ fontSize: 13, padding: "6px 10px" }} pendingLabel={<I18nText zh="估算中…" en="Estimating…" />}><I18nText zh="估算" en="Estimate" /></SubmitButton>
                 </form>
-              ) : null}
+                <button className="button secondary" type="button" onClick={() => setEditId(source.id)} style={{ fontSize: 13, padding: "6px 10px" }}><I18nText zh="编辑" en="Edit" /></button>
+                <form action="/api/admin/run" method="post" style={{ display: "inline" }}>
+                  <input type="hidden" name="sourceId" value={source.id} />
+                  <SubmitButton className="button secondary" style={{ fontSize: 13, padding: "6px 10px" }} pendingLabel={<I18nText zh="创建中…" en="Creating…" />}><I18nText zh="抓取" en="Fetch" /></SubmitButton>
+                </form>
+                <form action="/api/admin/sources/delete" method="post" style={{ display: "inline" }}>
+                  <input type="hidden" name="sourceId" value={source.id} />
+                  <button
+                    className="danger-button"
+                    type="submit"
+                    style={{ fontSize: 13, padding: "6px 10px" }}
+                    onClick={(e) => {
+                      if (!confirm(`确认删除来源「${source.name}」？此操作不可撤销。`)) e.preventDefault();
+                    }}
+                  >
+                    <I18nText zh="删除" en="Delete" />
+                  </button>
+                </form>
+              </div>
             </div>
-            <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "flex-start" }}>
-              <Link className="button secondary" href={`/admin/jobs?sourceId=${source.id}`} style={{ fontSize: 13, padding: "6px 10px" }}>
-                任务
-              </Link>
-              <form action="/api/admin/sources/estimate" method="post">
-                <input type="hidden" name="sourceId" value={source.id} />
-                <button className="button secondary" type="submit" style={{ fontSize: 13, padding: "6px 10px" }}>估算</button>
-              </form>
-              <button className="button secondary" type="button" onClick={() => setEditId(source.id)} style={{ fontSize: 13, padding: "6px 10px" }}>编辑</button>
-              <form action="/api/admin/run" method="post" style={{ display: "inline" }}>
-                <input type="hidden" name="sourceId" value={source.id} />
-                <button className="button secondary" type="submit" style={{ fontSize: 13, padding: "6px 10px" }}>抓取</button>
-              </form>
-              <form action="/api/admin/sources/delete" method="post" style={{ display: "inline" }}>
-                <input type="hidden" name="sourceId" value={source.id} />
-                <button
-                  className="danger-button"
-                  type="submit"
-                  style={{ fontSize: 13, padding: "6px 10px" }}
-                  onClick={(e) => {
-                    if (!confirm(`确认删除来源「${source.name}」？此操作不可撤销。`)) e.preventDefault();
-                  }}
-                >
-                  删除
-                </button>
-              </form>
-            </div>
-          </div>
-        ))}
+          );
+        })}
       </div>
     </section>
   );

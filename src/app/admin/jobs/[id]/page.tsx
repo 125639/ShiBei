@@ -1,58 +1,15 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import type { Prisma } from "@prisma/client";
 import { AdminShell } from "@/components/AdminShell";
+import { I18nText } from "@/components/I18nText";
 import { MetricCard } from "@/components/MetricCard";
+import { SubmitButton } from "@/components/SubmitButton";
 import { requireAdmin } from "@/lib/auth";
+import { formatDateTime, getJobDuration, getJobKindLabel, getJobTitleLabel } from "@/lib/job-utils";
 import { prisma } from "@/lib/prisma";
-import { parseKeywordResearchUrl, researchScopeLabel } from "@/lib/research";
 import { formatBytes } from "@/lib/storage";
 
 export const dynamic = "force-dynamic";
-
-type JobDetail = Prisma.FetchJobGetPayload<{
-  include: {
-    source: true;
-    contentTopic: true;
-    rawItems: {
-      include: {
-        post: {
-          include: {
-            videos: true;
-            tags: true;
-          };
-        };
-      };
-    };
-  };
-}>;
-
-function formatDateTime(value: Date | null | undefined) {
-  if (!value) return "—";
-  return value.toLocaleString("zh-CN");
-}
-
-function getDuration(job: JobDetail) {
-  const end = job.completedAt || (job.status === "RUNNING" ? new Date() : job.updatedAt);
-  const seconds = Math.max(0, Math.round((end.getTime() - job.createdAt.getTime()) / 1000));
-  if (seconds < 60) return `${seconds} 秒`;
-  if (seconds < 3600) return `${Math.round(seconds / 60)} 分钟`;
-  return `${(seconds / 3600).toFixed(1)} 小时`;
-}
-
-function getJobTitle(job: JobDetail) {
-  const keywordResearch = parseKeywordResearchUrl(job.sourceUrl);
-  if (keywordResearch) return `关键词生成：${keywordResearch.keyword}`;
-  return job.contentTopic?.name || job.source?.name || job.sourceUrl;
-}
-
-function getJobKind(job: JobDetail) {
-  const keywordResearch = parseKeywordResearchUrl(job.sourceUrl);
-  if (keywordResearch) {
-    return `关键词研究 · ${researchScopeLabel(keywordResearch.scope)} · ${keywordResearch.count} 篇 · ${keywordResearch.depth}`;
-  }
-  return job.sourceType;
-}
 
 function statusClass(status: string) {
   return `status-pill status-${status.toLowerCase()}`;
@@ -101,15 +58,15 @@ export default async function AdminJobDetailPage({
       <div className="admin-page-header">
         <div>
           <p className="eyebrow">Job Detail</p>
-          <h1>{getJobTitle(job)}</h1>
+          <h1>{getJobTitleLabel(job)}</h1>
           <div className="meta-row">
             <span className={statusClass(job.status)}>{job.status}</span>
-            <span className="tag">{getJobKind(job)}</span>
+            <span className="tag">{getJobKindLabel(job)}</span>
             {job.source ? <span className="tag">{job.source.name}</span> : null}
           </div>
         </div>
         <div className="admin-page-actions">
-          <Link className="button secondary" href="/admin/jobs">任务列表</Link>
+          <Link className="button secondary" href="/admin/jobs"><I18nText zh="任务列表" en="All Jobs" /></Link>
           <form action="/api/admin/run" method="post">
             {job.sourceId ? (
               <input type="hidden" name="sourceId" value={job.sourceId} />
@@ -120,43 +77,43 @@ export default async function AdminJobDetailPage({
               </>
             )}
             {job.contentStyleId ? <input type="hidden" name="contentStyleId" value={job.contentStyleId} /> : null}
-            <button className="button" type="submit">重跑任务</button>
+            <SubmitButton pendingLabel={<I18nText zh="提交中…" en="Submitting…" />}><I18nText zh="重跑任务" en="Re-run Job" /></SubmitButton>
           </form>
         </div>
       </div>
 
       <div className="admin-grid-3">
-        <MetricCard label="原始条目" value={job.rawItems.length} />
-        <MetricCard label="生成文章" value={rawItemsWithPosts.length} />
-        <MetricCard label="本地视频" value={`${localVideos.length} / ${formatBytes(totalLocalBytes)}`} />
+        <MetricCard label={<I18nText zh="原始条目" en="Raw items" />} value={job.rawItems.length} />
+        <MetricCard label={<I18nText zh="生成文章" en="Posts created" />} value={rawItemsWithPosts.length} />
+        <MetricCard label={<I18nText zh="本地视频" en="Local videos" />} value={`${localVideos.length} / ${formatBytes(totalLocalBytes)}`} />
       </div>
 
       <section className="admin-panel" style={{ marginTop: 24 }}>
-        <h2>执行信息</h2>
+        <h2><I18nText zh="执行信息" en="Execution Info" /></h2>
         <div className="diagnostic-grid">
-          <Info label="任务 ID" value={job.id} mono />
-          <Info label="来源 URL" value={job.sourceUrl} />
-          <Info label="来源类型" value={job.sourceType} />
-          <Info label="创建时间" value={formatDateTime(job.createdAt)} />
-          <Info label="更新时间" value={formatDateTime(job.updatedAt)} />
-          <Info label="完成时间" value={formatDateTime(job.completedAt)} />
-          <Info label="耗时" value={getDuration(job)} />
-          <Info label="模型配置" value={job.modelConfigId || "使用默认"} mono={Boolean(job.modelConfigId)} />
-          <Info label="内容风格" value={job.contentStyleId || "使用默认"} mono={Boolean(job.contentStyleId)} />
-          <Info label="自动主题" value={job.contentTopic?.name || "无"} />
+          <Info label={<I18nText zh="任务 ID" en="Job ID" />} value={job.id} mono />
+          <Info label={<I18nText zh="来源 URL" en="Source URL" />} value={job.sourceUrl} />
+          <Info label={<I18nText zh="来源类型" en="Source type" />} value={job.sourceType} />
+          <Info label={<I18nText zh="创建时间" en="Created" />} value={formatDateTime(job.createdAt)} />
+          <Info label={<I18nText zh="更新时间" en="Updated" />} value={formatDateTime(job.updatedAt)} />
+          <Info label={<I18nText zh="完成时间" en="Completed" />} value={formatDateTime(job.completedAt)} />
+          <Info label={<I18nText zh="耗时" en="Duration" />} value={getJobDuration(job)} />
+          <Info label={<I18nText zh="模型配置" en="Model config" />} value={job.modelConfigId || "默认 / default"} mono={Boolean(job.modelConfigId)} />
+          <Info label={<I18nText zh="内容风格" en="Content style" />} value={job.contentStyleId || "默认 / default"} mono={Boolean(job.contentStyleId)} />
+          <Info label={<I18nText zh="自动主题" en="Topic" />} value={job.contentTopic?.name || "—"} />
         </div>
         {job.error ? (
           <div className="diagnostic-error">
-            <strong>错误信息</strong>
+            <strong><I18nText zh="错误信息" en="Error" /></strong>
             <pre>{job.error}</pre>
           </div>
         ) : null}
       </section>
 
       <section className="admin-panel" style={{ marginTop: 24 }}>
-        <h2>产物</h2>
+        <h2><I18nText zh="产物" en="Artifacts" /></h2>
         {job.rawItems.length === 0 ? (
-          <p className="muted">还没有原始条目。若任务已失败，优先查看上方错误信息。</p>
+          <p className="muted"><I18nText zh="还没有原始条目。若任务已失败，优先查看上方错误信息。" en="No raw items yet. If the job failed, check the error above first." /></p>
         ) : (
           <div className="table-list">
             {job.rawItems.map((rawItem) => (
@@ -164,7 +121,7 @@ export default async function AdminJobDetailPage({
                 <div>
                   <strong>{rawItem.title}</strong>
                   <div className="muted">
-                    原始条目：<code>{rawItem.id}</code> · 创建 {formatDateTime(rawItem.createdAt)}
+                    <I18nText zh="原始条目：" en="Raw item: " /><code>{rawItem.id}</code> · <I18nText zh="创建" en="created" /> {formatDateTime(rawItem.createdAt)}
                   </div>
                   <div className="muted">{shortText(rawItem.url, 220)}</div>
                   {rawItem.post ? (
@@ -175,23 +132,23 @@ export default async function AdminJobDetailPage({
                       </div>
                       <p className="muted">{shortText(rawItem.post.summary, 220)}</p>
                       <div className="meta-row">
-                        <Link className="text-link" href={`/admin/posts/${rawItem.post.id}`}>编辑文章</Link>
-                        <Link className="text-link" href={`/posts/${rawItem.post.slug}`}>查看前台</Link>
-                        {rawItem.post.videos.length ? <span>视频 {rawItem.post.videos.length}</span> : null}
-                        {rawItem.post.tags.length ? <span>标签 {rawItem.post.tags.map((tag) => tag.name).join(" / ")}</span> : null}
+                        <Link className="text-link" href={`/admin/posts/${rawItem.post.id}`}><I18nText zh="编辑文章" en="Edit post" /></Link>
+                        <Link className="text-link" href={`/posts/${rawItem.post.slug}`}><I18nText zh="查看前台" en="View live" /></Link>
+                        {rawItem.post.videos.length ? <span><I18nText zh="视频" en="videos" /> {rawItem.post.videos.length}</span> : null}
+                        {rawItem.post.tags.length ? <span><I18nText zh="标签" en="tags" /> {rawItem.post.tags.map((tag) => tag.name).join(" / ")}</span> : null}
                       </div>
                       {rawItem.post.videos.length ? (
                         <div className="video-chip-list">
                           {rawItem.post.videos.map((video) => (
                             <span className="tag" key={video.id}>
-                              {video.type} · {video.sourcePlatform || "未知平台"}{video.fileSizeBytes ? ` · ${formatBytes(video.fileSizeBytes)}` : ""}
+                              {video.type} · {video.sourcePlatform || "—"}{video.fileSizeBytes ? ` · ${formatBytes(video.fileSizeBytes)}` : ""}
                             </span>
                           ))}
                         </div>
                       ) : null}
                     </div>
                   ) : (
-                    <p className="job-error">此原始条目尚未生成文章。</p>
+                    <p className="job-error"><I18nText zh="此原始条目尚未生成文章。" en="No post generated from this raw item yet." /></p>
                   )}
                 </div>
               </div>
@@ -203,7 +160,7 @@ export default async function AdminJobDetailPage({
   );
 }
 
-function Info({ label, value, mono = false }: { label: string; value: string; mono?: boolean }) {
+function Info({ label, value, mono = false }: { label: React.ReactNode; value: string; mono?: boolean }) {
   return (
     <div className="diagnostic-item">
       <span>{label}</span>

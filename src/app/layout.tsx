@@ -1,20 +1,47 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import "@fontsource-variable/noto-sans-sc";
 import "./globals.css";
 import { UserPreferencesScript } from "@/components/UserPreferencesScript";
 import { CustomCursor } from "@/components/CustomCursor";
+import { NavigationProgress } from "@/components/NavigationProgress";
 import { DEFAULT_LANGUAGE } from "@/lib/language";
 import { DEFAULT_DENSITY, DEFAULT_FONT, DEFAULT_THEME } from "@/lib/themes";
+import { getCachedSiteChromeSettings } from "@/lib/site-settings-cache";
 
-export const metadata: Metadata = {
-  metadataBase: safeMetadataBase(),
-  title: "拾贝 信息博客",
-  description: "抓取信息、AI 整理、人工审核发布的个人博客。",
-  alternates: {
-    types: {
-      "application/rss+xml": "/feed.xml"
+export async function generateMetadata(): Promise<Metadata> {
+  const settings = await getCachedSiteChromeSettings().catch(() => null);
+  const siteName = settings?.name || "拾贝 信息博客";
+  const description = settings?.description || "抓取信息、AI 整理、人工审核发布的个人博客。";
+
+  return {
+    metadataBase: safeMetadataBase(),
+    title: {
+      default: siteName,
+      template: `%s · ${siteName}`
+    },
+    description,
+    openGraph: {
+      type: "website",
+      siteName,
+      title: siteName,
+      description
+    },
+    alternates: {
+      types: {
+        "application/rss+xml": "/feed.xml"
+      }
     }
-  }
+  };
+}
+
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  viewportFit: "cover",
+  themeColor: [
+    { media: "(prefers-color-scheme: light)", color: "#ffffff" },
+    { media: "(prefers-color-scheme: dark)", color: "#0d1320" }
+  ]
 };
 
 function safeMetadataBase() {
@@ -25,18 +52,30 @@ function safeMetadataBase() {
   }
 }
 
-export default function RootLayout({ children }: { children: React.ReactNode }) {
-  const defaultTheme = DEFAULT_THEME;
-  const defaultFont = DEFAULT_FONT;
+export default async function RootLayout({ children }: { children: React.ReactNode }) {
+  // DB may be unreachable at build time (static prerender of e.g. /_not-found)
+  // or briefly during startup; fall back to compile-time defaults in that case.
+  const settings = await getCachedSiteChromeSettings().catch(() => null);
+  const defaultTheme = settings?.defaultTheme ?? DEFAULT_THEME;
+  const defaultFont = settings?.defaultFont ?? DEFAULT_FONT;
   const defaultDensity = DEFAULT_DENSITY;
-  const defaultLanguage = DEFAULT_LANGUAGE;
-  const defaultSettingsUI = "classic";
+  const defaultLanguage = settings?.defaultLanguage ?? DEFAULT_LANGUAGE;
+  const defaultSettingsUI = settings?.defaultSettingsUI ?? "classic";
 
   return (
-    <html lang={defaultLanguage === "en" ? "en" : "zh-CN"} data-theme={defaultTheme} data-font={defaultFont} data-density={defaultDensity} data-language={defaultLanguage} data-ui={defaultSettingsUI}>
+    // suppressHydrationWarning: UserPreferencesScript rewrites the data-* attributes
+    // from localStorage before React hydrates, so a saved preference that differs
+    // from the server-rendered default is expected, not a bug.
+    <html
+      lang={defaultLanguage === "en" ? "en" : "zh-CN"}
+      data-theme={defaultTheme}
+      data-font={defaultFont}
+      data-density={defaultDensity}
+      data-language={defaultLanguage}
+      data-ui={defaultSettingsUI}
+      suppressHydrationWarning
+    >
       <head>
-        <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-        <meta name="theme-color" content="#9f4f2f" />
         <UserPreferencesScript
           defaultTheme={defaultTheme}
           defaultFont={defaultFont}
@@ -46,6 +85,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         />
       </head>
       <body>
+        <NavigationProgress />
         {children}
         <CustomCursor />
       </body>

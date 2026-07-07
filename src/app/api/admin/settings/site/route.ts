@@ -1,10 +1,10 @@
-import { revalidateTag } from "next/cache";
+import { revalidatePath, revalidateTag } from "next/cache";
 import { requireAdmin } from "@/lib/auth";
 import { encryptSecret } from "@/lib/crypto";
 import { isLanguageKey, isContentLanguageMode } from "@/lib/language";
 import { prisma } from "@/lib/prisma";
 import { redirectTo } from "@/lib/redirect";
-import { isFontKey, isThemeKey } from "@/lib/themes";
+import { isFontKey, isThemeKey, isUiStyleKey } from "@/lib/themes";
 
 function clamp(value: number, min: number, max: number) {
   if (!Number.isFinite(value)) return min;
@@ -18,6 +18,7 @@ export async function POST(request: Request) {
 
   const autoPublish = form.get("autoPublish") === "true";
   const textOnlyMode = form.get("textOnlyMode") === "true";
+  const videosEnabled = form.get("videosEnabled") === "true";
   const exaEnabled = form.get("exaEnabled") === "true";
   const autoImageSearchEnabled = form.getAll("autoImageSearchEnabled").map(String).includes("true");
   const musicEnabledDefault = form.get("musicEnabledDefault") === "true";
@@ -32,7 +33,7 @@ export async function POST(request: Request) {
   const defaultFont = isFontKey(fontRaw) ? fontRaw : "sans-cjk";
   const defaultLanguage = isLanguageKey(languageRaw) ? languageRaw : "zh";
   const contentLanguageMode = isContentLanguageMode(contentLanguageModeRaw) ? contentLanguageModeRaw : "default-language";
-  const defaultSettingsUI = ["classic", "cyber", "dynamic"].includes(defaultSettingsUIRaw) ? defaultSettingsUIRaw : "classic";
+  const defaultSettingsUI = isUiStyleKey(defaultSettingsUIRaw) ? defaultSettingsUIRaw : "classic";
 
   const contentModelConfigId = normalizeOptionalId(form.get("contentModelConfigId"));
   const assistantModelConfigId = normalizeOptionalId(form.get("assistantModelConfigId"));
@@ -52,6 +53,7 @@ export async function POST(request: Request) {
     ownerName: String(form.get("ownerName") || "管理员"),
     autoPublish,
     textOnlyMode,
+    videosEnabled,
     defaultTheme,
     defaultFont,
     defaultLanguage,
@@ -80,6 +82,10 @@ export async function POST(request: Request) {
     }
   });
   revalidateTag("site-settings");
+  // 语言模式 / 视频开关等设置会影响 ISR 缓存的文章页与列表页，保存时一并失效。
+  revalidatePath("/posts/[slug]", "page");
+  revalidatePath("/posts");
+  revalidatePath("/");
   return redirectTo(`/admin/settings?tab=${settingsTab}&saved=1`);
 }
 

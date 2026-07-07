@@ -5,7 +5,7 @@ import { Fragment, useState, useEffect } from "react";
 import { useUserPrefs } from "./useUserPrefs";
 import { LANGUAGE_OPTIONS, languageLabel } from "@/lib/language";
 import { useTranslation } from "@/lib/i18n";
-import { CURSOR_STYLES, FONTS, THEMES, DENSITIES, DEFAULT_THEME, DEFAULT_FONT, DEFAULT_DENSITY } from "@/lib/themes";
+import { CURSOR_STYLES, FONTS, THEMES, DENSITIES, UI_STYLES, DEFAULT_THEME, DEFAULT_FONT, DEFAULT_DENSITY } from "@/lib/themes";
 
 export function UserSettingsClient({
   siteDefaults,
@@ -24,16 +24,33 @@ export function UserSettingsClient({
   const t = useTranslation(prefs.language || "zh");
 
   useEffect(() => {
-    fetch("/api/public/music")
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 8000);
+    fetch("/api/public/music", { signal: controller.signal })
       .then((res) => res.json())
       .then((data: { tracks?: Array<Record<string, string>> }) => {
         setTracks(Array.isArray(data?.tracks) ? data.tracks : []);
       })
-      .catch(() => {});
+      .catch(() => {})
+      .finally(() => clearTimeout(timeout));
+    return () => {
+      clearTimeout(timeout);
+      controller.abort();
+    };
   }, []);
 
   if (!hydrated) {
-    return <p className="muted">{t("loading")}</p>;
+    // hydration 前渲染占位骨架，避免整页只有一行文字导致的布局跳动。
+    return (
+      <div className="settings-shell" aria-busy="true">
+        <p className="muted" role="status">{t("loading")}</p>
+        <div className="option-grid" aria-hidden="true">
+          {Array.from({ length: 4 }, (_, i) => (
+            <div key={i} className="option-card" style={{ minHeight: 96, opacity: 0.4, pointerEvents: "none" }} />
+          ))}
+        </div>
+      </div>
+    );
   }
 
   const defaultTheme = siteDefaults.theme || DEFAULT_THEME;
@@ -47,39 +64,34 @@ export function UserSettingsClient({
         <p className="eyebrow">{t("interface")}</p>
         <h2>{t("uiStyle")}</h2>
         <p className="muted-block">
-          {t("sysDefault")}：<strong>{siteDefaults.ui === 'cyber' ? t("cyber") : siteDefaults.ui === 'dynamic' ? t("dynamic") : t("classic")}</strong>
+          {t("sysDefault")}：<strong>{uiStyleLabel(siteDefaults.ui, prefs.language)}</strong>
         </p>
         <div className="option-grid" role="radiogroup" aria-label="界面风格">
-          <button
-            type="button"
-            role="radio"
-            aria-checked={(prefs.ui === "system" ? siteDefaults.ui : prefs.ui) === "classic"}
-            className={`option-card${(prefs.ui === "system" ? siteDefaults.ui : prefs.ui) === "classic" ? " active" : ""}`}
-            onClick={() => update({ ui: "classic" })}
-          >
-            <span className="option-label">{t("classic")}</span>
-            <span className="option-meta">{t("classicDesc")}</span>
-          </button>
-          <button
-            type="button"
-            role="radio"
-            aria-checked={(prefs.ui === "system" ? siteDefaults.ui : prefs.ui) === "cyber"}
-            className={`option-card${(prefs.ui === "system" ? siteDefaults.ui : prefs.ui) === "cyber" ? " active" : ""}`}
-            onClick={() => update({ ui: "cyber" })}
-          >
-            <span className="option-label">{t("cyber")}</span>
-            <span className="option-meta">{t("cyberDesc")}</span>
-          </button>
-          <button
-            type="button"
-            role="radio"
-            aria-checked={(prefs.ui === "system" ? siteDefaults.ui : prefs.ui) === "dynamic"}
-            className={`option-card${(prefs.ui === "system" ? siteDefaults.ui : prefs.ui) === "dynamic" ? " active" : ""}`}
-            onClick={() => update({ ui: "dynamic" })}
-          >
-            <span className="option-label">{t("dynamic")}</span>
-            <span className="option-meta">{t("dynamicDesc")}</span>
-          </button>
+          {UI_STYLES.map((style) => {
+            const currentUI = prefs.ui === "system" ? siteDefaults.ui : prefs.ui;
+            const isActive = currentUI === style.key;
+            const isEn = prefs.language === "en";
+            return (
+              <button
+                key={style.key}
+                type="button"
+                role="radio"
+                aria-checked={isActive}
+                className={`option-card ui-style-card${isActive ? " active" : ""}`}
+                onClick={() => update({ ui: style.key })}
+              >
+                <span className={`ui-style-preview ui-preview-${style.key}`} aria-hidden>
+                  <span className="ui-preview-bar" />
+                  <span className="ui-preview-block" />
+                </span>
+                <span className="option-label">
+                  {isEn ? style.en : style.zh}
+                  {style.key === siteDefaults.ui ? `（${t("sysDefault")}）` : ""}
+                </span>
+                <span className="option-meta">{isEn ? style.enDesc : style.zhDesc}</span>
+              </button>
+            );
+          })}
         </div>
         <div style={{ marginTop: 24 }}>
           <label className="row">
@@ -239,7 +251,9 @@ export function UserSettingsClient({
               <span>{t("enableAudio")}</span>
             </label>
             <p className="muted-block">
-              共 {tracks.length} 首可选。浏览器策略要求播放需要至少一次用户交互（点击 / 滚动）。
+              {prefs.language === "en"
+                ? `${tracks.length} track(s) available. Browsers require at least one user interaction (click / scroll) before audio can play.`
+                : `共 ${tracks.length} 首可选。浏览器策略要求播放需要至少一次用户交互（点击 / 滚动）。`}
             </p>
             <div className="option-grid">
               {tracks.map((track) => (
@@ -276,10 +290,26 @@ export function UserSettingsClient({
         <Link className="text-link" href="/">
           {t("returnHome")}
         </Link>
-        <button type="button" className="button ghost" onClick={reset}>
+        <button
+          type="button"
+          className="button ghost"
+          onClick={() => {
+            const message =
+              prefs.language === "en"
+                ? "Restore all preferences (theme, font, language, music, etc.) to defaults?"
+                : "确定把主题、字体、语言、音乐等全部偏好恢复为默认值吗？";
+            if (window.confirm(message)) reset();
+          }}
+        >
           {t("restoreDefault")}
         </button>
       </div>
     </div>
   );
+}
+
+function uiStyleLabel(key: string, language: string) {
+  const style = UI_STYLES.find((item) => item.key === key);
+  if (!style) return key;
+  return language === "en" ? style.en : style.zh;
 }

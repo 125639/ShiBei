@@ -11,3 +11,7 @@ playwright-report
 .claude
 tsconfig.tsbuildinfo
 ShiBei-main.zip
+# 本机演示 embedded-postgres 数据目录（scripts/demo-db.ts）
+.demo-pg
+# 用户本地参考截图
+picture

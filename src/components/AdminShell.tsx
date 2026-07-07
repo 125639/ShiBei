@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { ActiveLink } from "./ActiveLink";
-import { AdminMobileNavToggle } from "./AdminMobileNavToggle";
+import { AdminLanguageToggle } from "./AdminLanguageToggle";
 import { I18nText } from "./I18nText";
 import { getAppMode } from "@/lib/app-mode";
 
@@ -60,8 +60,9 @@ export function AdminShell({ children }: { children: React.ReactNode }) {
       <a href="#admin-main" className="skip-link">
         <I18nText zh="跳到主要内容" en="Skip to main content" />
       </a>
-      <AdminMobileNavToggle>
-        <aside className="admin-sidebar" id="admin-sidebar">
+      {/* 窄视口下侧边栏由 CSS 变为常驻 sticky 顶栏（见 globals.css ≤960px 块），
+          不再使用隐藏式抽屉 + 汉堡按钮。 */}
+      <aside className="admin-sidebar" id="admin-sidebar">
           <h1 style={{ marginTop: 0 }}>
             ShiBei Admin
             {mode !== "full" ? (
@@ -77,13 +78,15 @@ export function AdminShell({ children }: { children: React.ReactNode }) {
                   <I18nText zh={group.zh} en={group.en} />
                 </h2>
                 {group.items.map((item) => (
-                  <ActiveLink href={item.href} key={item.href} match="prefix">
+                  // /admin 用精确匹配，否则仪表盘在所有后台子页都会高亮
+                  <ActiveLink href={item.href} key={item.href} match={item.href === "/admin" ? "exact" : "prefix"}>
                     <I18nText zh={item.zh} en={item.en} />
                   </ActiveLink>
                 ))}
               </div>
             ))}
           </nav>
+          <AdminLanguageToggle />
           {showFrontLink ? (
             <Link href="/">
               <I18nText zh="返回前台" en="Back to Site" />
@@ -94,8 +97,7 @@ export function AdminShell({ children }: { children: React.ReactNode }) {
               <I18nText zh="退出登录" en="Logout" />
             </button>
           </form>
-        </aside>
-      </AdminMobileNavToggle>
+      </aside>
       <main className="admin-main" id="admin-main" tabIndex={-1}>{children}</main>
     </div>
   );

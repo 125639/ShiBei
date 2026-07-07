@@ -7,7 +7,17 @@ export type ModelProviderPreset = {
 };
 
 // All presets below are OpenAI-compatible /chat/completions endpoints.
+// 「自定义」放在首位并作为各处下拉框的默认值：用户接入的多半是自己的
+// 中转/自建服务，预选某个具体厂商（此前是 CanopyWave）会被误解为
+// "系统默认用这家服务商"。
 export const MODEL_PROVIDER_PRESETS: ModelProviderPreset[] = [
+  {
+    key: "custom",
+    label: "自定义兼容服务",
+    baseUrl: "",
+    model: "",
+    note: "任何兼容 OpenAI chat/completions 的服务，填入自己的 Base URL 与模型名。"
+  },
   {
     key: "canopywave",
     label: "CanopyWave",
@@ -56,13 +66,6 @@ export const MODEL_PROVIDER_PRESETS: ModelProviderPreset[] = [
     baseUrl: "https://openrouter.ai/api/v1",
     model: "openai/gpt-4o-mini",
     note: "多模型路由，适合备用模型池。"
-  },
-  {
-    key: "custom",
-    label: "自定义兼容服务",
-    baseUrl: "https://example.com/v1",
-    model: "your-model-name",
-    note: "任何兼容 OpenAI chat/completions 的服务。"
   }
 ];
 
