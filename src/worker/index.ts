@@ -1,4 +1,4 @@
-import { Worker } from "bullmq";
+import { Worker, UnrecoverableError } from "bullmq";
 import { CompilationKind, Source } from "@prisma/client";
 import {
   generateDigest,
@@ -1163,12 +1163,54 @@ function listKeyTitles(evidence: EvidenceItem[]): string {
   return titles.map((t) => `「${t}」`).join("、");
 }
 
-const workerHandler = async (job: { data: FetchJobData }) => {
+// 连续失败达到此阈值即自动 PAUSED；成功一次清零。
+const SOURCE_FAIL_PAUSE_THRESHOLD = 5;
+
+// 来源健康记账绝不能影响主流程：内部整体 try/catch，永不抛。
+// sourceId 为空（临时抓取、关键词研究等无来源任务）直接跳过。
+async function recordSourceFailure(sourceId: string | null | undefined) {
+  if (!sourceId) return;
+  try {
+    const updated = await prisma.source.update({
+      where: { id: sourceId },
+      data: { failStreak: { increment: 1 } },
+      select: { failStreak: true, status: true }
+    });
+    if (updated.failStreak >= SOURCE_FAIL_PAUSE_THRESHOLD && updated.status !== "PAUSED") {
+      await prisma.source.update({ where: { id: sourceId }, data: { status: "PAUSED" } });
+      console.warn(`[source-health] 来源 ${sourceId} 连续失败 ${updated.failStreak} 次（阈值 ${SOURCE_FAIL_PAUSE_THRESHOLD}），已自动暂停（PAUSED）。`);
+    }
+  } catch (error) {
+    console.error("[source-health] recordSourceFailure 失败:", error);
+  }
+}
+
+async function recordSourceSuccess(sourceId: string | null | undefined) {
+  if (!sourceId) return;
+  try {
+    // 仅在当前有累计失败时才写库，避免每次成功都白白 UPDATE。
+    const source = await prisma.source.findUnique({ where: { id: sourceId }, select: { failStreak: true } });
+    if (source && source.failStreak > 0) {
+      await prisma.source.update({ where: { id: sourceId }, data: { failStreak: 0 } });
+    }
+  } catch (error) {
+    console.error("[source-health] recordSourceSuccess 失败:", error);
+  }
+}
+
+const workerHandler = async (job: { data: FetchJobData; attemptsMade?: number; opts?: { attempts?: number } }) => {
   const fetchJobId = job.data.fetchJobId;
   const fetchJob = await prisma.fetchJob.update({
     where: { id: fetchJobId },
     data: { status: "RUNNING", error: null }
   });
+
+  // 只有真正抓取来源内容的任务（RSS/VIDEO/WEB）才计入来源健康。知名度估算
+  // （audience://estimate?sourceId=…）、关键词研究、摘要聚合这些特殊 URL 任务即便
+  // 带 sourceId，其失败也与"来源能否抓取正文"无关，不能累加 failStreak 把健康来源
+  // 误暂停。用前缀判断而非完整解析，避免解析在 try 外抛错绕过下面的失败处理。
+  const isSpecialJob = /^(?:keyword:\/\/research|audience:\/\/estimate|digest:\/\/topic)/.test(fetchJob.sourceUrl);
+  const healthSourceId = isSpecialJob ? null : fetchJob.sourceId;
 
   try {
     const keywordResearch = parseKeywordResearchUrl(fetchJob.sourceUrl);
@@ -1192,11 +1234,35 @@ const workerHandler = async (job: { data: FetchJobData }) => {
       where: { id: fetchJob.id },
       data: { status: "COMPLETED", completedAt: new Date() }
     });
+    await recordSourceSuccess(healthSourceId);
   } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    // 来源本身是错误页 → 永久失败，不重试。
+    const permanent = error instanceof InvalidSourceMaterialError;
+    // BullMQ v5：处理中 attemptsMade 为 0-based，本次是第 attempt 次。
+    const attempt = (job.attemptsMade ?? 0) + 1;
+    const totalAttempts = job.opts?.attempts ?? 1;
+    const willRetry = !permanent && attempt < totalAttempts;
+
+    if (willRetry) {
+      // 瞬时故障且还有重试机会：状态回到 QUEUED，标注第几次失败；
+      // 中途失败不计入来源健康——只有最终失败才累加 failStreak。
+      await prisma.fetchJob.update({
+        where: { id: fetchJob.id },
+        data: { status: "QUEUED", error: `第 ${attempt}/${totalAttempts} 次尝试失败，将自动重试：${message}` }
+      });
+      throw error; // 交回 BullMQ 按 backoff 重排
+    }
+
+    // 最终失败（永久失败，或已用尽重试）。
     await prisma.fetchJob.update({
       where: { id: fetchJob.id },
-      data: { status: "FAILED", error: error instanceof Error ? error.message : String(error) }
+      data: { status: "FAILED", error: message }
     });
+    await recordSourceFailure(healthSourceId);
+
+    // 永久失败包成 UnrecoverableError，让 BullMQ 跳过剩余重试。
+    if (permanent) throw new UnrecoverableError(message);
     throw error;
   }
 };

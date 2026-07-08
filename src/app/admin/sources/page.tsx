@@ -82,7 +82,8 @@ export default async function SourcesPage({
     lastJobAt: jobsBySource.get(s.id)?.[0]?.updatedAt.toISOString() ?? null,
     lastJobError: jobsBySource.get(s.id)?.[0]?.error ?? null,
     success7d: jobsBySource.get(s.id)?.filter((job) => job.status === "COMPLETED").length ?? 0,
-    failed7d: jobsBySource.get(s.id)?.filter((job) => job.status === "FAILED").length ?? 0
+    failed7d: jobsBySource.get(s.id)?.filter((job) => job.status === "FAILED").length ?? 0,
+    failStreak: (s as { failStreak?: number }).failStreak ?? 0
   });
 
   const infoSources = sources.filter((s) => s.type === "WEB" || s.type === "RSS" || s.type === "EXA");
@@ -137,18 +138,18 @@ export default async function SourcesPage({
             <div className="field">
               <label htmlFor="type"><I18nText zh="类型" en="Type" /></label>
               <select id="type" name="type" defaultValue="WEB">
-                <option value="WEB"><I18nText zh="网页 URL" en="Web URL" /></option>
+                <option value="WEB">网页 URL / Web URL</option>
                 <option value="RSS">RSS</option>
-                <option value="VIDEO"><I18nText zh="视频资源" en="Video" /></option>
-                <option value="EXA"><I18nText zh="Exa 检索" en="Exa Search" /></option>
+                <option value="VIDEO">视频资源 / Video</option>
+                <option value="EXA">Exa 检索 / Exa Search</option>
               </select>
             </div>
             <div className="field">
               <label htmlFor="region"><I18nText zh="地区" en="Region" /></label>
               <select id="region" name="region" defaultValue="UNKNOWN">
-                <option value="UNKNOWN"><I18nText zh="未指定" en="Unknown" /></option>
-                <option value="DOMESTIC"><I18nText zh="国内" en="Domestic" /></option>
-                <option value="INTERNATIONAL"><I18nText zh="国外" en="International" /></option>
+                <option value="UNKNOWN">未指定 / Unknown</option>
+                <option value="DOMESTIC">国内 / Domestic</option>
+                <option value="INTERNATIONAL">国外 / International</option>
               </select>
             </div>
           </div>
@@ -183,9 +184,9 @@ export default async function SourcesPage({
           <div className="field">
             <label htmlFor="tempType"><I18nText zh="类型" en="Type" /></label>
             <select id="tempType" name="tempType" defaultValue="WEB">
-              <option value="WEB"><I18nText zh="网页 URL" en="Web URL" /></option>
+              <option value="WEB">网页 URL / Web URL</option>
               <option value="RSS">RSS</option>
-              <option value="VIDEO"><I18nText zh="视频资源" en="Video" /></option>
+              <option value="VIDEO">视频资源 / Video</option>
             </select>
           </div>
           <label><input type="checkbox" name="saveTemp" value="true" /> <I18nText zh="保存为默认来源" en="Save as default source" /></label>
@@ -203,9 +204,9 @@ export default async function SourcesPage({
           <div className="field">
             <label htmlFor="keywordScope"><I18nText zh="搜索范围" en="Search Scope" /></label>
             <select id="keywordScope" name="keywordScope" defaultValue="all">
-              <option value="all"><I18nText zh="国内 + 国外" en="Domestic + International" /></option>
-              <option value="domestic"><I18nText zh="国内来源" en="Domestic Sources" /></option>
-              <option value="international"><I18nText zh="国外来源" en="International Sources" /></option>
+              <option value="all">国内 + 国外 / Domestic + International</option>
+              <option value="domestic">国内来源 / Domestic Sources</option>
+              <option value="international">国外来源 / International Sources</option>
             </select>
           </div>
           <div className="field">
@@ -215,9 +216,9 @@ export default async function SourcesPage({
           <div className="field">
             <label htmlFor="articleDepth"><I18nText zh="文章长度" en="Article Length" /></label>
             <select id="articleDepth" name="articleDepth" defaultValue="long">
-              <option value="standard"><I18nText zh="标准文章（至少 1100 字，目标 1200）" en="Standard (min 1100 words, target 1200)" /></option>
-              <option value="long"><I18nText zh="长文章（至少 1900 字，目标 2000）" en="Long (min 1900 words, target 2000)" /></option>
-              <option value="deep"><I18nText zh="深度长文（至少 3000 字，目标 3200）" en="Deep (min 3000 words, target 3200)" /></option>
+              <option value="standard">标准文章（至少 1100 字，目标 1200） / Standard (min 1100 words, target 1200)</option>
+              <option value="long">长文章（至少 1900 字，目标 2000） / Long (min 1900 words, target 2000)</option>
+              <option value="deep">深度长文（至少 3000 字，目标 3200） / Deep (min 3000 words, target 3200)</option>
             </select>
           </div>
           <ContentStyleSelect styles={contentStyles} id="sourceKeywordContentStyleId" />

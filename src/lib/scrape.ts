@@ -1,4 +1,4 @@
-import { chromium, type Page } from "playwright";
+import { chromium, type Browser, type Page } from "playwright";
 import TurndownService from "turndown";
 import { InvalidSourceMaterialError } from "./source-quality";
 import { assertSafeResolvedFetchUrl, isHttpUrl, isSafeResolvedFetchUrl } from "./url-safety";
@@ -24,13 +24,40 @@ function sniffedMediaScore(media: SniffedMedia) {
   return 100;
 }
 
+// 长驻 worker 反复冷启动 Chromium 既慢又费内存：改为模块级懒加载单例，
+// 每次抓取只开独立 context（抓完关 context 不关 browser）。
+let browserPromise: Promise<Browser> | null = null;
+
+async function getBrowser(): Promise<Browser> {
+  const existing = browserPromise;
+  if (existing) {
+    try {
+      const browser = await existing;
+      if (browser.isConnected()) return browser;
+    } catch {
+      // 上一次 launch 失败的缓存 promise，落到下方重建。
+    }
+  }
+  // 首次或浏览器已断开（崩溃）时重新 launch。缓存 launch 的 promise，
+  // 让并发抓取复用同一次启动；launch 失败必须清缓存，否则一次失败会永久卡死后续所有抓取。
+  const launchPromise = chromium.launch({ headless: true });
+  browserPromise = launchPromise;
+  try {
+    return await launchPromise;
+  } catch (error) {
+    if (browserPromise === launchPromise) browserPromise = null;
+    throw error;
+  }
+}
+
 export async function scrapeWebPage(url: string) {
   // 拒绝 file://、loopback、私网、云 metadata 等，避免 SSRF 通过 Playwright 触达内部服务。
   await assertSafeResolvedFetchUrl(url);
-  const browser = await chromium.launch({ headless: true });
+  const browser = await getBrowser();
+  const context = await browser.newContext({ viewport: { width: 1440, height: 1200 } });
   const sniffed = new Map<string, SniffedMedia>();
   try {
-    const page = await browser.newPage({ viewport: { width: 1440, height: 1200 } });
+    const page = await context.newPage();
     await installSafeRequestGuard(page);
 
     // 被动嗅探网络响应：现代新闻站把视频 URL 放在 JS-注入的播放器配置里,DOM 扫不到。
@@ -358,7 +385,8 @@ export async function scrapeWebPage(url: string) {
       finalUrl
     };
   } finally {
-    await browser.close();
+    // 只关本次 context，保留单例 browser 供后续抓取复用。
+    await context.close().catch(() => undefined);
   }
 }
 

@@ -26,8 +26,12 @@ RUN npx prisma generate
 RUN npm run build
 
 FROM base AS runner
+ARG GIT_COMMIT=unknown
+ARG BUILD_TIME=unknown
 ENV NODE_ENV=production
 ENV APP_MODE=frontend
+ENV BUILD_COMMIT=$GIT_COMMIT
+ENV BUILD_TIME=$BUILD_TIME
 ENV PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1
 ENV NODE_OPTIONS="--max-old-space-size=256"
 # 仅装 ca-certificates(HTTPS 拉 backend 用) + fonts-noto-cjk(中文字体)

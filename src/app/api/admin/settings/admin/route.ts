@@ -15,7 +15,8 @@ export async function POST(request: Request) {
       where: { id: admin.id },
       data: {
         username,
-        ...(password ? { passwordHash: await bcrypt.hash(password, 12) } : {})
+        // 改密同时递增 tokenVersion，令旧密码签发的 JWT 立即失效（改密常因凭据泄露）。
+        ...(password ? { passwordHash: await bcrypt.hash(password, 12), tokenVersion: { increment: 1 } } : {})
       }
     });
   }
