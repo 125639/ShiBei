@@ -14,7 +14,7 @@ export function ContentStyleSelect({ styles, id }: { styles: ContentStyleOption[
         <option value="">使用默认风格 / Default style</option>
         {styles.map((style) => (
           <option key={style.id} value={style.id}>
-            {style.name}{style.isDefault ? "（默认/default）" : ""}
+            {style.name}{style.isDefault ? "（默认 / default）" : ""}
           </option>
         ))}
       </select>

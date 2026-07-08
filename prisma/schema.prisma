@@ -55,6 +55,8 @@ model AdminUser {
   id           String   @id @default(cuid())
   username     String   @unique
   passwordHash String
+  // 登出/改密时 +1，使已签发的 JWT 全部失效（JWT 无状态，本身无法吊销）
+  tokenVersion Int      @default(0)
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 }
@@ -137,6 +139,8 @@ model Source {
   region              SourceRegion   @default(UNKNOWN)
   popularity          Int            @default(0)
   popularityUpdatedAt DateTime?
+  // 连续抓取失败计数：成功清零，达到阈值自动 PAUSED（见 worker recordSourceFailure）
+  failStreak          Int            @default(0)
   createdAt           DateTime       @default(now())
   updatedAt           DateTime       @updatedAt
   modules             SourceModule[] @relation("SourceToModule")

@@ -296,3 +296,36 @@ docker logs video-app-1 --tail 50
 
 `/admin/sync` 会出现在管理后台侧栏（即使 full 模式也可以用作 ZIP 备份/恢复工具）。
 
+
+## 备份与恢复
+
+每日备份由 `scripts/backup.sh` 完成：Postgres 全库 `pg_dump --format=custom` + `shibei_app-uploads` 卷打包，
+默认存到 `/home/app/backups`，保留 14 天。**强烈建议配置异地同步**（`SHIBEI_BACKUP_SYNC_CMD`，如 rclone
+到对象存储），否则备份和数据同盘，机器级故障救不回来。
+
+安装每日 cron（04:30）：
+
+```bash
+( crontab -l 2>/dev/null; echo '30 4 * * * /home/app/ShiBei/scripts/backup.sh >> /home/app/backups/backup.log 2>&1' ) | crontab -
+```
+
+手动备份一次：
+
+```bash
+/home/app/ShiBei/scripts/backup.sh
+```
+
+恢复数据库（先停 app/worker 防止写入）：
+
+```bash
+docker compose stop app worker
+docker compose exec -T postgres pg_restore -U shibei -d shibei_blog --clean --if-exists < /home/app/backups/db-YYYYMMDD-HHMMSS.dump
+docker compose start app worker
+```
+
+恢复配图卷：
+
+```bash
+docker run --rm -v shibei_app-uploads:/uploads -v /home/app/backups:/backup:ro alpine \
+  sh -c 'rm -rf /uploads/* && tar -xzf /backup/uploads-YYYYMMDD-HHMMSS.tar.gz -C /'
+```

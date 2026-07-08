@@ -39,6 +39,6 @@ export async function POST(request: Request) {
     return redirectTo("/admin/login?error=1", request);
   }
 
-  await setSessionCookie(await createSession(user.id));
+  await setSessionCookie(await createSession(user.id, user.tokenVersion));
   return redirectTo("/admin", request);
 }

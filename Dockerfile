@@ -12,8 +12,12 @@ RUN npx prisma generate
 RUN npm run build
 
 FROM base AS runner
+ARG GIT_COMMIT=unknown
+ARG BUILD_TIME=unknown
 ENV NODE_ENV=production
 ENV APP_MODE=full
+ENV BUILD_COMMIT=$GIT_COMMIT
+ENV BUILD_TIME=$BUILD_TIME
 ENV NODE_OPTIONS="--max-old-space-size=1024"
 RUN apt-get update && apt-get install -y --no-install-recommends \
       ca-certificates \

@@ -34,6 +34,9 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+      args:
+        GIT_COMMIT: ${GIT_COMMIT:-unknown}
+        BUILD_TIME: ${BUILD_TIME:-unknown}
     depends_on:
       postgres:
         condition: service_healthy
@@ -64,6 +67,9 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+      args:
+        GIT_COMMIT: ${GIT_COMMIT:-unknown}
+        BUILD_TIME: ${BUILD_TIME:-unknown}
     depends_on:
       postgres:
         condition: service_healthy

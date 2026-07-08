@@ -1,0 +1,43 @@
+# CI：typecheck + 全部单元测试套件 + 生产构建。
+# 所有 env 都是 CI 假值：测试套件不连 DB/Redis（构建期 prisma 连不上会
+# 被页面级 try/catch 吞掉，与本地 next build 行为一致）。
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  ci:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: "1"
+      NEXT_TELEMETRY_DISABLED: "1"
+      DATABASE_URL: postgresql://ci:ci@localhost:5432/ci
+      REDIS_URL: redis://localhost:6379
+      AUTH_SECRET: ci-only-auth-secret
+      ENCRYPTION_KEY: ci-only-encryption-key
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Generate Prisma client
+        run: npx prisma generate
+
+      - name: Typecheck
+        run: npx tsc --noEmit
+
+      - name: Unit test suites
+        run: bash tests/run-all.sh
+
+      - name: Production build
+        run: npm run build

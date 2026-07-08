@@ -20,7 +20,11 @@ export type ListSource = {
   lastJobError?: string | null;
   success7d?: number;
   failed7d?: number;
+  failStreak?: number;
 };
+
+// 与 worker 的自动暂停阈值保持一致（src/worker/index.ts SOURCE_FAIL_PAUSE_THRESHOLD）。
+const SOURCE_FAIL_PAUSE_THRESHOLD = 5;
 
 function formatPopularity(value: number): string {
   if (value >= 1_000_000_000) return `${(value / 1_000_000_000).toFixed(1)}B`;
@@ -47,9 +51,15 @@ export function BulkSourceActions({ sources, label }: { sources: ListSource[]; l
     setSelectedIds((prev) => checked ? [...prev, id] : prev.filter((i) => i !== id));
   }
 
+  function isAutoPaused(source: ListSource) {
+    return source.status === "PAUSED" && (source.failStreak || 0) >= SOURCE_FAIL_PAUSE_THRESHOLD;
+  }
+
   function healthLabel(source: ListSource) {
     const failed = source.failed7d || 0;
     const success = source.success7d || 0;
+    // 连续失败自动暂停优先级最高。
+    if (isAutoPaused(source)) return { zh: "连续失败，已自动暂停", en: "Auto-paused (failing)" };
     if (!source.lastJobStatus) return { zh: "未验证", en: "Not verified" };
     if (source.lastJobStatus === "FAILED") return { zh: "最近失败", en: "Recent failure" };
     if (failed >= 3 && success === 0) return { zh: "需检查", en: "Needs check" };
@@ -60,7 +70,7 @@ export function BulkSourceActions({ sources, label }: { sources: ListSource[]; l
   function healthClass(source: ListSource) {
     const label = healthLabel(source);
     if (label.zh === "正常") return "source-health source-health-ok";
-    if (label.zh === "最近失败" || label.zh === "需检查") return "source-health source-health-bad";
+    if (label.zh === "连续失败，已自动暂停" || label.zh === "最近失败" || label.zh === "需检查") return "source-health source-health-bad";
     return "source-health";
   }
 
@@ -133,6 +143,11 @@ export function BulkSourceActions({ sources, label }: { sources: ListSource[]; l
                   >
                     <I18nText zh={health.zh} en={health.en} />
                   </span>
+                  {(source.failStreak || 0) > 0 && !isAutoPaused(source) ? (
+                    <span className="source-health source-health-bad">
+                      <I18nText zh={`连续失败 ${source.failStreak} 次`} en={`${source.failStreak} consecutive failures`} />
+                    </span>
+                  ) : null}
                   <span className="tag"><I18nText zh={`7 天成功 ${source.success7d || 0}`} en={`7d success ${source.success7d || 0}`} /></span>
                   <span className="tag"><I18nText zh={`7 天失败 ${source.failed7d || 0}`} en={`7d failed ${source.failed7d || 0}`} /></span>
                   {source.popularity > 0 || source.popularityUpdatedAt ? (
@@ -179,6 +194,12 @@ export function BulkSourceActions({ sources, label }: { sources: ListSource[]; l
                   <SubmitButton className="button secondary" style={{ fontSize: 13, padding: "6px 10px" }} pendingLabel={<I18nText zh="估算中…" en="Estimating…" />}><I18nText zh="估算" en="Estimate" /></SubmitButton>
                 </form>
                 <button className="button secondary" type="button" onClick={() => setEditId(source.id)} style={{ fontSize: 13, padding: "6px 10px" }}><I18nText zh="编辑" en="Edit" /></button>
+                {isAutoPaused(source) ? (
+                  <form action="/api/admin/sources/reactivate" method="post" style={{ display: "inline" }}>
+                    <input type="hidden" name="sourceId" value={source.id} />
+                    <SubmitButton className="button" style={{ fontSize: 13, padding: "6px 10px" }} pendingLabel={<I18nText zh="恢复中…" en="Reactivating…" />}><I18nText zh="恢复启用" en="Reactivate" /></SubmitButton>
+                  </form>
+                ) : null}
                 <form action="/api/admin/run" method="post" style={{ display: "inline" }}>
                   <input type="hidden" name="sourceId" value={source.id} />
                   <SubmitButton className="button secondary" style={{ fontSize: 13, padding: "6px 10px" }} pendingLabel={<I18nText zh="创建中…" en="Creating…" />}><I18nText zh="抓取" en="Fetch" /></SubmitButton>

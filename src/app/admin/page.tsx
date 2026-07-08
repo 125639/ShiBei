@@ -8,6 +8,7 @@ import { RelativeTime } from "@/components/RelativeTime";
 import { StatusPill } from "@/components/StatusPill";
 import { SubmitButton } from "@/components/SubmitButton";
 import { requireAdmin } from "@/lib/auth";
+import { getBuildInfo } from "@/lib/build-info";
 import { getJobKindLabel, getJobTitleLabel } from "@/lib/job-utils";
 import { prisma } from "@/lib/prisma";
 
@@ -41,6 +42,7 @@ export default async function AdminDashboardPage() {
   const jobStats = jobStatusSummary.map((item) => ({ status: item.status, count: item._count._all }));
   const maxMetric = Math.max(postsCreated7d, published7d, failed7d, 1);
   const maxJobCount = Math.max(...jobStats.map((stat) => stat.count), 1);
+  const buildInfo = getBuildInfo();
 
   return (
     <AdminShell>
@@ -148,6 +150,11 @@ export default async function AdminDashboardPage() {
           ))}
         </div>
       </section>
+
+      <p className="muted" style={{ marginTop: 24, fontSize: 12 }}>
+        <I18nText zh="构建版本" en="Build" />：{buildInfo.commit}
+        {buildInfo.builtAt ? ` · ${buildInfo.builtAt}` : ""}
+      </p>
     </AdminShell>
   );
 }

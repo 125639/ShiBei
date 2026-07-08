@@ -30,6 +30,9 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.frontend
+      args:
+        GIT_COMMIT: ${GIT_COMMIT:-unknown}
+        BUILD_TIME: ${BUILD_TIME:-unknown}
     depends_on:
       postgres-fro:
         condition: service_healthy

@@ -1,6 +1,7 @@
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { SignJWT, jwtVerify } from "jose";
+import { prisma } from "./prisma";
 
 const cookieName = "shibei_admin_session";
 
@@ -26,8 +27,10 @@ export function shouldUseSecureCookies() {
   }
 }
 
-export async function createSession(userId: string) {
-  return new SignJWT({ userId })
+export async function createSession(userId: string, tokenVersion: number) {
+  // ver 声明用于会话吊销：登出/改密时 AdminUser.tokenVersion +1，
+  // 已签发但 ver 落后的 JWT 在 getSession 里会被判为失效。
+  return new SignJWT({ userId, ver: tokenVersion })
     .setProtectedHeader({ alg: "HS256" })
     .setIssuedAt()
     .setExpirationTime("7d")
@@ -57,7 +60,17 @@ export async function getSession() {
 
   try {
     const { payload } = await jwtVerify(token, getAuthSecret());
-    return { userId: String(payload.userId) };
+    const userId = String(payload.userId || "");
+    if (!userId) return null;
+    // 与 DB 里的 tokenVersion 比对，实现会话吊销。缺 ver 的存量旧 token 按 0 处理。
+    // DB 不可达时 jwtVerify 之后的查询会抛，落到 catch → 视为未登录（fail-closed）。
+    const tokenVer = typeof payload.ver === "number" ? payload.ver : 0;
+    const user = await prisma.adminUser.findUnique({
+      where: { id: userId },
+      select: { tokenVersion: true }
+    });
+    if (!user || tokenVer !== user.tokenVersion) return null;
+    return { userId };
   } catch {
     return null;
   }
