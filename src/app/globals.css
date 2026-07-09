@@ -1380,7 +1380,7 @@ details.form-card > form {
   grid-template-columns: 264px minmax(0, 1fr);
   min-height: 100vh;
   background:
-    linear-gradient(180deg, color-mix(in srgb, var(--paper) 96%, white), var(--paper)),
+    linear-gradient(180deg, color-mix(in srgb, var(--paper) 96%, white), var(--paper) 52%, var(--paper-deep)),
     var(--paper);
 }
 
@@ -1390,22 +1390,52 @@ details.form-card > form {
   align-self: start;
   min-height: 100vh;
   padding: 24px 16px;
-  background: var(--code-bg);
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--code-bg) 96%, var(--accent)), var(--code-bg)),
+    var(--code-bg);
   color: var(--code-fg);
   border-right: 1px solid color-mix(in srgb, var(--code-fg) 10%, transparent);
+  box-shadow: 18px 0 48px color-mix(in srgb, var(--ink) 8%, transparent);
 }
 
 .admin-sidebar h1 {
   font-size: 20px;
   letter-spacing: 0;
   line-height: 1.2;
-  margin-bottom: var(--sp-lg);
+  margin: 0 0 var(--sp-lg);
+}
+
+.admin-brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.admin-brand-text {
+  white-space: nowrap;
+}
+
+.admin-brand-mark {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  width: 34px;
+  height: 34px;
+  border: 1px solid color-mix(in srgb, var(--code-fg) 16%, transparent);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--accent) 18%, transparent);
+  color: var(--accent-soft);
+  font-size: 15px;
+  font-weight: 780;
+  box-shadow: inset 0 1px 0 color-mix(in srgb, var(--code-fg) 14%, transparent);
 }
 
 .admin-sidebar a,
 .admin-sidebar button {
   display: flex;
   align-items: center;
+  gap: 8px;
   width: 100%;
   min-height: 36px;
   margin: 2px 0;
@@ -1428,6 +1458,9 @@ details.form-card > form {
 
 .admin-sidebar a.active {
   color: var(--accent-soft);
+  border-color: color-mix(in srgb, var(--accent-soft) 38%, transparent);
+  background: color-mix(in srgb, var(--accent-soft) 12%, transparent);
+  box-shadow: inset 3px 0 0 currentColor;
 }
 
 .admin-nav-section {
@@ -1466,7 +1499,7 @@ details.form-card > form {
 }
 
 .admin-main {
-  padding: 32px;
+  padding: 34px clamp(24px, 3vw, 44px) 56px;
   min-width: 0;
 }
 
@@ -1475,7 +1508,9 @@ details.form-card > form {
   justify-content: space-between;
   gap: 16px;
   align-items: flex-start;
-  margin-bottom: 24px;
+  margin-bottom: 28px;
+  padding-bottom: 18px;
+  border-bottom: 1px solid color-mix(in srgb, var(--line) 72%, transparent);
 }
 
 .admin-page-header h1 {
@@ -1504,14 +1539,14 @@ details.form-card > form {
 .admin-grid-3 {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 24px;
+  gap: 18px;
 }
 
 .admin-action-grid,
 .settings-two-column {
   display: grid;
   grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.1fr);
-  gap: 24px;
+  gap: 20px;
   align-items: start;
 }
 
@@ -1523,7 +1558,11 @@ details.form-card > form {
 
 .admin-panel,
 .form-card {
-  background: var(--surface-strong);
+  border: var(--border-w) solid color-mix(in srgb, var(--line) 82%, transparent);
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--surface-strong) 96%, white), var(--surface-strong)),
+    var(--surface-strong);
+  box-shadow: 0 14px 42px color-mix(in srgb, var(--ink) 6%, transparent);
 }
 
 /* Shared admin/dashboard utility classes (Linear/Stripe-style) */
@@ -1581,7 +1620,7 @@ details.form-card > form {
   background: var(--surface-strong);
   color: var(--ink);
   padding: 11px 12px;
-  border-radius: var(--radius-sm);
+  border-radius: var(--radius-md);
   transition: border-color 0.15s ease, box-shadow 0.15s ease, background 0.15s ease;
 }
 
@@ -1862,9 +1901,16 @@ button[aria-busy="true"] {
   gap: var(--sp-md);
   padding: var(--sp-md) var(--sp-lg);
   border: var(--border-w) solid var(--line);
-  border-radius: var(--radius-sm);
+  border-radius: var(--radius-md);
   background: color-mix(in srgb, var(--surface-strong) 84%, var(--paper));
   align-items: start;
+  transition: border-color 0.15s ease, background-color 0.15s ease, transform 0.15s ease;
+}
+
+.table-item:hover {
+  border-color: color-mix(in srgb, var(--accent) 28%, var(--line));
+  background: color-mix(in srgb, var(--surface-strong) 92%, var(--accent) 3%);
+  transform: translateY(-1px);
 }
 
 .icon-button {
@@ -2228,6 +2274,74 @@ button[aria-busy="true"] {
 .metric-danger {
   border-color: #a33a2a;
   background: color-mix(in srgb, #a33a2a 8%, var(--surface-soft));
+}
+
+.admin-ai-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1.25fr) minmax(300px, 0.75fr);
+  gap: 20px;
+  align-items: start;
+}
+
+.admin-ai-command {
+  display: grid;
+  gap: 18px;
+}
+
+.admin-ai-submit {
+  justify-self: start;
+}
+
+.admin-ai-side {
+  display: grid;
+  gap: 20px;
+  min-width: 0;
+}
+
+.admin-ai-rules {
+  margin: 0;
+  padding-left: 1.2em;
+  display: grid;
+  gap: 10px;
+  color: var(--muted);
+  line-height: 1.6;
+}
+
+.admin-ai-result {
+  display: grid;
+  gap: 14px;
+}
+
+.admin-ai-warning {
+  padding: 12px 14px;
+  border: 1px solid color-mix(in srgb, #c7922d 50%, var(--line));
+  border-radius: var(--radius-md);
+  background: color-mix(in srgb, #c7922d 9%, var(--surface-soft));
+}
+
+.admin-ai-warning ul {
+  margin: 8px 0 0;
+  padding-left: 1.2em;
+}
+
+.admin-ai-task-list {
+  display: grid;
+  gap: 10px;
+}
+
+.admin-ai-task {
+  display: grid;
+  gap: 8px;
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  background: color-mix(in srgb, var(--surface-strong) 86%, var(--paper));
+}
+
+.admin-ai-task p {
+  margin: 0;
+  color: var(--muted);
+  line-height: 1.55;
 }
 
 .status-pill,
@@ -3549,6 +3663,17 @@ button:disabled {
     flex: 0 0 auto;
   }
 
+  .admin-brand {
+    gap: 7px;
+  }
+
+  .admin-brand-mark {
+    width: 28px;
+    height: 28px;
+    border-radius: 8px;
+    font-size: 13px;
+  }
+
   .admin-sidebar nav {
     display: flex;
     align-items: center;
@@ -3570,7 +3695,7 @@ button:disabled {
     flex: 0 0 auto;
     width: auto;
     min-height: 40px;
-    padding: 8px 10px;
+    padding: 8px 9px;
     border-bottom: 0;
     white-space: nowrap;
     text-align: left;
@@ -3594,6 +3719,7 @@ button:disabled {
   .admin-grid,
   .admin-grid-3,
   .admin-action-grid,
+  .admin-ai-layout,
   .settings-two-column,
   .diagnostic-grid {
     grid-template-columns: 1fr;
@@ -7366,12 +7492,17 @@ a.bento-card:hover .text-link {
 
   .nav {
     order: 3;
-    flex: 1 0 100%;
+    flex: 0 1 100%;
+    width: 100%;
+    min-width: 0;
+    max-width: 100%;
     margin-left: 0;
     margin-top: 0;
     flex-wrap: nowrap;
     overflow-x: auto;
+    overflow-y: hidden;
     -webkit-overflow-scrolling: touch;
+    overscroll-behavior-x: contain;
     scrollbar-width: none;
     gap: 2px;
     font-size: 14px;
@@ -7390,6 +7521,51 @@ a.bento-card:hover .text-link {
     white-space: nowrap;
     min-height: 38px;
     padding: 7px 11px;
+  }
+
+  @media (max-width: 480px) {
+    .nav {
+      gap: 1px;
+      font-size: 13px;
+    }
+
+    .nav a {
+      min-height: 36px;
+      padding: 7px 7px;
+    }
+
+    :root:not([data-language="en"]) .nav {
+      justify-content: flex-start;
+      overflow-x: auto;
+      mask-image: none;
+      -webkit-mask-image: none;
+    }
+
+    :root[data-language="en"] .nav {
+      padding-right: 26px;
+    }
+  }
+
+  @media (max-width: 520px) {
+    .admin-sidebar {
+      gap: 3px;
+      padding: 8px 10px;
+    }
+
+    .admin-sidebar h1 {
+      margin-right: 4px;
+    }
+
+    .admin-brand-text {
+      display: none;
+    }
+
+    .admin-sidebar a,
+    .admin-sidebar button {
+      min-height: 38px;
+      padding: 7px 8px;
+      font-size: 13px;
+    }
   }
 
   /* 2) 顶部留白与首屏标题 */
@@ -7879,15 +8055,33 @@ a.bento-card:hover .text-link {
 .article-toc-mobile {
   border: var(--border-w) solid var(--line);
   border-radius: var(--radius-md);
-  background: var(--paper-deep);
+  background: color-mix(in srgb, var(--surface-strong) 88%, var(--paper));
   padding: var(--sp-2xs) var(--sp-sm);
   margin-bottom: var(--sp-md);
+  box-shadow: 0 8px 24px color-mix(in srgb, var(--ink) 6%, transparent);
 }
 
 .article-toc-mobile summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-sm);
   cursor: pointer;
   font-weight: 600;
   padding: var(--sp-2xs) 0;
+}
+
+.article-toc-mobile summary::after {
+  content: "⌄";
+  flex: none;
+  color: var(--muted);
+  font-size: 1rem;
+  line-height: 1;
+  transition: transform 0.16s ease;
+}
+
+.article-toc-mobile[open] summary::after {
+  transform: rotate(180deg);
 }
 
 .article-toc-mobile:not([open]) .article-toc,
@@ -7953,9 +8147,14 @@ a.bento-card:hover .text-link {
 }
 
 @media (min-width: 1200px) {
+  .article-detail-page {
+    max-width: min(1240px, calc(100vw - 48px));
+  }
+
   .article-body-grid {
-    grid-template-columns: minmax(0, 1fr) 216px;
-    gap: var(--sp-xl);
+    grid-template-columns: minmax(0, 740px) minmax(208px, 240px);
+    justify-content: center;
+    gap: clamp(48px, 5vw, 72px);
   }
 
   .article-toc-rail {
@@ -7963,6 +8162,7 @@ a.bento-card:hover .text-link {
     /* 父网格 align-items:start 会把本列压缩成目录自身高度，
        sticky 失去可移动区间——拉伸满行高才能全程跟随滚动 */
     align-self: stretch;
+    justify-self: stretch;
   }
 
   /* Firefly：目录是右侧栏小组件（见 PublicShell 的 ff-toc-widget，
@@ -7994,6 +8194,34 @@ a.bento-card:hover .text-link {
     padding-bottom: max(132px, calc(var(--sp-2xl) + 92px));
   }
 
+  .article-toc-mobile {
+    position: sticky;
+    top: 76px;
+    z-index: 12;
+    margin-inline: -2px;
+    border-color: color-mix(in srgb, var(--line) 78%, transparent);
+    background: color-mix(in srgb, var(--surface-strong) 94%, transparent);
+    backdrop-filter: blur(14px) saturate(140%);
+    -webkit-backdrop-filter: blur(14px) saturate(140%);
+  }
+
+  .article-toc-mobile[open] {
+    max-height: min(56vh, 420px);
+    overflow-y: auto;
+    overscroll-behavior: contain;
+  }
+
+  .article-toc-mobile .article-toc {
+    padding: var(--sp-2xs) 0 var(--sp-xs);
+  }
+
+  .article-toc-mobile .article-toc a {
+    padding-top: 8px;
+    padding-bottom: 8px;
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+
   .ai-assistant-dock {
     top: auto;
     left: max(10px, env(safe-area-inset-left));
@@ -8004,6 +8232,28 @@ a.bento-card:hover .text-link {
     height: min(78vh, calc(100vh - 82px));
     height: min(78dvh, calc(100dvh - 82px));
     transform: translateY(18px);
+  }
+
+  .ai-assistant-dock:not(.open) {
+    left: auto;
+    width: 52px;
+    height: 52px;
+    transform: translateY(0);
+  }
+
+  .ai-assistant-dock:not(.open) .ai-assistant-launcher {
+    width: 52px;
+    min-height: 52px;
+    justify-content: center;
+    padding: 0;
+  }
+
+  .ai-assistant-dock:not(.open) .ai-assistant-launcher strong {
+    display: none;
+  }
+
+  .ai-assistant-dock:not(.open) .ai-assistant-panel {
+    display: none;
   }
 
   .ai-assistant-dock.open {
@@ -8041,6 +8291,21 @@ a.bento-card:hover .text-link {
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+  }
+}
+
+@media (max-width: 480px) {
+  .site-header .nav a,
+  :root[data-theme] .site-header .nav a,
+  :root[data-ui] .site-header .nav a,
+  :root[data-ui] .site-header-glass .nav a {
+    min-width: 0;
+    padding-inline: 4px;
+  }
+
+  :root:not([data-language="en"]) .site-header .nav {
+    gap: 0;
+    justify-content: space-between;
   }
 }
 

@@ -1,7 +1,11 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { ensureBackendCallerAllowed } from "@/lib/sync/backend-auth";
-import { composeCreativeDraft } from "@/lib/creation-ai";
+import {
+  PublicVerificationRequiredError,
+  composeCreativeDraft,
+  formatVerificationClarificationQuestion
+} from "@/lib/creation-ai";
 import { ANON_WORK_LIMIT, CREATION_DEPTHS, parseInterview } from "@/lib/creation";
 import {
   actorOwnsWork,
@@ -62,6 +66,22 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
       interview
     });
   } catch (error) {
+    if (error instanceof PublicVerificationRequiredError) {
+      const question = formatVerificationClarificationQuestion(error.issues);
+      const updated = await prisma.creativeWork.update({
+        where: { id: work.id },
+        data: { pendingQuestion: question },
+        include: { genre: true }
+      });
+      return NextResponse.json(
+        {
+          error: "联网核验发现需要整改或解释的公开事实，请先补充说明后再成稿。",
+          work: serializeWorkForOwner(updated),
+          composeNotes: [question]
+        },
+        { status: 409 }
+      );
+    }
     console.error("[creation-compose] AI call failed:", error);
     return NextResponse.json({ error: "AI 成稿暂时失败，请稍后重试（访谈记录已保存）" }, { status: 502 });
   }
