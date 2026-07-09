@@ -1,0 +1,13 @@
+# updater 伴车镜像：网页端一键更新用。
+# docker:27-cli 自带 docker CLI + compose/buildx 插件；再补 git 和 nodejs 即可。
+# 本镜像很少变动，也不参与"一键更新"本身（updater 不自更新）；
+# 修改 scripts/updater/* 后需手动 `docker compose up -d --build updater`。
+FROM docker:27-cli
+RUN apk add --no-cache git nodejs
+WORKDIR /updater
+COPY scripts/updater/server.mjs ./server.mjs
+EXPOSE 9080
+# docker:cli 的 docker-entrypoint.sh 会把 CMD 当成 docker 子命令执行
+# （node → `docker node`，直接崩溃退出）。置空继承来的 entrypoint，让 CMD 直接跑。
+ENTRYPOINT []
+CMD ["node", "server.mjs"]

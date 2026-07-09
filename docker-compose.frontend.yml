@@ -64,6 +64,31 @@ services:
     mem_limit: 448m
     restart: unless-stopped
 
+  # 网页端一键更新伴车（前端形态只重建 app 一个服务）。
+  # 挂载 docker.sock = 宿主 root 权限，只在内网监听，绝不暴露端口。
+  # 内存点评：构建由宿主 dockerd 执行，updater 本身只是转发命令，192m 足够。
+  updater:
+    image: safg/shibei:updater
+    build:
+      context: .
+      dockerfile: Dockerfile.updater
+    env_file:
+      - .env
+    environment:
+      COMPOSE_FILE_NAME: docker-compose.frontend.yml
+      UPDATE_BUILD_SERVICES: app
+      UPDATE_SERVICES: app
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - .:/repo
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:9080/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 60s
+      timeout: 5s
+      retries: 3
+    mem_limit: 128m
+    restart: unless-stopped
+
 volumes:
   postgres-data:
   app-uploads:

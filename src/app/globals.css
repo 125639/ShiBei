@@ -8469,3 +8469,128 @@ a.bento-card:hover .text-link {
     box-shadow: 0 -12px 60px color-mix(in srgb, var(--ink) 30%, transparent);
   }
 }
+
+/* =============================================================
+   网页端一键更新（/admin/update + 左上角新版本弹窗）
+   ============================================================= */
+
+.update-toast {
+  position: fixed;
+  top: 14px;
+  left: 14px;
+  z-index: 1200;
+  width: min(340px, calc(100vw - 28px));
+  background: var(--surface-strong);
+  color: var(--ink);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  padding: 14px 16px;
+  /* 纯色兜底在前，color-mix 不支持时仍有可见投影 */
+  box-shadow: 0 18px 48px rgba(29, 29, 31, 0.22);
+  box-shadow: 0 18px 48px color-mix(in srgb, var(--ink) 22%, transparent);
+  animation: update-toast-in 0.24s ease;
+}
+
+@keyframes update-toast-in {
+  from {
+    opacity: 0;
+    transform: translateY(-8px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .update-toast {
+    animation: none;
+  }
+}
+
+.update-toast-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.update-toast-close {
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 20px;
+  line-height: 1;
+  color: var(--muted);
+  padding: 2px 6px;
+  border-radius: 6px;
+  min-height: 32px;
+}
+
+.update-toast-close:hover {
+  color: var(--ink);
+  background: var(--paper-deep);
+}
+
+.update-toast-meta {
+  margin: 6px 0 2px;
+  font-size: 13px;
+  color: var(--ink-soft);
+  overflow-wrap: anywhere;
+}
+
+.update-toast-subject {
+  margin: 2px 0 10px;
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+
+.update-toast-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 8px;
+}
+
+.update-toast-actions .button {
+  min-height: 36px;
+  padding: 6px 14px;
+  font-size: 13px;
+}
+
+/* 更新日志（/admin/update 与启用说明里的命令块） */
+.update-log {
+  margin: 0;
+  max-height: 360px;
+  overflow: auto;
+  background: var(--paper-deep);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 12px;
+  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  font-size: 12.5px;
+  line-height: 1.55;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+/* 窄屏后台是 sticky 顶栏，弹窗略微下移避免完全遮住品牌区 */
+@media (max-width: 960px) {
+  .update-toast {
+    top: 10px;
+    left: max(10px, env(safe-area-inset-left));
+    width: min(340px, calc(100vw - 20px));
+  }
+}
+
+/* 侧栏「系统更新」项的新版本圆点 */
+.update-nav-dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  margin-left: 6px;
+  border-radius: 50%;
+  background: var(--accent);
+  vertical-align: middle;
+  flex: none;
+}
