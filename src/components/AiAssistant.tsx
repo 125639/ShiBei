@@ -195,6 +195,7 @@ export function AiAssistant({
         className="ai-assistant-launcher"
         type="button"
         aria-expanded={open}
+        aria-label={hydrated && prefs.language === "en" ? "Open AI assistant" : "打开 AI 助手"}
         aria-controls="ai-assistant-panel"
         onClick={() => setOpen((current) => !current)}
       >

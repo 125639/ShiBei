@@ -10,31 +10,42 @@ export type ExaResult = {
   sourceName: string;
 };
 
-/**
- * Lightweight Exa search client. Uses the public REST API at api.exa.ai.
- *
- * Requires the admin to enable Exa in site settings and store an API key.
- * Returns [] if the integration is disabled or unconfigured.
- */
-export async function searchWithExa(query: string, opts?: {
-  numResults?: number;
-  domesticOnly?: boolean;
-  internationalOnly?: boolean;
-}): Promise<ExaResult[]> {
+/** 读取站点设置里的 Exa key；未启用/未配置/无法解密一律视为「未配置」。 */
+async function loadExaApiKey(): Promise<string | null> {
   const settings = await prisma.siteSettings.findUnique({
     where: { id: "site" },
     select: { exaEnabled: true, exaApiKeyEnc: true }
   });
   const enabled = (settings as { exaEnabled?: boolean } | null)?.exaEnabled;
   const enc = (settings as { exaApiKeyEnc?: string | null } | null)?.exaApiKeyEnc;
-  if (!enabled || !enc) return [];
-
-  let apiKey: string;
+  if (!enabled || !enc) return null;
   try {
-    apiKey = decryptSecret(enc);
+    return decryptSecret(enc);
   } catch {
-    return [];
+    return null;
   }
+}
+
+/** 调用方用它区分「管理员没开 Exa」和「开了但搜索失败/无结果」。 */
+export async function isExaConfigured(): Promise<boolean> {
+  return (await loadExaApiKey()) !== null;
+}
+
+/**
+ * Lightweight Exa search client. Uses the public REST API at api.exa.ai.
+ *
+ * Requires the admin to enable Exa in site settings and store an API key.
+ * Returns [] if the integration is disabled/unconfigured or the query has no
+ * results; throws when Exa is configured but the request itself fails, so
+ * callers can tell an outage apart from a genuine empty result.
+ */
+export async function searchWithExa(query: string, opts?: {
+  numResults?: number;
+  domesticOnly?: boolean;
+  internationalOnly?: boolean;
+}): Promise<ExaResult[]> {
+  const apiKey = await loadExaApiKey();
+  if (!apiKey) return [];
 
   const numResults = clamp(opts?.numResults ?? 8, 1, 20);
   // Region scoping for Exa. The previous 7-domain hard whitelist starved the
@@ -69,11 +80,12 @@ export async function searchWithExa(query: string, opts?: {
       })
     });
     if (!res.ok) {
-      console.error(`[exa] search failed: ${res.status}`);
-      return [];
+      throw new Error(`Exa 搜索请求失败：HTTP ${res.status}`);
     }
     const data: ExaSearchResponse = await res.json();
-    if (!Array.isArray(data?.results)) return [];
+    if (!Array.isArray(data?.results)) {
+      throw new Error("Exa 返回了无法解析的响应结构");
+    }
     return data.results.map((r): ExaResult => ({
       title: r.title || r.url,
       url: r.url,
@@ -81,9 +93,6 @@ export async function searchWithExa(query: string, opts?: {
       publishedDate: r.publishedDate ? safeDate(r.publishedDate) : null,
       sourceName: hostFromUrl(r.url) || "exa"
     }));
-  } catch (error) {
-    console.error("[exa] error:", error);
-    return [];
   } finally {
     clearTimeout(timeout);
   }

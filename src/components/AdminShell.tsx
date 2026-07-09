@@ -29,6 +29,7 @@ export function AdminShell({ children }: { children: React.ReactNode }) {
       en: "Content",
       items: [
         { href: "/admin/posts", zh: "文章与草稿", en: "Posts", modes: ["frontend", "backend", "full"] },
+        { href: "/admin/ai", zh: "AI 管理员", en: "AI Admin", modes: ["backend", "full"] },
         { href: "/admin/videos", zh: "视频库", en: "Videos", modes: ["frontend", "backend", "full"] },
         { href: "/admin/music", zh: "背景音乐", en: "Music", modes: ["frontend", "backend", "full"] }
       ]
@@ -68,8 +69,9 @@ export function AdminShell({ children }: { children: React.ReactNode }) {
       {/* 窄视口下侧边栏由 CSS 变为常驻 sticky 顶栏（见 globals.css ≤960px 块），
           不再使用隐藏式抽屉 + 汉堡按钮。 */}
       <aside className="admin-sidebar" id="admin-sidebar">
-          <h1 style={{ marginTop: 0 }}>
-            ShiBei Admin
+          <h1 className="admin-brand">
+            <span className="admin-brand-mark" aria-hidden>拾</span>
+            <span className="admin-brand-text">ShiBei Admin</span>
             {mode !== "full" ? (
               <span className="tag" style={{ marginLeft: 8, fontSize: 11 }}>
                 {mode}

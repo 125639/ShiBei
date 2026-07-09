@@ -8,6 +8,7 @@ set -u
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+TSX_CMD="node node_modules/tsx/dist/cli.mjs"
 
 if [ -t 1 ]; then
   RED=$'\033[0;31m'; GRN=$'\033[0;32m'; CYA=$'\033[0;36m'; BLD=$'\033[1m'; NC=$'\033[0m'
@@ -36,16 +37,18 @@ run_suite "bootstrap.sh syntax"  bash -n "$PROJECT_DIR/scripts/bootstrap.sh"
 run_suite "init.sh syntax"       bash -n "$PROJECT_DIR/scripts/init.sh"
 run_suite "node seed-helpers"    bash -c "cd '$PROJECT_DIR' && node --test tests/test-seed.mjs"
 run_suite "node seed integration" bash -c "cd '$PROJECT_DIR' && [ -d node_modules/bcryptjs ] && node --test tests/test-seed-integration.mjs || echo '  (skipped: bcryptjs not installed; run npm i bcryptjs)'"
-run_suite "article image cache" bash -c "cd '$PROJECT_DIR' && npx tsx --test tests/test-article-image-cache.ts"
-run_suite "article image mounting" bash -c "cd '$PROJECT_DIR' && npx tsx --test tests/test-article-images.ts"
-run_suite "content style prompts" bash -c "cd '$PROJECT_DIR' && npx tsx --test tests/test-content-style.ts"
-run_suite "source quality gate" bash -c "cd '$PROJECT_DIR' && npx tsx --test tests/test-source-quality.ts"
-run_suite "alarm schedule controls" bash -c "cd '$PROJECT_DIR' && npx tsx --test tests/test-alarm-schedule.ts"
-run_suite "url safety" bash -c "cd '$PROJECT_DIR' && npx tsx --test tests/test-url-safety.ts"
-run_suite "sync limits" bash -c "cd '$PROJECT_DIR' && npx tsx --test tests/test-sync-limits.ts"
-run_suite "video policy + default sources" bash -c "cd '$PROJECT_DIR' && npx tsx --test tests/test-video-policy.ts"
-run_suite "video display + distribution" bash -c "cd '$PROJECT_DIR' && npx tsx --test tests/test-video-display.ts"
-run_suite "creation studio scoring" bash -c "cd '$PROJECT_DIR' && npx tsx --test tests/test-creation.ts"
+run_suite "article image cache" bash -c "cd '$PROJECT_DIR' && $TSX_CMD --test tests/test-article-image-cache.ts"
+run_suite "article image mounting" bash -c "cd '$PROJECT_DIR' && $TSX_CMD --test tests/test-article-images.ts"
+run_suite "content style prompts" bash -c "cd '$PROJECT_DIR' && $TSX_CMD --test tests/test-content-style.ts"
+run_suite "source quality gate" bash -c "cd '$PROJECT_DIR' && $TSX_CMD --test tests/test-source-quality.ts"
+run_suite "alarm schedule controls" bash -c "cd '$PROJECT_DIR' && $TSX_CMD --test tests/test-alarm-schedule.ts"
+run_suite "url safety" bash -c "cd '$PROJECT_DIR' && $TSX_CMD --test tests/test-url-safety.ts"
+run_suite "sync limits" bash -c "cd '$PROJECT_DIR' && $TSX_CMD --test tests/test-sync-limits.ts"
+run_suite "video policy + default sources" bash -c "cd '$PROJECT_DIR' && $TSX_CMD --test tests/test-video-policy.ts"
+run_suite "video display + distribution" bash -c "cd '$PROJECT_DIR' && $TSX_CMD --test tests/test-video-display.ts"
+run_suite "creation studio scoring" bash -c "cd '$PROJECT_DIR' && $TSX_CMD --test tests/test-creation.ts"
+run_suite "creation AI verification" bash -c "cd '$PROJECT_DIR' && $TSX_CMD --test tests/test-creation-ai.ts"
+run_suite "admin AI planning" bash -c "cd '$PROJECT_DIR' && $TSX_CMD --test tests/test-admin-ai.ts"
 
 echo
 echo "============================================="

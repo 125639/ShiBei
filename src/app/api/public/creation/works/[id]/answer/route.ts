@@ -3,7 +3,7 @@ import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import { parseJsonBody } from "@/lib/request-validation";
 import { ensureBackendCallerAllowed } from "@/lib/sync/backend-auth";
-import { generateNextInterviewQuestion } from "@/lib/creation-ai";
+import { generateNextInterviewQuestion, isVerificationClarificationQuestion } from "@/lib/creation-ai";
 import { parseGenreDimensions, parseInterview } from "@/lib/creation";
 import {
   actorOwnsWork,
@@ -40,6 +40,22 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
 
   const interview = parseInterview(work.interview);
   interview.push({ question: work.pendingQuestion, answer: parsed.data.answer });
+
+  if (isVerificationClarificationQuestion(work.pendingQuestion)) {
+    const claimed = await prisma.creativeWork.updateMany({
+      where: { id: work.id, pendingQuestion: work.pendingQuestion },
+      data: {
+        interview: JSON.stringify(interview),
+        pendingQuestion: null
+      }
+    });
+    if (claimed.count === 0) {
+      return NextResponse.json({ error: "这个问题已经回答过了，请刷新查看最新进度" }, { status: 409 });
+    }
+
+    const updated = await prisma.creativeWork.findUniqueOrThrow({ where: { id: work.id }, include: { genre: true } });
+    return NextResponse.json({ done: true, work: serializeWorkForOwner(updated) });
+  }
 
   let next: Awaited<ReturnType<typeof generateNextInterviewQuestion>>;
   try {

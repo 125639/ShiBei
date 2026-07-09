@@ -200,10 +200,20 @@ export function CreationStudio() {
   const composeDraft = () =>
     run("compose", async () => {
       if (!work) return;
-      const data = await requestJson<{ work: Work; composeNotes?: string[] }>(
-        `/api/public/creation/works/${work.id}/compose`,
-        { method: "POST" }
-      );
+      const response = await fetch(`/api/public/creation/works/${work.id}/compose`, { method: "POST" });
+      const data = (await response.json().catch(() => ({}))) as {
+        work?: Work;
+        composeNotes?: string[];
+        error?: string;
+      };
+      if (!response.ok) {
+        if (data.work) {
+          setWork(data.work);
+          setComposeNotes(Array.isArray(data.composeNotes) ? data.composeNotes : []);
+        }
+        throw new Error(data.error || `请求失败（${response.status}）`);
+      }
+      if (!data.work) throw new Error("成稿接口没有返回作品数据");
       setWork(data.work);
       setComposeNotes(Array.isArray(data.composeNotes) ? data.composeNotes : []);
       setTouchedAfterScore(false);

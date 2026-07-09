@@ -1,6 +1,6 @@
 import type { CreationDepth, CreationMode } from "@prisma/client";
 import { parseJsonObject, requestChatCompletion } from "./ai";
-import { searchWithExa, type ExaResult } from "./exa";
+import { isExaConfigured, searchWithExa, type ExaResult } from "./exa";
 import { getModelConfigForUse } from "./model-selection";
 import { isFrontend } from "./app-mode";
 import { backendFetchInitForConfig, getResolvedSyncConfig } from "./sync/config";
@@ -234,32 +234,56 @@ async function extractInterviewInsights(input: {
 
 /**
  * 公开资料核验：把解读阶段标记的可查证事实点交给 Exa 搜索。
- * 只在管理员启用了 Exa 时生效（未配置/失败一律静默返回空，不阻塞成稿）；
- * 结果供成稿与审校核对「谁说的、说的是什么对象」，不作为新的素材来源。
+ * 搜索结果供成稿与审校核对「谁说的、说的是什么对象」，不作为新的素材来源。
+ *
+ * 三种基础设施状态严格区分，绝不混作「用户的事实有问题」：
+ * - Exa 未启用 → 返回 null，调用方跳过核验（草稿附注说明未核验）；
+ * - Exa 启用但搜索全部失败 → 抛错，成稿接口返回「稍后重试」；
+ * - Exa 启用且搜索成功 → 返回结果。为空说明真的查无资料，
+ *   调用方阻断成稿并要求用户补充来源或解释。
  */
-async function gatherPublicEvidence(queries: string[]): Promise<ExaResult[]> {
+async function gatherPublicEvidence(queries: string[]): Promise<ExaResult[] | null> {
   const trimmed = queries.map((q) => q.trim()).filter(Boolean).slice(0, 2);
   if (!trimmed.length) return [];
-  try {
-    const settled = await Promise.allSettled(
-      trimmed.map((query) => searchWithExa(query, { numResults: 3 }))
+  if (!(await isExaConfigured())) return null;
+  const settled = await Promise.allSettled(
+    trimmed.map((query) => searchWithExa(query, { numResults: 3 }))
+  );
+  return mergePublicEvidenceSearches(settled);
+}
+
+/**
+ * 合并多路搜索结果（按 URL 去重，最多 5 条）。
+ * 全部失败视为基础设施故障，抛错而不是当成「查无资料」——
+ * 否则一次 Exa 故障会被翻译成「请用户补充来源」，把锅甩给创作者。
+ */
+export function mergePublicEvidenceSearches(
+  settled: PromiseSettledResult<ExaResult[]>[]
+): ExaResult[] {
+  const failures = settled.filter(
+    (item): item is PromiseRejectedResult => item.status === "rejected"
+  );
+  if (settled.length && failures.length === settled.length) {
+    const reason = failures[0].reason;
+    throw new Error(
+      `公开资料搜索失败：${reason instanceof Error ? reason.message : String(reason)}`
     );
-    const merged: ExaResult[] = [];
-    const seen = new Set<string>();
-    for (const result of settled) {
-      if (result.status !== "fulfilled") continue;
-      for (const item of result.value) {
-        if (seen.has(item.url)) continue;
-        seen.add(item.url);
-        merged.push(item);
-        if (merged.length >= 5) return merged;
-      }
-    }
-    return merged;
-  } catch (error) {
-    console.warn("[creation-compose] 公开资料搜索失败，跳过核验:", error);
-    return [];
   }
+  if (failures.length) {
+    console.warn("[creation-compose] 部分公开资料搜索失败，用剩余结果核验:", failures[0].reason);
+  }
+  const merged: ExaResult[] = [];
+  const seen = new Set<string>();
+  for (const result of settled) {
+    if (result.status !== "fulfilled") continue;
+    for (const item of result.value) {
+      if (seen.has(item.url)) continue;
+      seen.add(item.url);
+      merged.push(item);
+      if (merged.length >= 5) return merged;
+    }
+  }
+  return merged;
 }
 
 function formatPublicEvidence(evidence: ExaResult[]): string {
@@ -268,7 +292,8 @@ function formatPublicEvidence(evidence: ExaResult[]): string {
       const lines = [
         `--- 公开资料 ${index + 1} ---`,
         `来源：${item.sourceName}`,
-        `标题：${item.title}`
+        `标题：${item.title}`,
+        `链接：${item.url}`
       ];
       if (item.publishedDate) lines.push(`发布时间：${item.publishedDate.toISOString().slice(0, 10)}`);
       lines.push(`摘录：${item.text.slice(0, 600)}`);
@@ -281,6 +306,183 @@ function strArray(value: unknown): string[] {
   return Array.isArray(value)
     ? value.filter((item): item is string => typeof item === "string" && item.trim() !== "")
     : [];
+}
+
+export type PublicVerificationIssue = {
+  claim: string;
+  finding: string;
+  evidence: string;
+  requiredAction: string;
+};
+
+export function buildPublicEvidenceUnavailableIssues(input: {
+  claims: string[];
+  searchQueries: string[];
+}): PublicVerificationIssue[] {
+  const claims = input.claims.map((claim) => claim.trim()).filter(Boolean);
+  const queries = input.searchQueries.map((query) => query.trim()).filter(Boolean);
+  if (!queries.length) return [];
+
+  const targets = claims.length ? claims : queries.map((query) => `需要核验的公开信息：${query}`);
+  return targets.slice(0, 8).map((claim) => ({
+    claim,
+    finding: "系统已经识别到这属于公开可查事实，但本轮联网搜索没有取得可用于核验的资料。",
+    evidence: queries.join("；"),
+    requiredAction: "请补充可靠来源链接、准确名称/时间，或改写为个人观点/待确认信息后重新成稿。"
+  }));
+}
+
+export function buildPublicEvidenceReviewFailedIssues(input: {
+  claims: string[];
+  evidence: ExaResult[];
+}): PublicVerificationIssue[] {
+  const claims = input.claims.map((claim) => claim.trim()).filter(Boolean);
+  const sourceNames = [...new Set(input.evidence.map((item) => item.sourceName).filter(Boolean))];
+  const targets = claims.length ? claims : ["本轮涉及公开事实的表述"];
+  return targets.slice(0, 8).map((claim) => ({
+    claim,
+    finding: "系统已完成联网搜索，但自动核验步骤没有可靠完成，因此不能把该表述直接写入草稿。",
+    evidence: sourceNames.length ? `已检索来源：${sourceNames.join("、")}` : "已检索到资料，但未能完成自动核验。",
+    requiredAction: "请补充更明确的来源或改写为待确认信息后重新成稿。"
+  }));
+}
+
+export class PublicVerificationRequiredError extends Error {
+  issues: PublicVerificationIssue[];
+
+  constructor(issues: PublicVerificationIssue[]) {
+    super("public verification requires user clarification");
+    this.name = "PublicVerificationRequiredError";
+    this.issues = issues;
+  }
+}
+
+async function verifyPublicClaimsAgainstEvidence(input: {
+  claims: string[];
+  evidence: ExaResult[];
+}): Promise<PublicVerificationIssue[]> {
+  const claims = input.claims.map((claim) => claim.trim()).filter(Boolean).slice(0, 12);
+  if (!claims.length || !input.evidence.length) return [];
+
+  const prompt = [
+    "【待核验事实性陈述】",
+    claims.map((claim, index) => `${index + 1}. ${claim}`).join("\n"),
+    "",
+    "【联网搜索资料】",
+    formatPublicEvidence(input.evidence),
+    "",
+    "【任务】",
+    "请在读完全部待核验陈述与全部搜索资料后，整合输出需要创作者整改或解释的问题。只列三类问题：",
+    "1. 搜索资料明确反驳或明显不支持的公开事实。",
+    "2. 引语、归因、对象可能错位的公开事实。",
+    "3. 搜索资料不足以确认、但如果写成客观事实会误导读者的关键陈述。",
+    "",
+    "【判断纪律】",
+    "- 个人经历、个人感受、个人观点不要核验为真假。",
+    "- 不要因为搜索资料没有覆盖所有细节就机械报错；只列会影响事实准确性的关键点。",
+    "- 不要改写成稿；只告诉创作者需要补充来源、修正、或解释。",
+    "- 必须先综合所有资料，再输出一个合并后的问题清单。",
+    "",
+    "【输出格式】",
+    '严格 JSON：{"issues":[{"claim":"原陈述","finding":"核验发现","evidence":"依据哪几条资料","requiredAction":"请用户如何整改或解释"}]}',
+    "不要代码围栏，不要 JSON 之外的文字。"
+  ].join("\n");
+
+  const raw = await creationChatCompletion(
+    prompt,
+    "你是事实核验编辑。你只根据给定搜索资料判断公开可查事实是否需要创作者整改或解释。输出严格 JSON。"
+  );
+  const parsed = parseJsonObject(raw) as { issues?: unknown };
+  if (!Array.isArray(parsed.issues)) return [];
+  return parsed.issues.flatMap((item) => {
+    if (typeof item !== "object" || item === null) return [];
+    const row = item as Record<string, unknown>;
+    const claim = typeof row.claim === "string" ? row.claim.trim() : "";
+    const finding = typeof row.finding === "string" ? row.finding.trim() : "";
+    if (!claim || !finding) return [];
+    return [{
+      claim,
+      finding,
+      evidence: typeof row.evidence === "string" ? row.evidence.trim() : "",
+      requiredAction: typeof row.requiredAction === "string" ? row.requiredAction.trim() : "请修正表述或补充可靠来源。"
+    }];
+  }).slice(0, 8);
+}
+
+/**
+ * 公开事实核验闸门。gather/verify 可注入以便单测覆盖每条分支；
+ * 生产路径用默认实现（Exa 搜索 + AI 核验）。
+ *
+ * 返回值：evidence 供成稿/审校 prompt 引用；notes 附在草稿提示里。
+ * 抛 PublicVerificationRequiredError = 需要创作者整改或解释（阻断成稿）；
+ * 抛其他错误 = 基础设施故障，成稿接口按「稍后重试」处理。
+ */
+export async function runPublicVerificationGate(input: {
+  searchQueries: string[];
+  factualClaims: string[];
+  gather?: (queries: string[]) => Promise<ExaResult[] | null>;
+  verify?: (input: { claims: string[]; evidence: ExaResult[] }) => Promise<PublicVerificationIssue[]>;
+}): Promise<{ evidence: ExaResult[]; notes: string[] }> {
+  const gather = input.gather ?? gatherPublicEvidence;
+  const verify = input.verify ?? verifyPublicClaimsAgainstEvidence;
+  const queries = input.searchQueries.map((query) => query.trim()).filter(Boolean);
+
+  const gathered = await gather(queries);
+  if (gathered === null) {
+    // Exa 未启用：保持「不阻塞成稿」的既有行为，但明确告知创作者本稿未经联网核验。
+    return {
+      evidence: [],
+      notes: ["本稿包含可公开核验的表述，但站点未启用联网搜索，本次未做公开资料核验，请发布前自行确认相关事实。"]
+    };
+  }
+
+  let verificationIssues: PublicVerificationIssue[] = [];
+  if (queries.length && gathered.length === 0) {
+    verificationIssues = buildPublicEvidenceUnavailableIssues({
+      claims: input.factualClaims,
+      searchQueries: queries
+    });
+  }
+  if (gathered.length) {
+    try {
+      verificationIssues = await verify({ claims: input.factualClaims, evidence: gathered });
+    } catch (error) {
+      console.warn("[creation-compose] 公开事实核验失败，要求用户补充确认:", error);
+      verificationIssues = buildPublicEvidenceReviewFailedIssues({
+        claims: input.factualClaims,
+        evidence: gathered
+      });
+    }
+  }
+  if (verificationIssues.length) {
+    throw new PublicVerificationRequiredError(verificationIssues);
+  }
+  return { evidence: gathered, notes: [] };
+}
+
+function formatVerificationIssues(issues: PublicVerificationIssue[]) {
+  return issues
+    .map((issue, index) => [
+      `${index + 1}. 陈述：${issue.claim}`,
+      `   - 核验发现：${issue.finding}`,
+      issue.evidence ? `   - 依据：${issue.evidence}` : null,
+      `   - 需要创作者处理：${issue.requiredAction}`
+    ].filter(Boolean).join("\n"))
+    .join("\n");
+}
+
+export function formatVerificationClarificationQuestion(issues: PublicVerificationIssue[]) {
+  return [
+    "联网核验发现下面这些公开事实需要你整改或解释。请逐条回复：哪些地方要改正，哪些是你的个人表述，哪些有可靠来源可以补充。",
+    "",
+    formatVerificationIssues(issues),
+    "",
+    "请尽量补充来源链接、准确时间、人物/机构名称，或明确说明这只是你的个人经历/观点。你回复后，我会重新联网搜索并再次核验。"
+  ].join("\n");
+}
+
+export function isVerificationClarificationQuestion(question: string | null | undefined) {
+  return Boolean(question?.startsWith("联网核验发现下面这些公开事实需要你整改或解释。"));
 }
 
 /**
@@ -387,8 +589,14 @@ export async function composeCreativeDraft(input: {
     interview: input.interview
   });
 
-  // 第一步半：可查证的公开事实点交给网络搜索核验（未启用 Exa 时自动为空）
-  const publicEvidence = await gatherPublicEvidence(insights.searchQueries);
+  // 第一步半：可查证的公开事实点交给网络搜索核验。
+  // Exa 未启用时跳过核验但附注告知；启用后查无资料或核验发现问题会
+  // 抛 PublicVerificationRequiredError 阻断成稿（见 runPublicVerificationGate）。
+  const verification = await runPublicVerificationGate({
+    searchQueries: insights.searchQueries,
+    factualClaims: insights.factualClaims
+  });
+  const publicEvidence = verification.evidence;
 
   const readingLines = insights.readings.length
     ? insights.readings
@@ -464,7 +672,7 @@ export async function composeCreativeDraft(input: {
 
   // 第三步：正则快筛提供线索，AI 审校做最终裁决；审校失败降级为快筛提示，不阻塞成稿。
   const regexCheck = verifyFactualConsistency(content, insights.factualClaims);
-  const notes: string[] = [];
+  const notes: string[] = [...verification.notes];
   let finalContent = content;
   try {
     const review = await reviewDraftFaithfulness({
