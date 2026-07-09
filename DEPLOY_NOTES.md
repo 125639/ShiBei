@@ -1,3 +1,56 @@
+# 2026-07-09 网页端一键更新（三种形态通用）
+
+GitHub 仓库有新提交时，管理后台**左上角自动弹出提示**（叉掉后同一版本不再弹）；
+弹窗或侧栏「系统更新」`/admin/update` 页面里可以一键完成
+「git 拉取 → 重建镜像 → 滚动重启」，全程网页操作，无需 SSH。
+
+## 结构
+
+- **updater 伴车容器**（`Dockerfile.updater` + 各 compose 的 `updater` 服务）：
+  挂载 `/var/run/docker.sock` 和仓库目录 `.:/repo`，跑 `scripts/updater/server.mjs`。
+  只在 compose 内网监听 9080（**不映射端口**——docker.sock 等价宿主 root，绝不可暴露公网）。
+  鉴权 Bearer `UPDATER_TOKEN`，未设置时自动复用 `AUTH_SECRET`（app 与 updater 同读 .env，零配置）。
+- **app 端**：`/api/admin/update/check|apply|status`（均需管理员登录），`src/lib/update.ts`。
+  检查主路径走 updater（git fetch 对比，支持私有仓库、无 API 限额）；
+  updater 没起来时降级 GitHub API（`UPDATE_REPO`/`UPDATE_BRANCH`，默认 `125639/ShiBei` main），
+  此时只能提示新版本，页面会给出启用 updater 的命令。
+- 更新流程固定为 `git fetch && git reset --hard origin/<branch>` → `docker compose build <services>`
+  →`up -d --no-deps <services>`，不接受任何请求参数，无注入面；服务器仓库里未提交的改动会被丢弃。
+  `--no-deps` 保证绝不顺手重建 postgres/redis。
+- compose project 名通过容器自身的 `com.docker.compose.project` label 自省获得，
+  不会因为挂载路径是 /repo 而落到错误的 project 上。
+
+## 各形态差异（compose 里 updater 服务的环境变量）
+
+| 形态 | COMPOSE_FILE_NAME | UPDATE_BUILD_SERVICES（构建） | UPDATE_SERVICES（重启） |
+|---|---|---|---|
+| full | docker-compose.yml | app | app worker |
+| backend | docker-compose.backend.yml | app | app worker |
+| frontend | docker-compose.frontend.yml | app | app |
+
+app 与 worker 共用同一镜像 tag，构建一次 app 即可（与 scripts/deploy.sh 一致），up 时 worker 自动换新镜像。
+
+## 启用（现有部署升级后执行一次）
+
+```bash
+cd /root/video   # 仓库目录
+git pull
+docker compose -f <对应形态的 compose 文件> up -d --build updater
+# 之后的应用更新都可以在网页上点了
+```
+
+## 注意
+
+- updater **不更新它自己**：某次更新如果改了 `scripts/updater/*` 或 `Dockerfile.updater`，
+  更新日志会提示，需再手动执行一次上面的 `up -d --build updater`。
+- 更新期间站点中断几十秒（compose up 替换 app 容器）；前端弹窗/更新页会显示
+  「应用重启中」并在完成后提示刷新。构建约 3-10 分钟。
+- 内存 ≤1GB 的小机（如 frontend 形态的 765MB 机器）本机构建镜像可能吃紧，
+  建议配好 swap；构建失败不影响正在运行的旧容器。
+- 弹窗的「叉掉不再提醒」记录在浏览器 localStorage（`shibei.update.dismissed`），按远端版本号记忆。
+
+---
+
 # 2026-07-02（三）用户反馈修复：dynamic 白屏 / 设置页排版 / 后台窄屏导航
 
 ## 1. 动态流光（dynamic）公开页白屏 —— 根因与修复

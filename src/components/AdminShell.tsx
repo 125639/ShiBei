@@ -2,6 +2,8 @@ import Link from "next/link";
 import { ActiveLink } from "./ActiveLink";
 import { AdminLanguageToggle } from "./AdminLanguageToggle";
 import { I18nText } from "./I18nText";
+import { UpdateNotifier } from "./UpdateNotifier";
+import { UpdateNavBadge } from "./UpdateNavBadge";
 import { getAppMode } from "@/lib/app-mode";
 
 export function AdminShell({ children }: { children: React.ReactNode }) {
@@ -45,7 +47,8 @@ export function AdminShell({ children }: { children: React.ReactNode }) {
       en: "System",
       items: [
         { href: "/admin/settings", zh: "系统设置", en: "Settings", modes: ["frontend", "backend", "full"] },
-        { href: "/admin/sync", zh: "数据同步", en: "Sync", modes: ["frontend", "backend", "full"] }
+        { href: "/admin/sync", zh: "数据同步", en: "Sync", modes: ["frontend", "backend", "full"] },
+        { href: "/admin/update", zh: "系统更新", en: "Update", modes: ["frontend", "backend", "full"] }
       ]
     }
   ];
@@ -57,6 +60,8 @@ export function AdminShell({ children }: { children: React.ReactNode }) {
 
   return (
     <div className="admin-layout">
+      {/* GitHub 有新版本时的左上角提示弹窗（叉掉后仍可从「系统更新」页更新） */}
+      <UpdateNotifier />
       <a href="#admin-main" className="skip-link">
         <I18nText zh="跳到主要内容" en="Skip to main content" />
       </a>
@@ -81,6 +86,7 @@ export function AdminShell({ children }: { children: React.ReactNode }) {
                   // /admin 用精确匹配，否则仪表盘在所有后台子页都会高亮
                   <ActiveLink href={item.href} key={item.href} match={item.href === "/admin" ? "exact" : "prefix"}>
                     <I18nText zh={item.zh} en={item.en} />
+                    {item.href === "/admin/update" ? <UpdateNavBadge /> : null}
                   </ActiveLink>
                 ))}
               </div>

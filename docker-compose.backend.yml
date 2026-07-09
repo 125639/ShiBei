@@ -99,6 +99,31 @@ services:
     mem_limit: 1024m
     restart: unless-stopped
 
+  # 网页端一键更新伴车（同完整版，compose 文件换成 backend 的）。
+  # 挂载 docker.sock = 宿主 root 权限，只在内网监听，绝不暴露端口。
+  updater:
+    image: safg/shibei:updater
+    build:
+      context: .
+      dockerfile: Dockerfile.updater
+    env_file:
+      - .env
+    environment:
+      COMPOSE_FILE_NAME: docker-compose.backend.yml
+      # app 与 worker 共用 safg/shibei:backend 镜像：只构建 app，up 时 worker 自动换新镜像
+      UPDATE_BUILD_SERVICES: app
+      UPDATE_SERVICES: app worker
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - .:/repo
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:9080/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 60s
+      timeout: 5s
+      retries: 3
+    mem_limit: 128m
+    restart: unless-stopped
+
 volumes:
   postgres-data:
   redis-data:
