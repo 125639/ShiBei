@@ -96,5 +96,10 @@ export async function claimAnonWorks(memberId: string) {
     where: { anonId, ownerId: null, status: { not: "SHARED" } },
     data: { ownerId: memberId }
   });
+  // 写作台文档同规则认领(纯私有内容,没有 SHARED 例外)。
+  await prisma.writingDoc.updateMany({
+    where: { anonId, ownerId: null },
+    data: { ownerId: memberId }
+  }).catch(() => undefined);
   return result.count;
 }
