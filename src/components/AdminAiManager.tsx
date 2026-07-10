@@ -1,7 +1,9 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import type { JobStatus } from "@prisma/client";
 import { I18nText } from "./I18nText";
+import { StatusPill } from "./StatusPill";
 
 type ContentStyleOption = {
   id: string;
@@ -16,45 +18,111 @@ type PlannedTask = {
   depth: "standard" | "long" | "deep";
   articleCount: number;
   topicId: string | null;
+  styleId: string | null;
 };
 
-type QueuedTask = PlannedTask & { jobId: string };
+type RecurringPlan = {
+  name: string;
+  keywords: string;
+  reason: string;
+  cadence: "daily" | "weekly" | "weekdays";
+  weekday: number;
+  hour: number;
+  mode: "single" | "daily_digest" | "weekly_roundup";
+  scope: PlannedTask["scope"];
+  depth: PlannedTask["depth"];
+  articleCount: number;
+  styleId: string | null;
+};
 
 type PlanResult = {
   summary: string;
   warnings: string[];
   tasks: PlannedTask[];
+  recurring: RecurringPlan[];
   totalArticles: number;
   topics: Array<{ id: string; name: string }>;
+  styles: Array<{ id: string; name: string }>;
+};
+
+type RecurringResult = {
+  name: string;
+  topicId: string | null;
+  cadence: { zh: string; en: string };
+  created: boolean;
 };
 
 type ExecuteResult = {
   executed: true;
-  tasks: QueuedTask[];
+  batchId: string;
+  tasks: Array<PlannedTask & { jobId: string }>;
+  recurring: RecurringResult[];
   totalArticles: number;
   warnings: string[];
 };
 
-const EXAMPLE =
-  "生成 4 篇财经博客（其中 1 篇与日本有关，其他与欧洲相关），再来 8 篇 AI 主题博客（几篇讲 AI 的最新进步，几篇分析欧洲 AI 发展迟缓的原因）。";
+export type AdminAiBatchView = {
+  id: string;
+  request: string;
+  summary: string;
+  createdAt: string;
+  recurring: RecurringResult[];
+  jobs: Array<{ id: string; status: JobStatus; keyword: string; error: string | null }>;
+};
 
-export function AdminAiManager({ styles }: { styles: ContentStyleOption[] }) {
+const EXAMPLE =
+  "生成 4 篇财经博客（其中 1 篇与日本有关，其他与欧洲相关），再来 8 篇 AI 主题博客（几篇讲 AI 的最新进步，几篇分析欧洲 AI 发展迟缓的原因）。以后每周一上午来一篇 AI 周报。";
+
+const CADENCE_LABELS: Record<RecurringPlan["cadence"], { zh: string; en: string }> = {
+  daily: { zh: "每天", en: "Daily" },
+  weekly: { zh: "每周", en: "Weekly" },
+  weekdays: { zh: "工作日", en: "Weekdays" }
+};
+
+const MODE_LABELS: Record<RecurringPlan["mode"], { zh: string; en: string }> = {
+  single: { zh: "独立成文", en: "Article" },
+  daily_digest: { zh: "日报汇总", en: "Daily digest" },
+  weekly_roundup: { zh: "周报汇总", en: "Weekly roundup" }
+};
+
+const WEEKDAYS_ZH = ["一", "二", "三", "四", "五", "六", "日"];
+
+function cadenceText(item: RecurringPlan) {
+  const hour = String(item.hour).padStart(2, "0");
+  if (item.cadence === "weekly") return `每周${WEEKDAYS_ZH[item.weekday - 1] || "一"} ${hour}:00`;
+  return `${CADENCE_LABELS[item.cadence].zh} ${hour}:00`;
+}
+
+export function AdminAiManager({
+  styles,
+  initialBatches
+}: {
+  styles: ContentStyleOption[];
+  initialBatches: AdminAiBatchView[];
+}) {
   const [request, setRequest] = useState(EXAMPLE);
   const [scope, setScope] = useState<PlannedTask["scope"]>("all");
   const [depth, setDepth] = useState<PlannedTask["depth"]>("long");
   const [articleCount, setArticleCount] = useState(1);
   const [contentStyleId, setContentStyleId] = useState("");
+  const [feedback, setFeedback] = useState("");
   const [planning, setPlanning] = useState(false);
+  const [revising, setRevising] = useState(false);
   const [executing, setExecuting] = useState(false);
   const [error, setError] = useState("");
   const [plan, setPlan] = useState<PlanResult | null>(null);
   const [executed, setExecuted] = useState<ExecuteResult | null>(null);
+  const [batches, setBatches] = useState<AdminAiBatchView[]>(initialBatches);
+  const [refreshing, setRefreshing] = useState(false);
+  const [retryingJobId, setRetryingJobId] = useState("");
 
-  const topicNames = useMemo(() => {
+  const nameById = useMemo(() => {
     const map = new Map<string, string>();
     for (const topic of plan?.topics || []) map.set(topic.id, topic.name);
+    for (const style of plan?.styles || []) map.set(style.id, style.name);
+    for (const style of styles) map.set(style.id, style.name);
     return map;
-  }, [plan]);
+  }, [plan, styles]);
 
   const plannedTotal = useMemo(
     () => (plan ? plan.tasks.reduce((sum, task) => sum + task.articleCount, 0) : 0),
@@ -72,6 +140,32 @@ export function AdminAiManager({ styles }: { styles: ContentStyleOption[] }) {
     return data;
   }
 
+  const refreshBatches = useCallback(async () => {
+    setRefreshing(true);
+    try {
+      const response = await fetch("/api/admin/ai-admin", { method: "GET" });
+      if (!response.ok) return;
+      const data = (await response.json()) as { batches: AdminAiBatchView[] };
+      setBatches(data.batches);
+    } catch {
+      // 轮询失败静默,下一轮再试
+    } finally {
+      setRefreshing(false);
+    }
+  }, []);
+
+  // 有排队/运行中的任务时轻量轮询,批次全部完成后自动停。
+  const hasActiveJobs = batches.some((batch) =>
+    batch.jobs.some((job) => job.status === "QUEUED" || job.status === "RUNNING")
+  );
+  const refreshRef = useRef(refreshBatches);
+  refreshRef.current = refreshBatches;
+  useEffect(() => {
+    if (!hasActiveJobs) return;
+    const timer = setInterval(() => { void refreshRef.current(); }, 20_000);
+    return () => clearInterval(timer);
+  }, [hasActiveJobs]);
+
   async function generatePlan() {
     setPlanning(true);
     setError("");
@@ -79,6 +173,7 @@ export function AdminAiManager({ styles }: { styles: ContentStyleOption[] }) {
     try {
       const data = await callApi({ action: "plan", request, scope, depth, articleCount });
       setPlan(data as unknown as PlanResult);
+      setFeedback("");
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
@@ -86,25 +181,71 @@ export function AdminAiManager({ styles }: { styles: ContentStyleOption[] }) {
     }
   }
 
+  async function revisePlan() {
+    if (!plan || feedback.trim().length < 2) return;
+    setRevising(true);
+    setError("");
+    try {
+      const data = await callApi({
+        action: "revise",
+        request,
+        feedback,
+        scope,
+        depth,
+        articleCount,
+        tasks: plan.tasks,
+        recurring: plan.recurring
+      });
+      setPlan(data as unknown as PlanResult);
+      setFeedback("");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setRevising(false);
+    }
+  }
+
   async function executePlan() {
-    if (!plan?.tasks.length) return;
+    if (!plan || (!plan.tasks.length && !plan.recurring.length)) return;
     setExecuting(true);
     setError("");
     try {
       const data = await callApi({
         action: "execute",
+        request,
         scope,
         depth,
         articleCount,
         contentStyleId,
-        tasks: plan.tasks
+        tasks: plan.tasks,
+        recurring: plan.recurring
       });
       setExecuted(data as unknown as ExecuteResult);
       setPlan(null);
+      void refreshBatches();
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
       setExecuting(false);
+    }
+  }
+
+  async function retryJob(jobId: string) {
+    setRetryingJobId(jobId);
+    setError("");
+    try {
+      const response = await fetch("/api/admin/ai-admin/retry", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ jobId })
+      });
+      const data = (await response.json().catch(() => ({}))) as { error?: string };
+      if (!response.ok) throw new Error(data.error || "重试失败");
+      await refreshBatches();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setRetryingJobId("");
     }
   }
 
@@ -114,7 +255,13 @@ export function AdminAiManager({ styles }: { styles: ContentStyleOption[] }) {
     );
   }
 
-  const busy = planning || executing;
+  function removeRecurring(index: number) {
+    setPlan((current) =>
+      current ? { ...current, recurring: current.recurring.filter((_, i) => i !== index) } : current
+    );
+  }
+
+  const busy = planning || revising || executing;
 
   return (
     <div className="admin-ai-layout">
@@ -124,8 +271,8 @@ export function AdminAiManager({ styles }: { styles: ContentStyleOption[] }) {
           <h2><I18nText zh="把需求交给 AI 管理员" en="Delegate a content task" /></h2>
           <p className="muted">
             <I18nText
-              zh="用自然语言描述想要的内容（明确篇数或模糊数量都可以）。AI 管理员先给出拆解计划，你确认后才会入队生成草稿；草稿仍需审核后发布。"
-              en="Describe the content you want in natural language — exact counts or vague quantities both work. The AI admin proposes a plan first; nothing is queued until you confirm. Drafts still require review."
+              zh="用自然语言描述想要的内容（明确篇数、模糊数量、周期性需求都可以）。AI 管理员先给出拆解计划，可以继续用修改意见调整，确认后才会执行；草稿仍需审核后发布。"
+              en="Describe what you want in natural language — exact counts, vague quantities, or recurring needs. The AI admin proposes a plan you can refine with feedback; nothing runs until you confirm. Drafts still require review."
             />
           </p>
         </div>
@@ -173,7 +320,7 @@ export function AdminAiManager({ styles }: { styles: ContentStyleOption[] }) {
             />
           </div>
           <div className="field">
-            <label htmlFor="admin-ai-style"><I18nText zh="生成风格" en="Content style" /></label>
+            <label htmlFor="admin-ai-style"><I18nText zh="默认生成风格" en="Default style" /></label>
             <select id="admin-ai-style" value={contentStyleId} onChange={(event) => setContentStyleId(event.target.value)}>
               <option value="">使用默认风格 / Default style</option>
               {styles.map((style) => (
@@ -205,9 +352,9 @@ export function AdminAiManager({ styles }: { styles: ContentStyleOption[] }) {
         <section className="admin-panel">
           <h2><I18nText zh="执行边界" en="Execution Rules" /></h2>
           <ul className="admin-ai-rules">
-            <li><I18nText zh="先出计划，确认后才入队；不直接发布文章。" en="Plans first, queues only after you confirm; never publishes directly." /></li>
-            <li><I18nText zh="复用现有联网搜索与草稿生成流程，并把任务挂到对应主题分类。" en="Uses the existing research pipeline and binds tasks to site topics." /></li>
-            <li><I18nText zh="生成结果进入任务诊断与文章草稿，便于审核。" en="Results appear in jobs and drafts for review." /></li>
+            <li><I18nText zh="先出计划，确认后才执行；不直接发布文章。" en="Plans first, runs only after you confirm; never publishes directly." /></li>
+            <li><I18nText zh="一次性任务复用现有研究流水线；周期需求转成自动内容主题。" en="One-off tasks use the research pipeline; recurring needs become auto-content topics." /></li>
+            <li><I18nText zh="每次执行记录为批次，进度与失败重试都在下方。" en="Each run is recorded as a batch with progress and retry below." /></li>
           </ul>
         </section>
 
@@ -217,8 +364,8 @@ export function AdminAiManager({ styles }: { styles: ContentStyleOption[] }) {
             <p className="muted">{plan.summary}</p>
             <p className="muted">
               <I18nText
-                zh={`共 ${plan.tasks.length} 个任务、${plannedTotal} 篇文章。不需要的任务可以移除。`}
-                en={`${plan.tasks.length} tasks, ${plannedTotal} articles. Remove any task you do not want.`}
+                zh={`${plan.tasks.length} 个一次性任务（${plannedTotal} 篇）${plan.recurring.length ? ` + ${plan.recurring.length} 个周期任务` : ""}。不需要的可以移除。`}
+                en={`${plan.tasks.length} one-off tasks (${plannedTotal} articles)${plan.recurring.length ? ` + ${plan.recurring.length} recurring` : ""}. Remove any you do not want.`}
               />
             </p>
             {plan.warnings.length ? (
@@ -239,60 +386,159 @@ export function AdminAiManager({ styles }: { styles: ContentStyleOption[] }) {
                     <span className="tag">{task.depth}</span>
                     <span className="tag">{task.articleCount} 篇</span>
                     {task.topicId ? (
-                      <span className="tag">{topicNames.get(task.topicId) || task.topicId}</span>
+                      <span className="tag">{nameById.get(task.topicId) || task.topicId}</span>
                     ) : (
                       <span className="tag"><I18nText zh="自动归类" en="Auto topic" /></span>
                     )}
+                    {task.styleId ? <span className="tag">{nameById.get(task.styleId) || task.styleId}</span> : null}
                     <button className="text-link" type="button" onClick={() => removeTask(index)}>
                       <I18nText zh="移除" en="Remove" />
                     </button>
                   </div>
                 </article>
               ))}
+              {plan.recurring.map((item, index) => (
+                <article className="admin-ai-task admin-ai-recurring" key={`recurring-${item.name}-${index}`}>
+                  <strong>{item.name}</strong>
+                  <p>{item.reason || item.keywords}</p>
+                  <div className="meta-row">
+                    <span className="tag">{cadenceText(item)}</span>
+                    <span className="tag">{MODE_LABELS[item.mode].zh}</span>
+                    <span className="tag">{item.scope}</span>
+                    <span className="tag">{item.articleCount} 篇/次</span>
+                    {item.styleId ? <span className="tag">{nameById.get(item.styleId) || item.styleId}</span> : null}
+                    <button className="text-link" type="button" onClick={() => removeRecurring(index)}>
+                      <I18nText zh="移除" en="Remove" />
+                    </button>
+                  </div>
+                </article>
+              ))}
             </div>
-            <button
-              className="button admin-ai-submit"
-              type="button"
-              disabled={busy || !plan.tasks.length}
-              onClick={executePlan}
-            >
-              {executing
-                ? <I18nText zh="正在入队…" en="Queuing..." />
-                : <I18nText
-                    zh={`确认执行（${plan.tasks.length} 个任务 / ${plannedTotal} 篇）`}
-                    en={`Confirm & run (${plan.tasks.length} tasks / ${plannedTotal} articles)`}
-                  />}
-            </button>
+
+            <div className="field">
+              <label htmlFor="admin-ai-feedback"><I18nText zh="修改意见（可选）" en="Revision feedback (optional)" /></label>
+              <textarea
+                id="admin-ai-feedback"
+                value={feedback}
+                onChange={(event) => setFeedback(event.target.value)}
+                rows={3}
+                maxLength={2000}
+                placeholder="例：日本那篇改成讲日元贬值；AI 进步的减到 2 篇。"
+              />
+            </div>
+            <div className="row-actions">
+              <button
+                className="button secondary"
+                type="button"
+                disabled={busy || feedback.trim().length < 2}
+                onClick={revisePlan}
+              >
+                {revising ? <I18nText zh="正在修订…" en="Revising..." /> : <I18nText zh="按意见修订计划" en="Revise plan" />}
+              </button>
+              <button
+                className="button admin-ai-submit"
+                type="button"
+                disabled={busy || (!plan.tasks.length && !plan.recurring.length)}
+                onClick={executePlan}
+              >
+                {executing
+                  ? <I18nText zh="正在执行…" en="Running..." />
+                  : <I18nText
+                      zh={`确认执行（${plan.tasks.length} 任务${plan.recurring.length ? ` + ${plan.recurring.length} 周期` : ""}）`}
+                      en={`Confirm & run (${plan.tasks.length} tasks${plan.recurring.length ? ` + ${plan.recurring.length} recurring` : ""})`}
+                    />}
+              </button>
+            </div>
           </section>
         ) : null}
 
         {executed ? (
           <section className="admin-panel admin-ai-result" aria-live="polite">
-            <h2><I18nText zh="已创建任务" en="Queued Tasks" /></h2>
+            <h2><I18nText zh="已执行" en="Executed" /></h2>
             <p className="muted">
               <I18nText
-                zh={`已入队 ${executed.tasks.length} 个任务、共 ${executed.totalArticles} 篇文章，完成后出现在文章草稿中。`}
-                en={`Queued ${executed.tasks.length} tasks (${executed.totalArticles} articles). Drafts will appear under Posts when done.`}
+                zh={`已入队 ${executed.tasks.length} 个任务（${executed.totalArticles} 篇）${executed.recurring.length ? `，创建 ${executed.recurring.filter((r) => r.created).length} 个周期主题` : ""}。进度见下方批次。`}
+                en={`Queued ${executed.tasks.length} tasks (${executed.totalArticles} articles)${executed.recurring.length ? `, created ${executed.recurring.filter((r) => r.created).length} recurring topics` : ""}. Progress below.`}
               />
             </p>
-            <div className="admin-ai-task-list">
-              {executed.tasks.map((task) => (
-                <article className="admin-ai-task" key={task.jobId}>
-                  <strong>{task.keyword}</strong>
-                  <p>{task.reason}</p>
-                  <div className="meta-row">
-                    <span className="tag">{task.scope}</span>
-                    <span className="tag">{task.depth}</span>
-                    <span className="tag">{task.articleCount} 篇</span>
-                    <a className="text-link" href={`/admin/jobs/${task.jobId}`}>
-                      <I18nText zh="查看任务" en="Open job" />
-                    </a>
-                  </div>
-                </article>
-              ))}
-            </div>
+            {executed.warnings.length ? (
+              <div className="admin-ai-warning">
+                <ul>
+                  {executed.warnings.map((warning, index) => <li key={index}>{warning}</li>)}
+                </ul>
+              </div>
+            ) : null}
+            {executed.recurring.length ? (
+              <div className="admin-ai-task-list">
+                {executed.recurring.map((item) => (
+                  <article className="admin-ai-task admin-ai-recurring" key={item.name}>
+                    <strong>{item.name}</strong>
+                    <div className="meta-row">
+                      <span className="tag">{item.cadence.zh}</span>
+                      <span className="tag">
+                        {item.created
+                          ? <I18nText zh="已创建" en="Created" />
+                          : <I18nText zh="已存在" en="Existing" />}
+                      </span>
+                      <a className="text-link" href="/admin/auto-curation">
+                        <I18nText zh="管理自动内容" en="Manage auto content" />
+                      </a>
+                    </div>
+                  </article>
+                ))}
+              </div>
+            ) : null}
           </section>
         ) : null}
+
+        <section className="admin-panel admin-ai-result">
+          <div className="admin-ai-batches-head">
+            <h2><I18nText zh="执行批次" en="Batches" /></h2>
+            <button className="text-link" type="button" disabled={refreshing} onClick={() => void refreshBatches()}>
+              {refreshing ? <I18nText zh="刷新中…" en="Refreshing..." /> : <I18nText zh="刷新" en="Refresh" />}
+            </button>
+          </div>
+          {batches.length === 0 ? (
+            <p className="muted"><I18nText zh="还没有执行过批次。" en="No batches yet." /></p>
+          ) : (
+            batches.map((batch) => {
+              const done = batch.jobs.filter((job) => job.status === "COMPLETED").length;
+              const failed = batch.jobs.filter((job) => job.status === "FAILED").length;
+              return (
+                <article className="admin-ai-batch" key={batch.id}>
+                  <p className="admin-ai-batch-summary">{batch.summary}</p>
+                  <p className="muted admin-ai-batch-meta">
+                    {new Date(batch.createdAt).toLocaleString()} ·{" "}
+                    <I18nText
+                      zh={`完成 ${done}/${batch.jobs.length}${failed ? `，失败 ${failed}` : ""}${batch.recurring.length ? `，周期 ${batch.recurring.length}` : ""}`}
+                      en={`${done}/${batch.jobs.length} done${failed ? `, ${failed} failed` : ""}${batch.recurring.length ? `, ${batch.recurring.length} recurring` : ""}`}
+                    />
+                  </p>
+                  <ul className="admin-ai-batch-jobs">
+                    {batch.jobs.map((job) => (
+                      <li key={job.id}>
+                        <StatusPill status={job.status} />
+                        <a className="text-link" href={`/admin/jobs/${job.id}`}>{job.keyword}</a>
+                        {job.status === "FAILED" ? (
+                          <button
+                            className="text-link"
+                            type="button"
+                            disabled={retryingJobId === job.id}
+                            onClick={() => void retryJob(job.id)}
+                          >
+                            {retryingJobId === job.id
+                              ? <I18nText zh="重试中…" en="Retrying..." />
+                              : <I18nText zh="重试" en="Retry" />}
+                          </button>
+                        ) : null}
+                      </li>
+                    ))}
+                  </ul>
+                </article>
+              );
+            })
+          )}
+        </section>
       </aside>
     </div>
   );
