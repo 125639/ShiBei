@@ -50,6 +50,7 @@ run_suite "creation studio scoring" bash -c "cd '$PROJECT_DIR' && $TSX_CMD --tes
 run_suite "creation AI verification" bash -c "cd '$PROJECT_DIR' && $TSX_CMD --test tests/test-creation-ai.ts"
 run_suite "admin AI planning" bash -c "cd '$PROJECT_DIR' && $TSX_CMD --test tests/test-admin-ai.ts"
 run_suite "invites + visit stats" bash -c "cd '$PROJECT_DIR' && $TSX_CMD --test tests/test-invites-visits.ts"
+run_suite "writing docs ownership" bash -c "cd '$PROJECT_DIR' && $TSX_CMD --test tests/test-writing-docs.ts"
 
 echo
 echo "============================================="

@@ -378,6 +378,24 @@ model MemberUser {
   works        CreativeWork[]
   inviteCode   InviteCode?
   comments     Comment[]
+  writingDocs  WritingDoc[]
+}
+
+// 写作台文档:真正「自己写」的地方,内容是 markdown。
+// 所有权与 CreativeWork 同款:登录会员挂 ownerId,匿名挂 anonId cookie,
+// 登录时由 claimAnonWorks 一并认领。
+model WritingDoc {
+  id        String      @id @default(cuid())
+  title     String      @default("")
+  content   String      @default("") @db.Text
+  ownerId   String?
+  owner     MemberUser? @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  anonId    String?
+  createdAt DateTime    @default(now())
+  updatedAt DateTime    @updatedAt
+
+  @@index([ownerId, updatedAt])
+  @@index([anonId, updatedAt])
 }
 
 // 邀请码由管理员批量生成、手动发放。code 明文存储:它同时是发放物料

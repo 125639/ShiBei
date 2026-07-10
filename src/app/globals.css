@@ -2523,6 +2523,446 @@ button[aria-busy="true"] {
   overflow-wrap: anywhere;
 }
 
+/* ══════════ Notion 式写作台 ══════════ */
+.writing-page {
+  padding-top: 18px;
+}
+
+.writing-studio {
+  display: grid;
+  grid-template-columns: 232px minmax(0, 1fr);
+  gap: 28px;
+  align-items: start;
+}
+
+.writing-loading {
+  min-height: 40vh;
+  display: grid;
+  place-items: center;
+}
+
+.writing-list-toggle {
+  display: none;
+}
+
+.writing-sidebar {
+  position: sticky;
+  top: calc(var(--header-offset, 84px) + 8px);
+  display: grid;
+  gap: 12px;
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  background: color-mix(in srgb, var(--surface-strong) 70%, var(--paper));
+  max-height: calc(100vh - 120px);
+  overflow-y: auto;
+}
+
+.writing-sidebar-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.writing-doc-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 2px;
+}
+
+.writing-doc-list li {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  border-radius: var(--radius-xs, 8px);
+}
+
+.writing-doc-list li.active {
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+}
+
+.writing-doc-item {
+  flex: 1;
+  min-width: 0;
+  display: grid;
+  gap: 1px;
+  text-align: left;
+  border: 0;
+  background: none;
+  padding: 7px 8px;
+  cursor: pointer;
+  color: inherit;
+  font: inherit;
+  border-radius: var(--radius-xs, 8px);
+}
+
+.writing-doc-list li:not(.active) .writing-doc-item:hover {
+  background: color-mix(in srgb, var(--surface-strong) 92%, var(--ink, #000) 4%);
+}
+
+.writing-doc-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.95rem;
+}
+
+.writing-doc-time {
+  font-size: 0.78rem;
+  color: var(--muted);
+}
+
+.writing-doc-delete {
+  border: 0;
+  background: none;
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 1rem;
+  padding: 4px 8px;
+  opacity: 0;
+  transition: opacity 0.12s ease;
+}
+
+.writing-doc-list li:hover .writing-doc-delete,
+.writing-doc-delete:focus-visible {
+  opacity: 1;
+}
+
+.writing-doc-delete:hover {
+  color: var(--danger-fg, #b42318);
+}
+
+.writing-model {
+  border-top: 1px solid var(--line);
+  padding-top: 10px;
+  font-size: 0.9rem;
+}
+
+.writing-model summary {
+  cursor: pointer;
+  color: var(--muted);
+}
+
+.writing-model label {
+  display: grid;
+  gap: 4px;
+  margin-top: 10px;
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+
+.writing-model input,
+.writing-model select {
+  font-size: 0.9rem;
+}
+
+/* —— 画布 —— */
+.writing-canvas {
+  max-width: 760px;
+  width: 100%;
+  margin: 0 auto;
+  display: grid;
+  gap: 4px;
+}
+
+.writing-meta-row {
+  display: flex;
+  align-items: baseline;
+  gap: 14px;
+  font-size: 0.85rem;
+  color: var(--muted);
+  min-height: 22px;
+}
+
+.writing-word-count {
+  margin-left: auto;
+}
+
+.writing-save-state.state-error {
+  color: var(--danger-fg, #b42318);
+}
+
+.writing-title {
+  width: 100%;
+  border: 0;
+  background: none;
+  resize: none;
+  overflow: hidden;
+  font-size: 2.35rem;
+  font-weight: 700;
+  line-height: 1.25;
+  color: inherit;
+  padding: 6px 0 2px;
+  font-family: inherit;
+}
+
+.writing-title:focus {
+  outline: none;
+}
+
+.writing-title::placeholder {
+  color: color-mix(in srgb, var(--muted) 55%, transparent);
+}
+
+/* —— 编辑器主体 —— */
+.notion-editor {
+  min-height: 46vh;
+}
+
+.notion-editor .tiptap {
+  outline: none;
+  min-height: 44vh;
+  line-height: 1.75;
+  font-size: 1.02rem;
+  padding-bottom: 30vh; /* Notion 式:尾部留白,随时能点到最后 */
+}
+
+.notion-editor .tiptap > * + * {
+  margin-top: 0.55em;
+}
+
+.notion-editor .tiptap h1 { font-size: 1.7rem; margin-top: 1.2em; }
+.notion-editor .tiptap h2 { font-size: 1.4rem; margin-top: 1.1em; }
+.notion-editor .tiptap h3 { font-size: 1.18rem; margin-top: 1em; }
+
+.notion-editor .tiptap blockquote {
+  border-left: 3px solid var(--line-strong, var(--line));
+  margin: 0.6em 0;
+  padding: 2px 0 2px 14px;
+  color: var(--muted);
+}
+
+.notion-editor .tiptap pre {
+  background: color-mix(in srgb, var(--surface-strong) 80%, var(--ink, #000) 6%);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm, 10px);
+  padding: 12px 14px;
+  overflow-x: auto;
+  font-size: 0.92rem;
+}
+
+.notion-editor .tiptap code {
+  background: color-mix(in srgb, var(--surface-strong) 80%, var(--ink, #000) 7%);
+  border-radius: 4px;
+  padding: 0.1em 0.35em;
+  font-size: 0.92em;
+}
+
+.notion-editor .tiptap pre code {
+  background: none;
+  padding: 0;
+}
+
+.notion-editor .tiptap hr {
+  border: 0;
+  border-top: 1px solid var(--line);
+  margin: 1.2em 0;
+}
+
+.notion-editor .tiptap ul,
+.notion-editor .tiptap ol {
+  padding-left: 1.4em;
+}
+
+.notion-editor .tiptap a {
+  color: var(--accent);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+/* 空块占位提示(Notion 同款淡灰) */
+.notion-editor .tiptap p.is-empty::before,
+.notion-editor .tiptap h1.is-empty::before,
+.notion-editor .tiptap h2.is-empty::before,
+.notion-editor .tiptap h3.is-empty::before {
+  content: attr(data-placeholder);
+  float: left;
+  height: 0;
+  pointer-events: none;
+  color: color-mix(in srgb, var(--muted) 50%, transparent);
+}
+
+/* —— 浮动工具栏 —— */
+.bubble-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 5px 6px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--paper);
+  box-shadow: 0 10px 32px rgba(20, 24, 40, 0.16), 0 2px 8px rgba(20, 24, 40, 0.08);
+}
+
+.bubble-toolbar button {
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  font-size: 0.92rem;
+  padding: 5px 8px;
+  border-radius: 6px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.bubble-toolbar button:hover {
+  background: color-mix(in srgb, var(--surface-strong) 88%, var(--ink, #000) 6%);
+}
+
+.bubble-toolbar button.active {
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+}
+
+.bubble-divider {
+  width: 1px;
+  align-self: stretch;
+  margin: 3px 4px;
+  background: var(--line);
+}
+
+.bubble-ai-label {
+  font-size: 0.78rem;
+  color: var(--accent);
+  font-weight: 600;
+  padding: 0 2px;
+}
+
+.bubble-toolbar .bubble-ai {
+  color: color-mix(in srgb, var(--accent) 85%, var(--ink, #000));
+}
+
+/* —— 斜杠菜单 —— */
+.slash-menu {
+  width: 264px;
+  max-height: 360px;
+  overflow-y: auto;
+  padding: 6px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--paper);
+  box-shadow: 0 16px 48px rgba(20, 24, 40, 0.18), 0 2px 10px rgba(20, 24, 40, 0.08);
+  display: grid;
+  gap: 1px;
+}
+
+.slash-item {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  width: 100%;
+  text-align: left;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  padding: 8px 10px;
+  border-radius: 8px;
+  cursor: pointer;
+}
+
+.slash-item.active {
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+}
+
+.slash-item-title {
+  font-size: 0.95rem;
+  font-weight: 500;
+}
+
+.slash-item-hint {
+  margin-left: auto;
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+
+.slash-item.slash-ai .slash-item-title {
+  color: var(--accent);
+}
+
+.slash-empty {
+  padding: 10px;
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+
+/* —— AI 审阅卡 —— */
+.ai-review-card {
+  position: sticky;
+  bottom: 16px;
+  margin-top: 18px;
+  padding: 14px 16px;
+  border: 1px solid color-mix(in srgb, var(--accent) 35%, var(--line));
+  border-radius: var(--radius-md, 14px);
+  background: var(--paper);
+  box-shadow: 0 18px 48px rgba(20, 24, 40, 0.18);
+  display: grid;
+  gap: 10px;
+  z-index: 40;
+}
+
+.ai-review-head {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+}
+
+.ai-review-head .text-link {
+  margin-left: auto;
+}
+
+.ai-review-output {
+  max-height: 240px;
+  overflow-y: auto;
+  overflow-wrap: anywhere;
+  font-size: 0.96rem;
+  line-height: 1.7;
+  padding: 10px 12px;
+  border-radius: var(--radius-sm, 10px);
+  background: color-mix(in srgb, var(--surface-strong) 80%, var(--paper));
+}
+
+.ai-review-output > *:first-child { margin-top: 0; }
+.ai-review-output > *:last-child { margin-bottom: 0; }
+
+.ai-review-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+/* —— 移动端 —— */
+@media (max-width: 900px) {
+  .writing-studio {
+    grid-template-columns: 1fr;
+    gap: 12px;
+  }
+
+  .writing-list-toggle {
+    display: inline-flex;
+    justify-self: start;
+  }
+
+  .writing-sidebar {
+    display: none;
+    position: static;
+    max-height: none;
+  }
+
+  .writing-sidebar.open {
+    display: grid;
+  }
+
+  .writing-title {
+    font-size: 1.8rem;
+  }
+}
+
 .status-pill,
 .source-health {
   display: inline-flex;
