@@ -82,6 +82,7 @@ model SiteSettings {
   exaEnabled               Boolean  @default(false)
   exaApiKeyEnc             String?
   musicEnabledDefault      Boolean  @default(false)
+  commentsEnabled          Boolean  @default(false)
   defaultMusicId           String?
   contentModelConfigId     String?
   assistantModelConfigId   String?
@@ -245,6 +246,7 @@ model Post {
   videos       Video[]
   tags         Tag[]           @relation("PostTags")
   topics       ContentTopic[]  @relation("PostContentTopics")
+  comments     Comment[]
   createdAt    DateTime        @default(now())
   updatedAt    DateTime        @updatedAt
   publishedAt  DateTime?
@@ -365,12 +367,59 @@ enum CreationStatus {
 
 model MemberUser {
   id           String         @id @default(cuid())
-  email        String         @unique
+  // 邮箱注册与邀请码注册二选一:邮箱会员 email 非空,邀请码会员 username 非空。
+  // 邀请码会员的 passwordHash = bcrypt(邀请码),登录凭据就是邀请码本身。
+  email        String?        @unique
+  username     String?        @unique
   passwordHash String
   displayName  String?
   createdAt    DateTime       @default(now())
   updatedAt    DateTime       @updatedAt
   works        CreativeWork[]
+  inviteCode   InviteCode?
+  comments     Comment[]
+}
+
+// 邀请码由管理员批量生成、手动发放。code 明文存储:它同时是发放物料
+// (管理员要能随时查看复制)与会员登录凭据(校验走 MemberUser.passwordHash
+// 的 bcrypt,本表明文只作展示;评论权限低价值,可接受)。
+model InviteCode {
+  id        String      @id @default(cuid())
+  code      String      @unique
+  status    String      @default("UNUSED") // UNUSED | USED | REVOKED
+  note      String      @default("")
+  memberId  String?     @unique
+  member    MemberUser? @relation(fields: [memberId], references: [id], onDelete: SetNull)
+  usedAt    DateTime?
+  createdAt DateTime    @default(now())
+
+  @@index([status, createdAt])
+}
+
+model Comment {
+  id        String     @id @default(cuid())
+  postId    String
+  post      Post       @relation(fields: [postId], references: [id], onDelete: Cascade)
+  memberId  String
+  member    MemberUser @relation(fields: [memberId], references: [id], onDelete: Cascade)
+  content   String     @db.Text
+  createdAt DateTime   @default(now())
+
+  @@index([postId, createdAt])
+  @@index([memberId])
+  @@index([createdAt])
+}
+
+// 访问统计:按日按路径累加 PV。UV 用特殊路径 "__uv__" 承载
+// (客户端 localStorage 当日首访才上报,近似独立访客)。
+model VisitDaily {
+  id    String   @id @default(cuid())
+  day   DateTime @db.Date
+  path  String
+  count Int      @default(0)
+
+  @@unique([day, path])
+  @@index([day])
 }
 
 // 题材即评分标尺：选题材的同时确定评分维度、权重与公开阈值。

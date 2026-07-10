@@ -59,7 +59,7 @@ export async function getCurrentMember() {
   if (!session) return null;
   return prisma.memberUser.findUnique({
     where: { id: session.memberId },
-    select: { id: true, email: true, displayName: true, createdAt: true }
+    select: { id: true, email: true, username: true, displayName: true, createdAt: true }
   });
 }
 

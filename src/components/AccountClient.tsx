@@ -3,7 +3,13 @@
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 
-type Member = { id: string; email: string; displayName: string | null };
+type Member = { id: string; email: string | null; username: string | null; displayName: string | null };
+
+function memberLabel(member: Member) {
+  const name = member.displayName || member.username || member.email || "会员";
+  const account = member.username || member.email;
+  return member.displayName && account ? `${name}（${account}）` : name;
+}
 
 type WorkListItem = {
   id: string;
@@ -34,9 +40,10 @@ export function AccountClient() {
   const [works, setWorks] = useState<WorkListItem[]>([]);
   const [loaded, setLoaded] = useState(false);
   const [tab, setTab] = useState<"login" | "register">("login");
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
-  const [displayName, setDisplayName] = useState("");
+  const [account, setAccount] = useState("");
+  const [secret, setSecret] = useState("");
+  const [username, setUsername] = useState("");
+  const [inviteCode, setInviteCode] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
@@ -64,15 +71,15 @@ export function AccountClient() {
     setError("");
     setNotice("");
     try {
-      const endpoint = tab === "login" ? "/api/member/login" : "/api/member/register";
-      const body =
-        tab === "login" ? { email, password } : { email, password, displayName: displayName.trim() || undefined };
+      const endpoint = tab === "login" ? "/api/member/login" : "/api/member/register-invite";
+      const body = tab === "login" ? { account, secret } : { username: username.trim(), code: inviteCode };
       const data = await requestJson<{ member: Member; claimedWorks: number }>(endpoint, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body)
       });
-      setPassword("");
+      setSecret("");
+      setInviteCode("");
       if (data.claimedWorks > 0) {
         setNotice(`已把当前浏览器中的 ${data.claimedWorks} 篇匿名作品归入你的账号。`);
       }
@@ -126,7 +133,7 @@ export function AccountClient() {
         <section className="form-card form-stack">
           <h2>我的账户</h2>
           <p className="muted-block">
-            {member.displayName ? `${member.displayName}（${member.email}）` : member.email}
+            {memberLabel(member)}
             ——你的作品导出与删除权完全归你所有，包括已公开的作品。
           </p>
           {notice ? <p className="muted-block" role="status">{notice}</p> : null}
@@ -138,16 +145,17 @@ export function AccountClient() {
         </section>
       ) : (
         <section className="form-card form-stack">
-          <h2>{tab === "login" ? "登录" : "邮箱注册"}</h2>
+          <h2>{tab === "login" ? "登录" : "邀请码注册"}</h2>
           <p className="muted-block">
-            注册后作品长期保存、跨设备访问，发布后也可以随时删除；当前浏览器里的匿名作品会自动归入账号。
+            {tab === "login"
+              ? "邮箱会员用邮箱 + 密码；邀请码会员用用户名 + 邀请码。"
+              : "凭管理员发放的邀请码注册，只需要用户名和邀请码。注册后邀请码就是你的登录凭据，请妥善保存。"}
           </p>
-          <div className="row-actions" role="tablist" aria-label="登录或注册">
+          <div className="row-actions" role="group" aria-label="登录或注册">
             <button
               className={`button ${tab === "login" ? "" : "secondary"}`}
               type="button"
-              role="tab"
-              aria-selected={tab === "login"}
+              aria-pressed={tab === "login"}
               onClick={() => {
                 setTab("login");
                 setError("");
@@ -158,8 +166,7 @@ export function AccountClient() {
             <button
               className={`button ${tab === "register" ? "" : "secondary"}`}
               type="button"
-              role="tab"
-              aria-selected={tab === "register"}
+              aria-pressed={tab === "register"}
               onClick={() => {
                 setTab("register");
                 setError("");
@@ -169,40 +176,57 @@ export function AccountClient() {
             </button>
           </div>
           <form className="form-stack" onSubmit={submitAuth}>
-            <div className="field">
-              <label htmlFor="member-email">邮箱</label>
-              <input
-                id="member-email"
-                type="email"
-                required
-                autoComplete="email"
-                value={email}
-                onChange={(event) => setEmail(event.target.value)}
-              />
-            </div>
-            {tab === "register" ? (
-              <div className="field">
-                <label htmlFor="member-name">昵称（可选，公开发布时署名用）</label>
-                <input
-                  id="member-name"
-                  maxLength={40}
-                  value={displayName}
-                  onChange={(event) => setDisplayName(event.target.value)}
-                />
-              </div>
-            ) : null}
-            <div className="field">
-              <label htmlFor="member-password">密码{tab === "register" ? "（至少 8 位）" : ""}</label>
-              <input
-                id="member-password"
-                type="password"
-                required
-                minLength={tab === "register" ? 8 : 1}
-                autoComplete={tab === "register" ? "new-password" : "current-password"}
-                value={password}
-                onChange={(event) => setPassword(event.target.value)}
-              />
-            </div>
+            {tab === "login" ? (
+              <>
+                <div className="field">
+                  <label htmlFor="member-account">账号（邮箱或用户名）</label>
+                  <input
+                    id="member-account"
+                    required
+                    autoComplete="username"
+                    value={account}
+                    onChange={(event) => setAccount(event.target.value)}
+                  />
+                </div>
+                <div className="field">
+                  <label htmlFor="member-secret">密码 / 邀请码</label>
+                  <input
+                    id="member-secret"
+                    type="password"
+                    required
+                    autoComplete="current-password"
+                    value={secret}
+                    onChange={(event) => setSecret(event.target.value)}
+                  />
+                </div>
+              </>
+            ) : (
+              <>
+                <div className="field">
+                  <label htmlFor="member-username">用户名（2-24 个字符）</label>
+                  <input
+                    id="member-username"
+                    required
+                    minLength={2}
+                    maxLength={24}
+                    autoComplete="username"
+                    value={username}
+                    onChange={(event) => setUsername(event.target.value)}
+                  />
+                </div>
+                <div className="field">
+                  <label htmlFor="member-invite">邀请码</label>
+                  <input
+                    id="member-invite"
+                    required
+                    autoComplete="off"
+                    placeholder="SB-XXXX-XXXX"
+                    value={inviteCode}
+                    onChange={(event) => setInviteCode(event.target.value)}
+                  />
+                </div>
+              </>
+            )}
             {error ? <p className="muted-block creation-error" role="alert">{error}</p> : null}
             <button className="button" type="submit" disabled={busy} aria-busy={busy}>
               {busy ? "提交中…" : tab === "login" ? "登录" : "注册并登录"}

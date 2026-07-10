@@ -19,6 +19,7 @@ export async function POST(request: Request) {
   const autoPublish = form.get("autoPublish") === "true";
   const textOnlyMode = form.get("textOnlyMode") === "true";
   const videosEnabled = form.get("videosEnabled") === "true";
+  const commentsEnabled = form.get("commentsEnabled") === "true";
   const exaEnabled = form.get("exaEnabled") === "true";
   const autoImageSearchEnabled = form.getAll("autoImageSearchEnabled").map(String).includes("true");
   const musicEnabledDefault = form.get("musicEnabledDefault") === "true";
@@ -54,6 +55,7 @@ export async function POST(request: Request) {
     autoPublish,
     textOnlyMode,
     videosEnabled,
+    commentsEnabled,
     defaultTheme,
     defaultFont,
     defaultLanguage,
