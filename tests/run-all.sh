@@ -49,6 +49,7 @@ run_suite "video display + distribution" bash -c "cd '$PROJECT_DIR' && $TSX_CMD 
 run_suite "creation studio scoring" bash -c "cd '$PROJECT_DIR' && $TSX_CMD --test tests/test-creation.ts"
 run_suite "creation AI verification" bash -c "cd '$PROJECT_DIR' && $TSX_CMD --test tests/test-creation-ai.ts"
 run_suite "admin AI planning" bash -c "cd '$PROJECT_DIR' && $TSX_CMD --test tests/test-admin-ai.ts"
+run_suite "invites + visit stats" bash -c "cd '$PROJECT_DIR' && $TSX_CMD --test tests/test-invites-visits.ts"
 
 echo
 echo "============================================="

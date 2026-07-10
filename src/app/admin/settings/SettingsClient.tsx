@@ -106,6 +106,7 @@ type SettingsSite = Partial<Pick<
   | "autoImageSearchEnabled"
   | "textOnlyMode"
   | "videosEnabled"
+  | "commentsEnabled"
   | "musicEnabledDefault"
   | "maxStorageMb"
   | "cleanupAfterDays"
@@ -351,6 +352,10 @@ export function SettingsClient({
               <label>
                 <input type="checkbox" name="videosEnabled" value="true" defaultChecked={Boolean(s?.videosEnabled)} />{" "}
                 <I18nText zh="启用视频功能（默认关闭：前台不展示任何视频，自动抓取也不收集视频链接）" en="Enable videos (off by default: nothing renders publicly and crawls skip video links)" />
+              </label>
+              <label>
+                <input type="checkbox" name="commentsEnabled" value="true" defaultChecked={Boolean(s?.commentsEnabled)} />{" "}
+                <I18nText zh="启用评论功能（默认关闭；开启后仅注册会员可评论，注册凭邀请码）" en="Enable comments (off by default; only registered members can comment, registration by invite code)" />
               </label>
               <label>
                 <input type="hidden" name="autoImageSearchEnabled" value="false" />

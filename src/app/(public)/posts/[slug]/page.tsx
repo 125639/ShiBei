@@ -4,6 +4,7 @@ import type { Metadata } from "next";
 import { AiAssistant } from "@/components/AiAssistant";
 import { ArticleToc } from "@/components/ArticleToc";
 import { LanguageAwarePost } from "@/components/LanguageAwarePost";
+import { PostComments } from "@/components/PostComments";
 import { I18nText } from "@/components/I18nText";
 import { prisma } from "@/lib/prisma";
 import { getCachedSiteChromeSettings } from "@/lib/site-settings-cache";
@@ -117,10 +118,16 @@ export default async function PostDetailPage({ params }: { params: Promise<{ slu
         topics: { select: { id: true, name: true, slug: true } }
       }
     }),
-    prisma.siteSettings.findUnique({ where: { id: "site" }, select: { contentLanguageMode: true, videosEnabled: true } })
+    prisma.siteSettings.findUnique({
+      where: { id: "site" },
+      select: { contentLanguageMode: true, videosEnabled: true, commentsEnabled: true }
+    })
   ]);
   if (!post || post.status !== "PUBLISHED") notFound();
   const contentLanguageMode = settings?.contentLanguageMode || "default-language";
+  // 评论总开关（默认关闭）。关闭时页面完全没有评论痕迹;
+  // 开启与否由客户端组件再向接口核验一次,接口才是权威。
+  const commentsEnabled = settings?.commentsEnabled === true;
   // 视频功能总开关（默认关闭）。关闭时：短代码被静默剥离、文末不出现「相关视频」，
   // 整个页面完全没有视频痕迹。
   const videosEnabled = settings?.videosEnabled === true;
@@ -308,6 +315,8 @@ export default async function PostDetailPage({ params }: { params: Promise<{ slu
             </div>
           </section>
         ) : null}
+
+        {commentsEnabled ? <PostComments postId={post.id} /> : null}
 
         <p style={{ marginTop: 56 }}>
           <Link className="text-link" href="/posts">

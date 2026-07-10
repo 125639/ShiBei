@@ -5,18 +5,25 @@ import { FFCalendar } from "@/components/FFCalendar";
 import { I18nText } from "@/components/I18nText";
 import { MusicPlayer } from "@/components/MusicPlayer";
 import { QuickStylePanel } from "@/components/QuickStylePanel";
+import { RouteDisclosure } from "@/components/RouteDisclosure";
+import { VisitBeacon } from "@/components/VisitBeacon";
 import { ThemeQuickSwitch } from "@/components/ThemeQuickSwitch";
 import { getCachedFireflyWidgetData } from "@/lib/firefly-widgets";
 import { getCachedSiteChromeSettings } from "@/lib/site-settings-cache";
 
-const NAV_ITEMS: Array<{ href: string; zh: string; en: string; match: "exact" | "prefix" }> = [
+const PRIMARY_NAV_ITEMS: Array<{ href: string; zh: string; en: string; match: "exact" | "prefix" }> = [
+  { href: "/", zh: "首页", en: "Home", match: "exact" },
   { href: "/posts", zh: "文章", en: "Posts", match: "prefix" },
-  { href: "/write", zh: "写作", en: "Write", match: "prefix" },
   { href: "/create", zh: "共创", en: "Co-create", match: "prefix" },
-  { href: "/community", zh: "社区", en: "Community", match: "prefix" },
-  { href: "/stats", zh: "数据", en: "Stats", match: "prefix" },
-  { href: "/about", zh: "关于", en: "About", match: "prefix" },
-  { href: "/settings", zh: "设置", en: "Settings", match: "prefix" }
+  { href: "/community", zh: "社区", en: "Community", match: "prefix" }
+];
+
+const EXPLORE_NAV_ITEMS: Array<{ href: string; zh: string; en: string; match: "exact" | "prefix" }> = [
+  { href: "/write", zh: "写作工作台", en: "Writing workspace", match: "prefix" },
+  { href: "/stats", zh: "内容数据", en: "Content stats", match: "prefix" },
+  { href: "/about", zh: "关于本站", en: "About", match: "prefix" },
+  { href: "/settings", zh: "阅读设置", en: "Preferences", match: "prefix" },
+  { href: "/admin", zh: "管理后台", en: "Admin", match: "prefix" }
 ];
 
 export async function PublicShell({ children }: { children: React.ReactNode }) {
@@ -34,20 +41,37 @@ export async function PublicShell({ children }: { children: React.ReactNode }) {
       </a>
       <header className="site-header site-header-glass">
         <Link className="brand-mark" href="/">
-          <strong>{siteName}</strong>
-          <span className="brand-tagline">
-            <I18nText zh={siteDescription} en="Automated Info Curation & Publishing" />
+          <span className="brand-symbol" aria-hidden="true">拾</span>
+          <span className="brand-copy">
+            <strong>{siteName}</strong>
+            <span className="brand-tagline">
+              <I18nText zh={siteDescription} en="Curated ideas, clearly presented" />
+            </span>
           </span>
         </Link>
-        <nav className="nav" aria-label="Primary">
-          {NAV_ITEMS.map((item) => (
+        <nav className="nav" aria-label="主导航 / Primary navigation">
+          {PRIMARY_NAV_ITEMS.map((item) => (
             <ActiveLink key={item.href} href={item.href} match={item.match}>
               <I18nText zh={item.zh} en={item.en} />
             </ActiveLink>
           ))}
-          <Link href="/admin"><I18nText zh="管理" en="Admin" /></Link>
+          <RouteDisclosure className="nav-more">
+            <summary>
+              <I18nText zh="探索" en="Explore" />
+              <span className="nav-more-chevron" aria-hidden="true">⌄</span>
+            </summary>
+            <div className="nav-more-menu">
+              <span className="nav-more-label"><I18nText zh="更多空间" en="More spaces" /></span>
+              {EXPLORE_NAV_ITEMS.map((item) => (
+                <ActiveLink key={item.href} href={item.href} match={item.match}>
+                  <I18nText zh={item.zh} en={item.en} />
+                  <span aria-hidden="true">↗</span>
+                </ActiveLink>
+              ))}
+            </div>
+          </RouteDisclosure>
         </nav>
-        <div className="header-actions" aria-label="Display preferences">
+        <div className="header-actions" aria-label="显示偏好 / Display preferences">
           <QuickStylePanel defaultUi={settings?.defaultSettingsUI} />
           <ThemeQuickSwitch
             siteDefaults={{
@@ -123,7 +147,10 @@ export async function PublicShell({ children }: { children: React.ReactNode }) {
           ) : null}
         </aside>
 
-        <div id="site-main" tabIndex={-1}>{children}</div>
+        <div id="site-main" tabIndex={-1}>
+          <VisitBeacon />
+          {children}
+        </div>
 
         <aside className="ff-rail ff-rail-right" aria-label="Site stats widgets">
           {widgets ? (

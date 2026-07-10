@@ -2389,6 +2389,140 @@ button[aria-busy="true"] {
   font-size: 0.92rem;
 }
 
+.visit-top-list {
+  margin: 0;
+  padding-left: 22px;
+  display: grid;
+  gap: 8px;
+}
+
+.visit-top-list li {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+}
+
+.visit-top-path {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.visit-top-count {
+  font-variant-numeric: tabular-nums;
+  color: var(--muted);
+}
+
+/* ── 评论区(前台) ── */
+.post-comments {
+  border-top: 1px solid var(--line);
+  padding-top: 28px;
+}
+
+.comment-list {
+  list-style: none;
+  margin: 0 0 24px;
+  padding: 0;
+  display: grid;
+  gap: 16px;
+}
+
+.comment-item {
+  padding: 14px 16px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  background: color-mix(in srgb, var(--surface-strong) 86%, var(--paper));
+}
+
+.comment-head {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  flex-wrap: wrap;
+  font-size: 0.92rem;
+}
+
+.comment-body {
+  margin: 8px 0 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  line-height: 1.65;
+}
+
+.comment-form {
+  display: grid;
+  gap: 10px;
+}
+
+.comment-form textarea {
+  width: 100%;
+  resize: vertical;
+}
+
+.comment-login-hint {
+  padding: 14px 16px;
+  border: 1px dashed var(--line);
+  border-radius: var(--radius-md);
+}
+
+/* ── 邀请码/评论管理(后台) ── */
+.admin-invite-layout {
+  display: grid;
+  gap: 18px;
+}
+
+.invite-fresh {
+  margin-top: 14px;
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  background: color-mix(in srgb, var(--surface-strong) 86%, var(--paper));
+}
+
+.invite-fresh-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.invite-fresh-codes {
+  margin: 10px 0 0;
+  font-size: 0.95rem;
+  line-height: 1.7;
+  user-select: all;
+  white-space: pre-wrap;
+}
+
+.admin-comment-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 14px;
+}
+
+.admin-comment-item {
+  border-top: 1px solid var(--line);
+  padding-top: 12px;
+}
+
+.admin-comment-head {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  flex-wrap: wrap;
+  font-size: 0.92rem;
+}
+
+.admin-comment-body {
+  margin: 6px 0 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
 .status-pill,
 .source-health {
   display: inline-flex;
