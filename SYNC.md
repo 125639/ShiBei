@@ -18,6 +18,10 @@ SYNC_MODE             auto | manual    (frontend 用,默认 auto)
 SYNC_INTERVAL_MINUTES 15                (frontend + auto 模式下 sync-worker 拉取间隔)
 BACKEND_API_URL       http://backend:3000   (frontend 必填)
 SYNC_TOKEN            <长随机字符串>          (frontend / backend 双方相同)
+SYNC_MAX_ZIP_MB       同步包大小上限。默认: frontend 128,其他形态 512。
+                      ZIP 全量缓冲进内存,上限必须小于容器内存。
+SYNC_MAX_FILE_MB      ZIP 内单文件上限。默认: frontend 96,其他形态 350。
+                      超限文件跳过不中断(计入 filesSkipped)。
 ```
 
 ## 同步流程
