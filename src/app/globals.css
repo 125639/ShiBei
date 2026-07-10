@@ -2344,6 +2344,51 @@ button[aria-busy="true"] {
   line-height: 1.55;
 }
 
+/* 周期任务卡:左缘着色与一次性任务区分 */
+.admin-ai-recurring {
+  border-left: 3px solid var(--accent);
+}
+
+.admin-ai-batches-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.admin-ai-batch {
+  display: grid;
+  gap: 6px;
+  padding: 12px 0;
+  border-top: 1px solid var(--line);
+}
+
+.admin-ai-batch-summary {
+  margin: 0;
+  font-weight: 600;
+}
+
+.admin-ai-batch-meta {
+  margin: 0;
+  font-size: 0.85rem;
+}
+
+.admin-ai-batch-jobs {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 6px;
+}
+
+.admin-ai-batch-jobs li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  font-size: 0.92rem;
+}
+
 .status-pill,
 .source-health {
   display: inline-flex;

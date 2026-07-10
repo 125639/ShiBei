@@ -175,6 +175,8 @@ model FetchJob {
   contentStyleId String?
   contentTopicId String?
   contentTopic   ContentTopic? @relation(fields: [contentTopicId], references: [id], onDelete: SetNull)
+  adminAiBatchId String?
+  adminAiBatch   AdminAiBatch? @relation(fields: [adminAiBatchId], references: [id], onDelete: SetNull)
   error          String?       @db.Text
   createdAt      DateTime      @default(now())
   updatedAt      DateTime      @updatedAt
@@ -186,6 +188,23 @@ model FetchJob {
   @@index([completedAt])
   @@index([sourceId])
   @@index([contentTopicId])
+  @@index([adminAiBatchId])
+}
+
+// AI 管理员的一次计划执行 = 一个批次。既是进度聚合的锚点
+// （批次进度 = 关联 FetchJob 的状态汇总），也是审计记录
+// （谁在什么时候用什么需求让 AI 创建了哪些任务/周期主题）。
+model AdminAiBatch {
+  id        String     @id @default(cuid())
+  request   String     @db.Text
+  summary   String     @db.Text
+  // 计划快照 JSON：{ tasks, recurring, createdTopics }，只作审计展示，不再反解执行。
+  plan      String     @db.Text
+  createdAt DateTime   @default(now())
+  updatedAt DateTime   @updatedAt
+  jobs      FetchJob[]
+
+  @@index([createdAt])
 }
 
 model RawItem {
