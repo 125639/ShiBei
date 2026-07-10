@@ -1,3 +1,4 @@
+import { revalidateTag } from "next/cache";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
@@ -57,6 +58,9 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
     data: { status: "SHARED", slug, publishedAt: new Date() },
     include: { genre: true }
   });
+
+  // 详情页缓存（见 /community/[slug]）：新作品立即可见，不等兜底刷新。
+  revalidateTag("community-content");
 
   return NextResponse.json({ work: serializeWorkForOwner(updated), url: `/community/${slug}` });
 }

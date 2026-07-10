@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import fsp from "node:fs/promises";
 import path from "node:path";
+import { Readable } from "node:stream";
 import { NextResponse } from "next/server";
 
 // 兜底服务 /uploads/<...> 路径下的文件。
@@ -147,25 +148,11 @@ function safeHeaderFilename(filename: string) {
 }
 
 // fs.createReadStream 是 Node 流;Next/Web 需要 ReadableStream。
-function streamToWeb(nodeStream: NodeJS.ReadableStream): ReadableStream<Uint8Array> {
-  return new ReadableStream<Uint8Array>({
-    start(controller) {
-      nodeStream.on("data", (chunk: Buffer | string) => {
-        const u8 =
-          typeof chunk === "string"
-            ? new TextEncoder().encode(chunk)
-            : new Uint8Array(chunk.buffer, chunk.byteOffset, chunk.byteLength);
-        controller.enqueue(u8);
-      });
-      nodeStream.on("end", () => controller.close());
-      nodeStream.on("error", (err) => controller.error(err));
-    },
-    cancel() {
-      // 调用方主动中断:关闭底层流以释放 fd。
-      const s = nodeStream as unknown as { destroy?: (err?: unknown) => void };
-      if (typeof s.destroy === "function") s.destroy();
-    },
-  });
+// 必须用 Readable.toWeb:它带背压（慢客户端拉大视频时按消费速度从磁盘读，
+// 不会把整个文件堆进内存队列），并在客户端断开时自动销毁底层流释放 fd。
+// 手写 on("data") 桥接没有背压,在 448MB 的 frontend 容器上是 OOM 隐患。
+function streamToWeb(nodeStream: fs.ReadStream): ReadableStream<Uint8Array> {
+  return Readable.toWeb(nodeStream) as ReadableStream<Uint8Array>;
 }
 
 // HEAD 走同一逻辑但不带 body。

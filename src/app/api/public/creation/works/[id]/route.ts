@@ -1,3 +1,4 @@
+import { revalidateTag } from "next/cache";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
@@ -74,6 +75,11 @@ export async function DELETE(_request: Request, { params }: { params: Promise<{ 
     );
   }
 
+  const wasShared = work.status === "SHARED";
   await prisma.creativeWork.delete({ where: { id: work.id } });
+  if (wasShared) {
+    // 删除已公开作品必须立即从 /community/[slug] 缓存消失，不等兜底刷新。
+    revalidateTag("community-content");
+  }
   return NextResponse.json({ ok: true });
 }
