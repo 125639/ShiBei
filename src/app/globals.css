@@ -2279,14 +2279,8 @@ button[aria-busy="true"] {
   background: color-mix(in srgb, #a33a2a 8%, var(--surface-soft));
 }
 
-/* 主栏放表单和 AI 给出的结果(计划/执行回执),右栏只放说明与历史批次 */
-.admin-ai-layout {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(280px, 336px);
-  gap: 20px;
-  align-items: start;
-}
-
+/* 单栏页面:顶部横向批次条,下面依次是需求表单与 AI 给出的计划 */
+.admin-ai-page,
 .admin-ai-main {
   display: grid;
   gap: 20px;
@@ -2300,21 +2294,6 @@ button[aria-busy="true"] {
 
 .admin-ai-submit {
   justify-self: start;
-}
-
-.admin-ai-side {
-  display: grid;
-  gap: 20px;
-  min-width: 0;
-}
-
-.admin-ai-rules {
-  margin: 0;
-  padding-left: 1.2em;
-  display: grid;
-  gap: 10px;
-  color: var(--muted);
-  line-height: 1.6;
 }
 
 .admin-ai-result {
@@ -2376,31 +2355,37 @@ button[aria-busy="true"] {
   gap: 10px;
 }
 
-.admin-ai-batch {
-  display: grid;
-  gap: 6px;
-  padding: 12px 0;
-  border-top: 1px solid var(--line);
+/* 批次横条:定宽卡片横向排列,多了横向滑动,不把页面往下顶 */
+.admin-ai-batch-strip {
+  display: flex;
+  gap: 10px;
+  overflow-x: auto;
+  padding-bottom: 4px;
+  scrollbar-width: thin;
 }
 
-.admin-ai-batch-toggle {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 10px;
-  width: 100%;
+.admin-ai-batch-card {
+  flex: 0 0 260px;
+  display: grid;
+  gap: 6px;
+  align-content: start;
   margin: 0;
-  padding: 0;
-  border: 0;
-  background: none;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  background: color-mix(in srgb, var(--surface-strong) 86%, var(--paper));
   color: inherit;
   font: inherit;
   text-align: left;
   cursor: pointer;
 }
 
-.admin-ai-batch-toggle:hover .admin-ai-batch-summary {
-  color: var(--accent);
+.admin-ai-batch-card:hover {
+  border-color: color-mix(in srgb, var(--accent) 45%, var(--line));
+}
+
+.admin-ai-batch-card.is-expanded {
+  border-color: var(--accent);
 }
 
 .admin-ai-batch-summary {
@@ -2412,16 +2397,21 @@ button[aria-busy="true"] {
   overflow: hidden;
 }
 
-.admin-ai-batch-caret {
-  flex: none;
-  margin-top: 2px;
-  font-size: 0.75rem;
-  color: var(--muted);
-}
-
 .admin-ai-batch-meta {
   margin: 0;
-  font-size: 0.85rem;
+  font-size: 0.8rem;
+}
+
+.admin-ai-batch-detail {
+  display: grid;
+  gap: 10px;
+  padding-top: 12px;
+  border-top: 1px solid var(--line);
+}
+
+.admin-ai-batch-request {
+  margin: 0;
+  font-size: 0.9rem;
 }
 
 .admin-ai-batch-jobs {
@@ -4522,7 +4512,6 @@ button:disabled {
   .admin-grid,
   .admin-grid-3,
   .admin-action-grid,
-  .admin-ai-layout,
   .settings-two-column,
   .diagnostic-grid {
     grid-template-columns: 1fr;
