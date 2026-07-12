@@ -18,7 +18,7 @@ export type FontKey =
 
 export type DensityKey = "compact" | "normal" | "cozy";
 
-export type CursorStyleKey = "classic" | "halo" | "laser" | "focus";
+export type CursorStyleKey = "classic" | "fairydust" | "rainbow" | "bubbles" | "fireflies";
 
 /** 界面风格：整体设计语言（排版/装饰/质感），与色彩主题（data-theme）正交组合。 */
 export type UiStyleKey = "classic" | "glass" | "editorial" | "paper" | "firefly" | "cyber" | "dynamic";
@@ -200,17 +200,20 @@ export const DENSITIES: Array<{ key: DensityKey; label: string; desc: string }> 
   { key: "cozy", label: "舒适", desc: "更宽松，便于长时间阅读" }
 ];
 
+// 除 classic 外均为拖尾粒子特效(参考 tholman/cursor-effects),保留系统指针
 export const CURSOR_STYLES: Array<{ key: CursorStyleKey; label: string; desc: string }> = [
   { key: "classic", label: "经典圆环", desc: "圆点跟随，圆环缓动" },
-  { key: "halo", label: "柔光光晕", desc: "低干扰光晕，适合阅读" },
-  { key: "laser", label: "准星定位", desc: "细线准星，适合精确点击" },
-  { key: "focus", label: "聚焦框", desc: "方形取景框，强调目标" }
+  { key: "fairydust", label: "仙尘拖尾", desc: "移动时洒落缤纷星屑" },
+  { key: "rainbow", label: "彩虹丝带", desc: "彩虹轨迹跟随光标" },
+  { key: "bubbles", label: "气泡上浮", desc: "光标经过冒出小气泡" },
+  { key: "fireflies", label: "流萤微光", desc: "暖色光点缓缓飘散" }
 ];
 
 export const DEFAULT_THEME: ThemeKey = "apple";
 export const DEFAULT_FONT: FontKey = "sans-cjk";
 export const DEFAULT_DENSITY: DensityKey = "normal";
 export const DEFAULT_CURSOR_STYLE: CursorStyleKey = "classic";
+export const DEFAULT_TOC_ACCENT = "#6ea8ff";
 
 export function isThemeKey(value: string | null | undefined): value is ThemeKey {
   return THEMES.some((t) => t.key === value);
@@ -236,6 +239,7 @@ export const PREF_KEYS = {
   ui: "shibei.ui",
   customCursor: "shibei.customCursor",
   cursorStyle: "shibei.cursorStyle",
+  tocAccent: "shibei.tocAccent",
   musicEnabled: "shibei.music.enabled",
   musicTrackId: "shibei.music.trackId",
   musicVolume: "shibei.music.volume"

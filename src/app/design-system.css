@@ -2385,9 +2385,9 @@ p {
   bottom: max(14px, env(safe-area-inset-bottom));
 }
 
-.prose :is(h1, h2, h3, h4) {
-  scroll-margin-top: calc(var(--ui-header-offset) + 14px);
-}
+/* 正文标题的锚点落点统一由 html { scroll-padding-top } 负责;
+   这里不要再加 scroll-margin-top —— 两者会叠加,把落点顶下去一大截
+   (曾导致点击目录后标题停在视口 ~198px 处,上方留出大片空白)。 */
 
 @media (max-width: 1080px) {
   :root[data-theme][data-ui] .site-header {
@@ -3107,17 +3107,6 @@ p {
   }
 }
 
-@media (min-width: 1200px) {
-  :root[data-theme][data-ui] .article-body-grid:not(:has(.article-toc-rail .article-toc)) {
-    grid-template-columns: minmax(0, 740px);
-    gap: 0;
-  }
-
-  :root[data-theme][data-ui] .article-body-grid:not(:has(.article-toc-rail .article-toc)) .article-toc-rail {
-    display: none;
-  }
-}
-
 @media (max-width: 820px) {
   :root[data-theme][data-ui] .posts-collection > .news-magazine-hero,
   :root[data-theme][data-ui] .posts-collection > .news-magazine-hero:not(.has-cover) {
@@ -3516,17 +3505,7 @@ p {
   font-weight: 700;
 }
 
-:root[data-theme][data-ui] .article-toc-rail .article-toc {
-  position: sticky;
-  top: calc(var(--ui-header-offset) + 18px);
-  padding: 17px;
-  border: 1px solid var(--line);
-  border-radius: 16px;
-  background: color-mix(in srgb, var(--surface-strong) 94%, transparent);
-  box-shadow: var(--ui-shadow-sm);
-}
-
-:root[data-theme][data-ui] .article-toc a {
+:root[data-theme][data-ui] .article-toc-mobile .article-toc a {
   padding-block: 7px;
   border-radius: 8px;
   font-size: 12.5px;
@@ -3589,8 +3568,58 @@ p {
   padding: clamp(26px, 4vw, 42px);
 }
 
-:root[data-theme][data-ui] .settings-shell > section:nth-child(even) {
+:root[data-theme][data-ui] .settings-shell > section:nth-of-type(even) {
   background: color-mix(in srgb, var(--surface-soft) 48%, transparent);
+}
+
+:root[data-theme][data-ui] .settings-section-nav {
+  top: var(--ui-header-offset);
+}
+
+.creation-flow-guide {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.creation-flow-guide li {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 2px 9px;
+  align-items: center;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 13px;
+  background: var(--surface-soft);
+}
+
+.creation-flow-guide li > span {
+  grid-row: 1 / 3;
+  width: 28px;
+  height: 28px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--accent) 13%, var(--surface-strong));
+  color: var(--accent);
+  font-size: 0.78rem;
+  font-weight: 800;
+}
+
+.creation-flow-guide small {
+  min-width: 0;
+  color: var(--muted);
+  line-height: 1.4;
+}
+
+@media (max-width: 720px) {
+  .creation-flow-guide {
+    grid-template-columns: 1fr;
+  }
 }
 
 :root[data-theme][data-ui] .settings-shell .option-grid {
@@ -3631,6 +3660,8 @@ p {
 }
 
 :root[data-theme][data-ui] .chart-card {
+  min-width: 0;
+  overflow: hidden;
   padding: 24px;
   border-radius: 20px;
 }
