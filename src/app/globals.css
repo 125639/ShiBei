@@ -2279,11 +2279,18 @@ button[aria-busy="true"] {
   background: color-mix(in srgb, #a33a2a 8%, var(--surface-soft));
 }
 
+/* 主栏放表单和 AI 给出的结果(计划/执行回执),右栏只放说明与历史批次 */
 .admin-ai-layout {
   display: grid;
-  grid-template-columns: minmax(0, 1.25fr) minmax(300px, 0.75fr);
+  grid-template-columns: minmax(0, 1fr) minmax(280px, 336px);
   gap: 20px;
   align-items: start;
+}
+
+.admin-ai-main {
+  display: grid;
+  gap: 20px;
+  min-width: 0;
 }
 
 .admin-ai-command {
@@ -2313,6 +2320,13 @@ button[aria-busy="true"] {
 .admin-ai-result {
   display: grid;
   gap: 14px;
+  scroll-margin-top: 20px;
+}
+
+/* 结果面板内交给 grid gap 控制节奏,去掉段落默认 margin 的叠加 */
+.admin-ai-result h2,
+.admin-ai-result > .muted {
+  margin: 0;
 }
 
 .admin-ai-warning {
@@ -2327,14 +2341,17 @@ button[aria-busy="true"] {
   padding-left: 1.2em;
 }
 
+/* 主栏宽度下任务卡自动排成多列,避免纵向堆成长列表 */
 .admin-ai-task-list {
   display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(292px, 1fr));
   gap: 10px;
 }
 
 .admin-ai-task {
   display: grid;
   gap: 8px;
+  align-content: start;
   padding: 14px;
   border: 1px solid var(--line);
   border-radius: var(--radius-md);
@@ -2366,9 +2383,40 @@ button[aria-busy="true"] {
   border-top: 1px solid var(--line);
 }
 
+.admin-ai-batch-toggle {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+  width: 100%;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.admin-ai-batch-toggle:hover .admin-ai-batch-summary {
+  color: var(--accent);
+}
+
 .admin-ai-batch-summary {
   margin: 0;
   font-weight: 600;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.admin-ai-batch-caret {
+  flex: none;
+  margin-top: 2px;
+  font-size: 0.75rem;
+  color: var(--muted);
 }
 
 .admin-ai-batch-meta {
