@@ -29,7 +29,7 @@ export async function POST(request: Request) {
       model: String(form.get("model") || preset?.model || "gpt-4o-mini"),
       apiKeyEnc: encryptSecret(String(form.get("apiKey") || "")),
       temperature: clampNumber(form.get("temperature"), 0.3, 0, 2),
-      maxTokens: clampNumber(form.get("maxTokens"), 1600, 1, 200000),
+      maxTokens: clampNumber(form.get("maxTokens"), 8000, 1, 200000),
       stream: form.get("stream") === "true",
       isDefault
     }

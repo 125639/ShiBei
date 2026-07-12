@@ -20,6 +20,11 @@
     "worker": "tsx src/worker/index.ts",
     "sync-worker": "tsx src/sync-worker/index.ts"
   },
+  "overrides": {
+    "esbuild": "0.28.1",
+    "postcss": "8.5.10",
+    "undici": "$undici"
+  },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",
     "@dnd-kit/sortable": "^10.0.0",
@@ -37,17 +42,17 @@
     "bullmq": "^5.34.3",
     "feedparser": "^2.2.10",
     "ioredis": "^5.4.2",
-    "isomorphic-dompurify": "^3.12.0",
+    "isomorphic-dompurify": "^3.18.0",
     "jose": "^5.9.6",
     "marked": "^18.0.3",
-    "next": "^15.0.3",
-    "playwright": "^1.59.1",
-    "playwright-core": "^1.59.1",
+    "next": "^15.5.20",
+    "playwright": "^1.61.1",
     "prisma": "^5.22.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
     "tiptap-markdown": "^0.9.0",
     "turndown": "^7.2.0",
+    "undici": "^7.28.0",
     "zod": "^3.23.8"
   },
   "devDependencies": {
@@ -60,7 +65,7 @@
     "@types/react-dom": "^19.0.0",
     "@types/turndown": "^5.0.5",
     "eslint": "^9.15.0",
-    "eslint-config-next": "^15.0.3",
+    "eslint-config-next": "^15.5.20",
     "tsx": "^4.19.2",
     "typescript": "5.9.3"
   }

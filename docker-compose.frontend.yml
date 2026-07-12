@@ -47,6 +47,8 @@ services:
       # 容器里有两个 Node 进程(Next + sync-worker)，都继承这里的堆上限；
       # 224MB×2 的最坏情况仍在 448m 限额内，实测常态 RSS ~320MB。
       NODE_OPTIONS: --max-old-space-size=224
+      # 统计分桶按进程本地时区；默认上海，.env 里设 TZ 可覆盖。
+      TZ: ${TZ:-Asia/Shanghai}
     ports:
       - "3000:3000"
     command: ["sh", "scripts/start-app.sh"]

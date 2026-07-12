@@ -47,6 +47,9 @@ services:
     environment:
       APP_MODE: full
       NODE_OPTIONS: --max-old-space-size=1024
+      # 统计按日/按小时分桶用的是进程本地时区；不设 TZ 容器默认 UTC，
+      # 「当天」会对中文站长偏 8 小时。Node 自带 ICU 时区数据，alpine 无需 tzdata。
+      TZ: ${TZ:-Asia/Shanghai}
     ports:
       - "3000:3000"
     command: ["sh", "scripts/start-app.sh"]
@@ -80,6 +83,7 @@ services:
     environment:
       APP_MODE: full
       NODE_OPTIONS: --max-old-space-size=1024
+      TZ: ${TZ:-Asia/Shanghai}
       FETCH_WORKER_CONCURRENCY: 1
       RESEARCH_WORKER_CONCURRENCY: 1
       AUDIENCE_WORKER_CONCURRENCY: 1
@@ -87,6 +91,13 @@ services:
     command: ["npm", "run", "worker"]
     volumes:
       - app-uploads:/app/public/uploads
+    healthcheck:
+      test: ["CMD", "node", "-e", "const fs=require('fs');let ok=false;try{const n=Number(fs.readFileSync('/tmp/shibei-worker-heartbeat','utf8'));ok=Date.now()-n<90000}catch{}if(!ok){try{process.kill(1,'SIGKILL')}catch{}}process.exit(ok?0:1)"]
+      interval: 30s
+      timeout: 5s
+      start_period: 60s
+      retries: 3
+    stop_grace_period: 17m
     mem_limit: 1536m
     restart: unless-stopped
 

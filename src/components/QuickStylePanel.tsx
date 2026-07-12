@@ -14,6 +14,7 @@ import {
   type WallpaperMode
 } from "@/lib/quick-style";
 import { useUserPrefs } from "./useUserPrefs";
+import { useDismissableOverlay } from "./useDismissableOverlay";
 
 /**
  * 快速美化面板：主题色相 / 壁纸模式 / 文章布局 / Firefly 横幅，
@@ -25,6 +26,7 @@ export function QuickStylePanel({ defaultUi = "classic" }: { defaultUi?: string 
   const [qs, setQs] = useState<QuickStyle>(DEFAULT_QUICK_STYLE);
   const [hydrated, setHydrated] = useState(false);
   const rootRef = useRef<HTMLDivElement | null>(null);
+  const triggerRef = useRef<HTMLButtonElement | null>(null);
   const { prefs, hydrated: prefsHydrated } = useUserPrefs();
   const isEnglish = prefsHydrated && prefs.language === "en";
 
@@ -38,24 +40,7 @@ export function QuickStylePanel({ defaultUi = "classic" }: { defaultUi?: string 
     setHydrated(true);
   }, []);
 
-  useEffect(() => {
-    if (!open) return;
-
-    function onPointerDown(event: PointerEvent) {
-      if (!rootRef.current?.contains(event.target as Node)) setOpen(false);
-    }
-
-    function onKeyDown(event: KeyboardEvent) {
-      if (event.key === "Escape") setOpen(false);
-    }
-
-    document.addEventListener("pointerdown", onPointerDown);
-    document.addEventListener("keydown", onKeyDown);
-    return () => {
-      document.removeEventListener("pointerdown", onPointerDown);
-      document.removeEventListener("keydown", onKeyDown);
-    };
-  }, [open]);
+  useDismissableOverlay(open, rootRef, () => setOpen(false), triggerRef);
 
   function commit(partial: Partial<QuickStyle>) {
     setQs((prev) => {
@@ -78,6 +63,7 @@ export function QuickStylePanel({ defaultUi = "classic" }: { defaultUi?: string 
   return (
     <div className="theme-switcher quick-style" ref={rootRef}>
       <button
+        ref={triggerRef}
         type="button"
         className="theme-switcher-trigger"
         aria-expanded={open}
@@ -122,7 +108,7 @@ export function QuickStylePanel({ defaultUi = "classic" }: { defaultUi?: string 
           <div className="quick-style-heading">
             <h4><I18nText zh="壁纸模式" en="Wallpaper" /></h4>
           </div>
-          <div className="quick-style-options" role="radiogroup" aria-label={isEnglish ? "Wallpaper mode" : "壁纸模式"}>
+          <div className="quick-style-options" role="group" aria-label={isEnglish ? "Wallpaper mode" : "壁纸模式"}>
             {([
               { key: "default", zh: "跟随主题", en: "Theme default" },
               { key: "aurora", zh: "光晕壁纸", en: "Aurora glow" },
@@ -131,8 +117,7 @@ export function QuickStylePanel({ defaultUi = "classic" }: { defaultUi?: string 
               <button
                 key={option.key}
                 type="button"
-                role="radio"
-                aria-checked={qs.wallpaper === option.key}
+                aria-pressed={qs.wallpaper === option.key}
                 className={`quick-style-option${qs.wallpaper === option.key ? " active" : ""}`}
                 onClick={() => commit({ wallpaper: option.key })}
               >
@@ -147,7 +132,7 @@ export function QuickStylePanel({ defaultUi = "classic" }: { defaultUi?: string 
           <div className="quick-style-heading">
             <h4><I18nText zh="文章布局" en="Posts Layout" /></h4>
           </div>
-          <div className="quick-style-options quick-style-options-row" role="radiogroup" aria-label={isEnglish ? "Posts layout" : "文章布局"}>
+          <div className="quick-style-options quick-style-options-row" role="group" aria-label={isEnglish ? "Posts layout" : "文章布局"}>
             {([
               { key: "default", zh: "默认", en: "Default" },
               { key: "grid", zh: "网格", en: "Grid" },
@@ -156,8 +141,7 @@ export function QuickStylePanel({ defaultUi = "classic" }: { defaultUi?: string 
               <button
                 key={option.key}
                 type="button"
-                role="radio"
-                aria-checked={qs.postsLayout === option.key}
+                aria-pressed={qs.postsLayout === option.key}
                 className={`quick-style-option${qs.postsLayout === option.key ? " active" : ""}`}
                 onClick={() => commit({ postsLayout: option.key })}
               >

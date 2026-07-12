@@ -40,6 +40,9 @@ run_suite "node seed integration" bash -c "cd '$PROJECT_DIR' && [ -d node_module
 run_suite "article image cache" bash -c "cd '$PROJECT_DIR' && $TSX_CMD --test tests/test-article-image-cache.ts"
 run_suite "article image mounting" bash -c "cd '$PROJECT_DIR' && $TSX_CMD --test tests/test-article-images.ts"
 run_suite "content style prompts" bash -c "cd '$PROJECT_DIR' && $TSX_CMD --test tests/test-content-style.ts"
+run_suite "post title + summary derivation" bash -c "cd '$PROJECT_DIR' && $TSX_CMD --test tests/test-post-derive.ts"
+run_suite "AI publication policy" bash -c "cd '$PROJECT_DIR' && $TSX_CMD --test tests/test-publication-policy.ts"
+run_suite "queue artifact idempotency" bash -c "cd '$PROJECT_DIR' && $TSX_CMD --test tests/test-job-artifact.ts"
 run_suite "source quality gate" bash -c "cd '$PROJECT_DIR' && $TSX_CMD --test tests/test-source-quality.ts"
 run_suite "alarm schedule controls" bash -c "cd '$PROJECT_DIR' && $TSX_CMD --test tests/test-alarm-schedule.ts"
 run_suite "url safety" bash -c "cd '$PROJECT_DIR' && $TSX_CMD --test tests/test-url-safety.ts"
@@ -51,6 +54,7 @@ run_suite "creation AI verification" bash -c "cd '$PROJECT_DIR' && $TSX_CMD --te
 run_suite "admin AI planning" bash -c "cd '$PROJECT_DIR' && $TSX_CMD --test tests/test-admin-ai.ts"
 run_suite "invites + visit stats" bash -c "cd '$PROJECT_DIR' && $TSX_CMD --test tests/test-invites-visits.ts"
 run_suite "writing docs ownership" bash -c "cd '$PROJECT_DIR' && $TSX_CMD --test tests/test-writing-docs.ts"
+run_suite "writing client state" bash -c "cd '$PROJECT_DIR' && $TSX_CMD --test tests/test-writing-client-state.ts"
 
 echo
 echo "============================================="

@@ -18,7 +18,7 @@ export default async function AboutPage() {
   const siteName = settings?.name || "拾贝 信息博客";
 
   return (
-    <main className="container bento-page">
+    <main className="container bento-page public-list-page about-page">
       <article className="prose page-intro bento-card bento-wide">
         <h1><I18nText zh="关于这个博客" en="About this blog" /></h1>
         <p>

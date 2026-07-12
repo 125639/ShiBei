@@ -5,7 +5,7 @@ import { useEffect, useMemo, useState } from "react";
 import { markdownToHtml, type VideoForShortcode } from "@/lib/markdown";
 import { useUserPrefs } from "./useUserPrefs";
 import { I18nText } from "./I18nText";
-import { stripTitleHeading } from "@/lib/post-derive";
+import { stripTitleHeading, summaryDuplicatesContentLead } from "@/lib/post-derive";
 
 type PostText = {
   title: string;
@@ -170,7 +170,7 @@ function ArticleBlock({
           <span className="tag">{label}</span>
           {/* 页面级 h1 在文章页头；语言块内用 h2 保持大纲层级正确 */}
           <h2 className="language-block-title">{title}</h2>
-          <p>{summary}</p>
+          {summary && !summaryDuplicatesContentLead(content, title, summary) ? <p>{summary}</p> : null}
         </>
       ) : null}
       {/* 页头（或双语块头）已经渲染过标题，正文若以同一标题的 H1 开头则剥掉，避免重复 */}

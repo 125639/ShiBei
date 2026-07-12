@@ -8,11 +8,15 @@ function getRedis() {
   const url = process.env.REDIS_URL;
   if (!url) return null;
   if (!globalForInFlight.shibeiInFlightRedis) {
-    globalForInFlight.shibeiInFlightRedis = new IORedis(url, {
+    const redis = new IORedis(url, {
       maxRetriesPerRequest: 1,
       enableOfflineQueue: false,
       lazyConnect: true
     });
+    // Redis errors fall through to the in-process lock; consume the matching
+    // EventEmitter error so the handled outage is not logged as unhandled.
+    redis.on("error", () => undefined);
+    globalForInFlight.shibeiInFlightRedis = redis;
   }
   return globalForInFlight.shibeiInFlightRedis;
 }

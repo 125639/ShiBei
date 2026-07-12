@@ -3,8 +3,9 @@ import { type EvidenceItem } from "../lib/ai";
 import { fetchRss } from "../lib/rss";
 import { type ResearchDepth, type ResearchScope } from "../lib/research";
 import { prisma } from "../lib/prisma";
-import { searchWithExa } from "../lib/exa";
-import { filterUsableEvidenceItems } from "../lib/source-quality";
+import { searchWithExa, type ExaResult } from "../lib/exa";
+import { filterUsableEvidenceItems, normalizeUrl } from "../lib/source-quality";
+import { hostFromUrl } from "../lib/html";
 
 // 关键词/话题的证据收集(Exa + 已存 RSS 源 + Google News 搜索源),
 // 以及模型生成失败时基于证据的兜底稿构建。
@@ -47,17 +48,24 @@ async function collectFromExa(keyword: string, scope: ResearchScope) {
       domesticOnly: scope === "domestic",
       internationalOnly: scope === "international"
     });
-    return results.map((r) => ({
-      title: r.title,
-      url: r.url,
-      sourceName: r.sourceName ? `[Exa] ${r.sourceName}` : "[Exa]",
-      summary: r.text || r.title,
-      publishedAt: r.publishedDate
-    }));
+    return results.map(evidenceFromExaResult);
   } catch (error) {
     console.error("[exa] collect failed:", error);
     return [];
   }
+}
+
+export function evidenceFromExaResult(result: ExaResult): EvidenceItem {
+  return {
+    title: result.title,
+    url: result.url,
+    sourceName: result.sourceName || hostFromUrl(result.url) || "未知来源",
+    summary: result.text || result.title,
+    publishedAt: result.publishedDate,
+    // Exa search 的 text 最多只取配置的截断片段，必须回源抓取后才能升级为 fulltext。
+    materialKind: "excerpt",
+    discoveryMethod: "exa"
+  };
 }
 
 async function collectFromSavedSources(keyword: string, scope: ResearchScope, opts?: { topicId?: string | null }) {
@@ -96,7 +104,9 @@ async function collectFromSavedSources(keyword: string, scope: ResearchScope, op
         url: item.link,
         sourceName: source.name,
         summary: item.summary || item.title,
-        publishedAt: item.date
+        publishedAt: item.date,
+        materialKind: "excerpt" as const,
+        discoveryMethod: "rss" as const
       });
       if (evidence.length >= 8) return evidence;
     }
@@ -113,12 +123,15 @@ async function collectFromSearchFeeds(keyword: string, scope: ResearchScope) {
     try {
       const items = await fetchRss(feed.url);
       for (const item of items.slice(0, 6)) {
+        const parsedTitle = splitGoogleNewsTitle(item.title);
         evidence.push({
-          title: item.title,
+          title: parsedTitle.title,
           url: item.link,
-          sourceName: feed.name,
+          sourceName: parsedTitle.publisher || feed.name,
           summary: item.summary || item.title,
-          publishedAt: item.date
+          publishedAt: item.date,
+          materialKind: "excerpt" as const,
+          discoveryMethod: "google-news" as const
         });
         if (evidence.length >= 10) return evidence;
       }
@@ -128,6 +141,12 @@ async function collectFromSearchFeeds(keyword: string, scope: ResearchScope) {
   }
 
   return evidence;
+}
+
+function splitGoogleNewsTitle(title: string) {
+  const match = title.match(/^(.*?)\s+[\-—–]\s+([^\-—–]{2,80})$/);
+  if (!match) return { title, publisher: "" };
+  return { title: match[1].trim() || title, publisher: match[2].trim() };
 }
 
 async function safeFetchSourceItems(source: Source) {
@@ -255,14 +274,11 @@ function matchesKeyword(keyword: string, text: string) {
   return false;
 }
 
+// 与引用校验门（source-quality）用同一套「同一 URL」判定：去 hash 与跟踪参数、
+// host 小写、去尾斜杠。证据去重、RSS 幂等槽和引用白名单必须对「链接是否相同」
+// 得出一致结论，否则带 utm 变体的同一篇文章会绕过去重被重复处理。
 export function normalizeEvidenceUrl(url: string) {
-  try {
-    const parsed = new URL(url);
-    parsed.hash = "";
-    return parsed.toString();
-  } catch {
-    return url;
-  }
+  return normalizeUrl(url) || url;
 }
 
 /**

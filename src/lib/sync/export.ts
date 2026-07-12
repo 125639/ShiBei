@@ -33,11 +33,14 @@ export type ExportOptions = {
  */
 export async function exportToZip(opts: ExportOptions = {}): Promise<Buffer> {
   const { since = null, includeLocalFiles = false } = opts;
+  // Capture a stable upper bound before reading. Importers use this exact value
+  // as their next cursor, so rows changed during the query fall into the next run.
+  const exportedAt = new Date();
 
   const posts = await prisma.post.findMany({
     where: {
       status: "PUBLISHED",
-      ...(since ? { updatedAt: { gt: since } } : {}),
+      updatedAt: { ...(since ? { gt: since } : {}), lte: exportedAt },
     },
     include: {
       tags: true,
@@ -68,8 +71,18 @@ export async function exportToZip(opts: ExportOptions = {}): Promise<Buffer> {
     topics: post.topics.map((t) => ({ name: t.name, slug: t.slug })),
   }));
 
-  // 收集所有视频(包含未挂到 post 的孤儿视频?不，本次只导出 post 关联的视频)。
-  const allVideos = posts.flatMap((post) => post.videos);
+  // 新文章要携带全部关联视频；已有文章的视频若单独更新，也必须进入增量包。
+  const changedVideos = since
+    ? await prisma.video.findMany({
+        where: {
+          updatedAt: { gt: since, lte: exportedAt },
+          post: { is: { status: "PUBLISHED" } }
+        }
+      })
+    : [];
+  const allVideos = [...new Map(
+    [...posts.flatMap((post) => post.videos), ...changedVideos].map((video) => [video.id, video])
+  ).values()];
   const videoPayloads: SyncVideoPayload[] = allVideos.map((video) => ({
     id: video.id,
     title: video.title,
@@ -93,7 +106,7 @@ export async function exportToZip(opts: ExportOptions = {}): Promise<Buffer> {
 
   const manifest: SyncManifest = {
     schemaVersion: SYNC_SCHEMA_VERSION,
-    exportedAt: new Date().toISOString(),
+    exportedAt: exportedAt.toISOString(),
     since: since ? since.toISOString() : null,
     postCount: postPayloads.length,
     videoCount: videoPayloads.length,
@@ -177,6 +190,9 @@ export function parseSyncZip(buffer: Buffer): { bundle: SyncBundle; zip: AdmZip 
   }
   if (!manifest || typeof manifest.schemaVersion !== "number") {
     throw new Error("ZIP manifest 格式不正确");
+  }
+  if (!manifest.exportedAt || Number.isNaN(new Date(manifest.exportedAt).getTime())) {
+    throw new Error("ZIP manifest 的 exportedAt 不是合法 ISO 时间");
   }
   if (manifest.schemaVersion !== SYNC_SCHEMA_VERSION) {
     throw new Error(

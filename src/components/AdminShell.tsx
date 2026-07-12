@@ -110,11 +110,11 @@ export function AdminShell({ children }: { children: React.ReactNode }) {
 
 function AdminBrand({ mode }: { mode: AppMode }) {
   return (
-    <h1 className="admin-brand">
+    <div className="admin-brand">
       <span className="admin-brand-mark" aria-hidden="true">拾</span>
       <span className="admin-brand-text">ShiBei Admin</span>
       {mode !== "full" ? <ModeBadge mode={mode} /> : null}
-    </h1>
+    </div>
   );
 }
 

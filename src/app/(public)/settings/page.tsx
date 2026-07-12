@@ -63,7 +63,7 @@ export default async function SettingsPage() {
   }
 
   return (
-    <main className="container bento-page" style={{ position: "relative", zIndex: 10 }}>
+    <main className="container bento-page settings-page">
       <section className="page-intro bento-card bento-wide">
         <p className="eyebrow">User</p>
         <h1 className="page-title"><I18nText zh="设置" en="Settings" /></h1>

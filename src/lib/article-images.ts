@@ -175,7 +175,9 @@ export async function embedArticleImagesInPostContent(
   if (!existing) return { inserted: 0, skipped: images.length, urls: [] };
 
   const keywords = extractPostKeywords(existing.title, existing.summary);
-  const picked = selectArticleImages(images, opts.limit ?? 3, keywords);
+  // 当前插入器会把同一批图片放在同一位置；默认只取一张最相关主图，避免导语后
+  // 连续堆三张近似图片。需要图集时由调用方显式提高 limit 并选择合适版式。
+  const picked = selectArticleImages(images, opts.limit ?? 1, keywords);
   if (!picked.length) return { inserted: 0, skipped: images.length, urls: [] };
 
   const existingHtml = `${existing.content}\n${existing.contentEn || ""}`;

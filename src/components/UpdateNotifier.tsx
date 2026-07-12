@@ -136,7 +136,7 @@ export function UpdateNotifier() {
   };
 
   return (
-    <div className="update-toast" role="dialog" aria-label="发现新版本 / New version available">
+    <div className="update-toast" role="region" aria-live="polite" aria-label="发现新版本 / New version available">
       <div className="update-toast-head">
         <strong>
           <I18nText zh="发现新版本" en="New version available" />

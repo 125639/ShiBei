@@ -73,41 +73,86 @@ export default async function HomePage() {
   const description = cachedDescription || "后端整理与同步，前端轻量展示。";
 
   return (
-    <main className="container-wide bento-page">
-      <section className="apple-hero" aria-label="ShiBei overview">
-        <p className="eyebrow-apple">ShiBei · 信息整理与发布</p>
-        <h1>
-          <I18nText
-            zh="把内容整理得清晰，再呈现给你。"
-            en="Clarity, curated and ready to read."
-          />
-        </h1>
-        <p className="lead">
-          <I18nText zh={description} en="The backend gathers and prepares articles; the frontend presents them with calm typography and breathing room." />
-        </p>
-        <div className="cta-row">
-          <Link className="button" href="/posts">
-            <I18nText zh="阅读最新文章" en="Read the latest" />
-          </Link>
-          <Link className="button secondary" href="/write">
-            <I18nText zh="开始写作" en="Start writing" />
-          </Link>
+    <main className="container-wide bento-page home-page">
+      <section className="home-hero-v2" aria-labelledby="home-hero-title">
+        <div className="home-hero-copy">
+          <p className="home-kicker">
+            <span className="home-kicker-dot" aria-hidden="true" />
+            <I18nText zh="持续更新的独立内容站" en="An independent publication, continuously updated" />
+          </p>
+          <h1 id="home-hero-title">
+            <I18nText
+              zh={<>把纷杂信息，<span className="home-title-accent">整理成值得读的内容。</span></>}
+              en={<>Turn scattered information into <span className="home-title-accent">stories worth reading.</span></>}
+            />
+          </h1>
+          <p className="lead">
+            <I18nText
+              zh={description}
+              en="We gather, verify, and shape useful information into a calm, focused reading experience."
+            />
+          </p>
+          <div className="cta-row">
+            <Link className="button home-primary-action" href="/posts">
+              <I18nText zh="开始阅读" en="Start reading" />
+              <span aria-hidden="true">→</span>
+            </Link>
+            <Link className="button secondary" href="/create">
+              <I18nText zh="参与共创" en="Co-create with us" />
+            </Link>
+          </div>
+          <dl className="home-signal-row" aria-label="站点概览 / Site overview">
+            <div>
+              <dt><I18nText zh="已发布" en="Published" /></dt>
+              <dd>{publishedPostCount}</dd>
+            </div>
+            <div>
+              <dt><I18nText zh="本周新增" en="New this week" /></dt>
+              <dd>{weekPostCount}</dd>
+            </div>
+            <div>
+              <dt><I18nText zh="发布方式" en="Publishing" /></dt>
+              <dd><I18nText zh="人工审核" en="Human reviewed" /></dd>
+            </div>
+          </dl>
         </div>
-      </section>
 
-      <section className="apple-section kpi-belt" aria-label="Overview stats">
-        <Link className="bento-card kpi-tile" href="/posts">
-          <span className="kpi-value">{publishedPostCount}</span>
-          <span className="kpi-label"><I18nText zh="已发布文章" en="Published posts" /></span>
-        </Link>
-        <Link className="bento-card kpi-tile" href="/posts">
-          <span className="kpi-value">{weekPostCount}</span>
-          <span className="kpi-label"><I18nText zh="本周新增" en="New this week" /></span>
-        </Link>
-        <Link className="bento-card kpi-tile" href="/stats">
-          <span className="kpi-value" aria-hidden="true">↗</span>
-          <span className="kpi-label"><I18nText zh="查看数据趋势" en="View trend dashboard" /></span>
-        </Link>
+        <aside className="home-brief-card" aria-labelledby="home-brief-title">
+          <div className="home-brief-topline">
+            <span className="home-live-indicator"><i aria-hidden="true" /><I18nText zh="持续更新" en="Continuously updated" /></span>
+            <span>ShiBei Brief</span>
+          </div>
+          <div className="home-brief-heading">
+            <p><I18nText zh="今日导读" en="Today’s briefing" /></p>
+            <h2 id="home-brief-title"><I18nText zh="从最新内容开始" en="Start with what’s new" /></h2>
+          </div>
+          <ol className="home-brief-list">
+            {posts.length ? posts.slice(0, 3).map((post, index) => (
+              <li key={post.id}>
+                <span className="home-brief-index">{String(index + 1).padStart(2, "0")}</span>
+                <Link href={`/posts/${post.slug}`}>
+                  <span><I18nText zh={post.title} en={post.titleEn || post.title} /></span>
+                  <small>
+                    {post.publishedAtIso
+                      ? <I18nText
+                          zh={new Date(post.publishedAtIso).toLocaleDateString("zh-CN", { month: "short", day: "numeric" })}
+                          en={new Date(post.publishedAtIso).toLocaleDateString("en-US", { month: "short", day: "numeric" })}
+                        />
+                      : <I18nText zh="待发布" en="Soon" />}
+                  </small>
+                </Link>
+              </li>
+            )) : (
+              <li className="home-brief-empty">
+                <I18nText zh="新内容正在整理中，稍后回来看看。" en="Fresh stories are being prepared. Check back soon." />
+              </li>
+            )}
+          </ol>
+          <Link className="home-brief-more" href="/stats">
+            <I18nText zh="查看内容数据" en="View publishing insights" />
+            <span aria-hidden="true">→</span>
+          </Link>
+        </aside>
       </section>
 
       <AiAssistant
@@ -136,18 +181,24 @@ export default async function HomePage() {
         ].join("\n\n")}
       />
 
-      <section className="apple-section">
+      <section className="apple-section home-feed-section">
         <div className="apple-section-head">
-          <p className="eyebrow-apple"><I18nText zh="内容文章" en="Posts" /></p>
-          <h2><I18nText zh="最近生成与整理的文章" en="Recently curated posts" /></h2>
-          <p className="lead">
-            <I18nText
-              zh="精选近期发布的文章，跨越事实、影响与背景。"
-              en="A handpicked selection of recent posts covering facts, impact, and context."
-            />
-          </p>
+          <div>
+            <p className="eyebrow-apple"><I18nText zh="最新文章" en="Latest stories" /></p>
+            <h2><I18nText zh="最近整理与发布" en="Recently curated and published" /></h2>
+            <p className="lead">
+              <I18nText
+                zh="从事实出发，补充影响、背景与可继续追踪的线索。"
+                en="Grounded in facts, with context, impact, and useful threads to follow."
+              />
+            </p>
+          </div>
+          <Link className="section-link" href="/posts">
+            <I18nText zh="浏览全部" en="Browse all" />
+            <span aria-hidden="true">→</span>
+          </Link>
         </div>
-        <div className="bento-grid content-bento">
+        <div className="bento-grid content-bento home-post-grid">
           {posts.length ? (
             posts.map((post, index) => {
               const cover = post.cover;
@@ -190,13 +241,7 @@ export default async function HomePage() {
             </div>
           )}
         </div>
-        <div style={{ display: "flex", justifyContent: "center", marginTop: "32px" }}>
-          <Link className="button secondary" href="/posts">
-            <I18nText zh="查看全部文章" en="View all posts" />
-          </Link>
-        </div>
       </section>
-
     </main>
   );
 }

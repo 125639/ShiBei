@@ -1,5 +1,5 @@
 import { requireAdmin } from "@/lib/auth";
-import { normalizeContentMode } from "@/lib/content-style";
+import { DEFAULT_BLOG_STYLE, normalizeContentMode } from "@/lib/content-style";
 import { prisma } from "@/lib/prisma";
 import { redirectTo } from "@/lib/redirect";
 
@@ -37,12 +37,12 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
   await prisma.contentStyle.update({
     where: { id },
     data: {
-      name: String(form.get("name") || "内容风格"),
-      contentMode: normalizeContentMode(String(form.get("contentMode") || "report")),
-      tone: String(form.get("tone") || "客观"),
-      length: String(form.get("length") || "中"),
-      focus: String(form.get("focus") || "核心事实, 背景脉络, 多方观点"),
-      outputStructure: String(form.get("outputStructure") || "标题 → 导语 → 正文分章节叙述 → 参考来源"),
+      name: String(form.get("name") || DEFAULT_BLOG_STYLE.name),
+      contentMode: normalizeContentMode(String(form.get("contentMode") || DEFAULT_BLOG_STYLE.contentMode)),
+      tone: String(form.get("tone") || DEFAULT_BLOG_STYLE.tone),
+      length: String(form.get("length") || DEFAULT_BLOG_STYLE.length),
+      focus: String(form.get("focus") || DEFAULT_BLOG_STYLE.focus),
+      outputStructure: String(form.get("outputStructure") || DEFAULT_BLOG_STYLE.outputStructure),
       customInstructions: String(form.get("customInstructions") || ""),
       isDefault
     }

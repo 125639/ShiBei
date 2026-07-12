@@ -3,7 +3,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { isInviteCodeFormat, normalizeInviteCodeInput } from "@/lib/invite-codes";
 import { prisma } from "@/lib/prisma";
-import { checkRateLimit } from "@/lib/rate-limit";
+import { checkRateLimit, checkSubjectRateLimit } from "@/lib/rate-limit";
 import { parseJsonBody } from "@/lib/request-validation";
 import { claimAnonWorks, createMemberSession, setMemberSessionCookie } from "@/lib/member-auth";
 
@@ -35,10 +35,24 @@ export async function POST(request: Request) {
     limit: 8,
     windowSec: 15 * 60
   });
-  if (!limited.ok) {
+  const accountLimited = await checkSubjectRateLimit({
+    namespace: "member-login",
+    subject: account.toLowerCase(),
+    limit: 8,
+    windowSec: 15 * 60
+  });
+  if (!limited.ok || !accountLimited.ok) {
     return NextResponse.json(
       { error: "登录尝试过于频繁，请稍后再试" },
-      { status: 429, headers: { "Retry-After": String(limited.retryAfterSec) } }
+      {
+        status: 429,
+        headers: {
+          "Retry-After": String(Math.max(
+            limited.ok ? 0 : limited.retryAfterSec,
+            accountLimited.ok ? 0 : accountLimited.retryAfterSec
+          ))
+        }
+      }
     );
   }
 

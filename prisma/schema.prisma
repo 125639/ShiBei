@@ -105,7 +105,7 @@ model ModelConfig {
   model       String
   apiKeyEnc   String
   temperature Float    @default(0.3)
-  maxTokens   Int      @default(1600)
+  maxTokens   Int      @default(8000)
   stream      Boolean  @default(false)
   isDefault   Boolean  @default(false)
   createdAt   DateTime @default(now())

@@ -57,6 +57,11 @@ export function NotionEditor({
 
   const editor = useEditor({
     immediatelyRender: false,
+    editorProps: {
+      attributes: {
+        "aria-label": "文稿正文编辑器"
+      }
+    },
     extensions: [
       StarterKit.configure({
         heading: { levels: [1, 2, 3] },
@@ -134,11 +139,11 @@ export function NotionEditor({
         }}
       >
         <div className="bubble-toolbar" role="toolbar" aria-label="格式与 AI">
-          <button type="button" className={editor.isActive("bold") ? "active" : ""} title="加粗" onMouseDown={(e) => { e.preventDefault(); editor.chain().focus().toggleBold().run(); }}><strong>B</strong></button>
-          <button type="button" className={editor.isActive("italic") ? "active" : ""} title="斜体" onMouseDown={(e) => { e.preventDefault(); editor.chain().focus().toggleItalic().run(); }}><em>I</em></button>
-          <button type="button" className={editor.isActive("strike") ? "active" : ""} title="删除线" onMouseDown={(e) => { e.preventDefault(); editor.chain().focus().toggleStrike().run(); }}><s>S</s></button>
-          <button type="button" className={editor.isActive("code") ? "active" : ""} title="行内代码" onMouseDown={(e) => { e.preventDefault(); editor.chain().focus().toggleCode().run(); }}>{"<>"}</button>
-          <button type="button" className={editor.isActive("link") ? "active" : ""} title="链接" onMouseDown={(e) => { e.preventDefault(); setLink(); }}>🔗</button>
+          <button type="button" className={editor.isActive("bold") ? "active" : ""} aria-label="加粗" title="加粗" onMouseDown={(e) => e.preventDefault()} onClick={() => editor.chain().focus().toggleBold().run()}><strong>B</strong></button>
+          <button type="button" className={editor.isActive("italic") ? "active" : ""} aria-label="斜体" title="斜体" onMouseDown={(e) => e.preventDefault()} onClick={() => editor.chain().focus().toggleItalic().run()}><em>I</em></button>
+          <button type="button" className={editor.isActive("strike") ? "active" : ""} aria-label="删除线" title="删除线" onMouseDown={(e) => e.preventDefault()} onClick={() => editor.chain().focus().toggleStrike().run()}><s>S</s></button>
+          <button type="button" className={editor.isActive("code") ? "active" : ""} aria-label="行内代码" title="行内代码" onMouseDown={(e) => e.preventDefault()} onClick={() => editor.chain().focus().toggleCode().run()}>{"<>"}</button>
+          <button type="button" className={editor.isActive("link") ? "active" : ""} aria-label="编辑链接" title="链接" onMouseDown={(e) => e.preventDefault()} onClick={setLink}>🔗</button>
           <span className="bubble-divider" aria-hidden="true" />
           <span className="bubble-ai-label" aria-hidden="true">AI</span>
           {AI_ACTIONS.map((action) => (
@@ -146,10 +151,8 @@ export function NotionEditor({
               key={action.kind}
               type="button"
               className="bubble-ai"
-              onMouseDown={(e) => {
-                e.preventDefault();
-                askAi(action.kind);
-              }}
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={() => askAi(action.kind)}
             >
               {action.label}
             </button>

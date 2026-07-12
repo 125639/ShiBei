@@ -66,7 +66,7 @@ export function UserSettingsClient({
         <p className="muted-block">
           {t("sysDefault")}：<strong>{uiStyleLabel(siteDefaults.ui, prefs.language)}</strong>
         </p>
-        <div className="option-grid" role="radiogroup" aria-label="界面风格">
+        <div className="option-grid" role="group" aria-label={t("uiStyle")}>
           {UI_STYLES.map((style) => {
             const currentUI = prefs.ui === "system" ? siteDefaults.ui : prefs.ui;
             const isActive = currentUI === style.key;
@@ -75,8 +75,7 @@ export function UserSettingsClient({
               <button
                 key={style.key}
                 type="button"
-                role="radio"
-                aria-checked={isActive}
+                aria-pressed={isActive}
                 className={`option-card ui-style-card${isActive ? " active" : ""}`}
                 onClick={() => update({ ui: style.key })}
               >
@@ -106,13 +105,12 @@ export function UserSettingsClient({
             {t("customCursorDesc")}
           </p>
           {prefs.customCursor ? (
-            <div className="option-grid cursor-style-grid" role="radiogroup" aria-label={t("cursorStyle")} style={{ marginTop: 14 }}>
+            <div className="option-grid cursor-style-grid" role="group" aria-label={t("cursorStyle")} style={{ marginTop: 14 }}>
               {CURSOR_STYLES.map((style) => (
                 <button
                   key={style.key}
                   type="button"
-                  role="radio"
-                  aria-checked={prefs.cursorStyle === style.key}
+                  aria-pressed={prefs.cursorStyle === style.key}
                   className={`option-card cursor-style-card${prefs.cursorStyle === style.key ? " active" : ""}`}
                   onClick={() => update({ cursorStyle: style.key, customCursor: true })}
                 >
@@ -132,13 +130,12 @@ export function UserSettingsClient({
         <p className="muted-block">
           {t("sysDefault")}：<strong>{languageLabel(defaultLanguage)}</strong>
         </p>
-        <div className="option-grid" role="radiogroup" aria-label="语言模式">
+        <div className="option-grid" role="group" aria-label={t("localeMode")}>
           {LANGUAGE_OPTIONS.map((opt) => (
             <button
               key={opt.value}
               type="button"
-              role="radio"
-              aria-checked={prefs.language === opt.value}
+              aria-pressed={prefs.language === opt.value}
               className={`option-card${prefs.language === opt.value ? " active" : ""}`}
               onClick={() => update({ language: opt.value })}
             >
@@ -158,13 +155,12 @@ export function UserSettingsClient({
         <p className="muted-block">
           {t("sysDefault")}：<strong>{THEMES.find((thm) => thm.key === defaultTheme)?.label || defaultTheme}</strong>。
         </p>
-        <div className="option-grid" role="radiogroup" aria-label="主题">
+        <div className="option-grid" role="group" aria-label={t("colorPalette")}>
           {THEMES.map((theme) => (
             <button
               key={theme.key}
               type="button"
-              role="radio"
-              aria-checked={prefs.theme === theme.key}
+              aria-pressed={prefs.theme === theme.key}
               className={`option-card${prefs.theme === theme.key ? " active" : ""}`}
               onClick={() => update({ theme: theme.key })}
             >
@@ -188,13 +184,12 @@ export function UserSettingsClient({
         <p className="muted-block">
           {t("sysDefault")}：<strong>{FONTS.find((f) => f.key === defaultFont)?.label || defaultFont}</strong>。
         </p>
-        <div className="option-grid" role="radiogroup" aria-label="字体">
+        <div className="option-grid" role="group" aria-label={t("typography")}>
           {FONTS.map((font) => (
             <button
               key={font.key}
               type="button"
-              role="radio"
-              aria-checked={prefs.font === font.key}
+              aria-pressed={prefs.font === font.key}
               className={`option-card${prefs.font === font.key ? " active" : ""}`}
               onClick={() => update({ font: font.key })}
             >
@@ -218,13 +213,12 @@ export function UserSettingsClient({
         <p className="muted-block">
           {t("sysDefault")}：<strong>{DENSITIES.find((d) => d.key === defaultDensity)?.label || defaultDensity}</strong>。
         </p>
-        <div className="option-grid" role="radiogroup" aria-label={t("densityConfig")}>
+        <div className="option-grid" role="group" aria-label={t("densityConfig")}>
           {DENSITIES.map((density) => (
             <button
               key={density.key}
               type="button"
-              role="radio"
-              aria-checked={prefs.density === density.key}
+              aria-pressed={prefs.density === density.key}
               className={`option-card${prefs.density === density.key ? " active" : ""}`}
               onClick={() => update({ density: density.key })}
             >
@@ -255,11 +249,12 @@ export function UserSettingsClient({
                 ? `${tracks.length} track(s) available. Browsers require at least one user interaction (click / scroll) before audio can play.`
                 : `共 ${tracks.length} 首可选。浏览器策略要求播放需要至少一次用户交互（点击 / 滚动）。`}
             </p>
-            <div className="option-grid">
+            <div className="option-grid" role="group" aria-label={t("bgm")}>
               {tracks.map((track) => (
                 <button
                   key={track.id}
                   type="button"
+                  aria-pressed={prefs.musicTrackId === track.id}
                   className={`option-card${prefs.musicTrackId === track.id ? " active" : ""}`}
                   onClick={() => update({ musicTrackId: track.id, musicEnabled: true })}
                 >
@@ -269,8 +264,9 @@ export function UserSettingsClient({
               ))}
             </div>
             <div className="row" style={{ marginTop: 14, alignItems: "center" }}>
-              <span className="muted">{t("vol")}</span>
+              <label className="muted" htmlFor="music-volume">{t("vol")}</label>
               <input
+                id="music-volume"
                 type="range"
                 min={0}
                 max={1}

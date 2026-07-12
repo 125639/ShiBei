@@ -1,7 +1,7 @@
 import bcrypt from "bcryptjs";
 import { createSession, setSessionCookie } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
-import { checkRateLimit } from "@/lib/rate-limit";
+import { checkRateLimit, checkSubjectRateLimit } from "@/lib/rate-limit";
 import { redirectTo } from "@/lib/redirect";
 
 export async function POST(request: Request) {
@@ -15,7 +15,13 @@ export async function POST(request: Request) {
     limit: 8,
     windowSec: 15 * 60
   });
-  if (!limited.ok) {
+  const accountLimited = await checkSubjectRateLimit({
+    namespace: "admin-login",
+    subject: username || "blank",
+    limit: 8,
+    windowSec: 15 * 60
+  });
+  if (!limited.ok || !accountLimited.ok) {
     console.warn("[login] 登录尝试过于频繁，已限速");
     return redirectTo("/admin/login?error=rate", request);
   }

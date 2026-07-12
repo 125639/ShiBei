@@ -55,7 +55,7 @@ export default async function CommunityPage({
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
 
   return (
-    <main className="container bento-page">
+    <main className="container bento-page public-list-page community-page">
       <section className="page-intro bento-card bento-wide">
         <p className="eyebrow">Community</p>
         <h1 className="page-title"><I18nText zh="读者社区" en="Community" /></h1>

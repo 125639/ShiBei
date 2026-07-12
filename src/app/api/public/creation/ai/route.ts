@@ -38,7 +38,11 @@ export async function POST(request: Request) {
   }
 
   try {
-    const output = await requestChatCompletion(modelConfig, parsed.data.prompt, parsed.data.system);
+    // 交互式写作助手：与其在 finish_reason=length 时整体 502，不如把已生成的
+    // 部分文本交还写作者继续编辑；内容流水线的调用不走这个宽松开关。
+    const output = await requestChatCompletion(modelConfig, parsed.data.prompt, parsed.data.system, {
+      acceptTruncated: true
+    });
     return NextResponse.json({ output });
   } catch (error) {
     // 上游模型错误细节只进日志；frontend 调用方只需知道桥接暂不可用。

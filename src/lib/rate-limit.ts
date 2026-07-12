@@ -18,6 +18,8 @@ type GlobalRateLimitInput = {
   windowSec: number;
 };
 
+type SubjectRateLimitInput = GlobalRateLimitInput & { subject: string };
+
 const memoryBuckets = new Map<string, { count: number; resetAt: number }>();
 const globalForRateLimit = globalThis as unknown as { shibeiRateLimitRedis?: IORedis };
 const MAX_MEMORY_BUCKETS = 5000;
@@ -28,11 +30,15 @@ function getRedis() {
   const url = process.env.REDIS_URL;
   if (!url) return null;
   if (!globalForRateLimit.shibeiRateLimitRedis) {
-    globalForRateLimit.shibeiRateLimitRedis = new IORedis(url, {
+    const redis = new IORedis(url, {
       maxRetriesPerRequest: 1,
       enableOfflineQueue: false,
       lazyConnect: true
     });
+    // Connection failures are handled by the memory fallback below. Registering
+    // a listener keeps ioredis from reporting that expected failure as unhandled.
+    redis.on("error", () => undefined);
+    globalForRateLimit.shibeiRateLimitRedis = redis;
   }
   return globalForRateLimit.shibeiRateLimitRedis;
 }
@@ -46,6 +52,12 @@ export async function checkRateLimit(input: RateLimitInput): Promise<RateLimitRe
 
 export async function checkGlobalRateLimit(input: GlobalRateLimitInput): Promise<RateLimitResult> {
   const key = `shibei:rate:${input.namespace}:global`;
+  return incrementLimitKey(key, input.limit, input.windowSec);
+}
+
+/** Account/resource scoped limit that cannot be bypassed by rotating IP headers. */
+export async function checkSubjectRateLimit(input: SubjectRateLimitInput): Promise<RateLimitResult> {
+  const key = `shibei:rate:${input.namespace}:subject:${sanitizeKeyPart(input.subject)}`;
   return incrementLimitKey(key, input.limit, input.windowSec);
 }
 
@@ -79,9 +91,12 @@ async function incrementLimitKey(key: string, limit: number, windowSec: number):
 }
 
 function clientIdentity(request: Request) {
-  const forwarded = request.headers.get("x-forwarded-for")?.split(",")[0]?.trim();
+  // A reverse proxy normally appends the real client address. Taking the first
+  // entry lets a direct client prepend arbitrary values; the last entry is the
+  // least attacker-controlled value in that deployment model.
+  const forwarded = request.headers.get("x-forwarded-for")?.split(",").at(-1)?.trim();
   const realIp = request.headers.get("x-real-ip")?.trim();
-  const raw = forwarded || realIp || "unknown";
+  const raw = realIp || forwarded || "unknown";
   return sanitizeKeyPart(raw);
 }
 

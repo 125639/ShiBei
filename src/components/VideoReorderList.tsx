@@ -200,7 +200,7 @@ export function VideoReorderList({
   });
 
   return (
-    <div className="video-reorder-root" style={{ display: "flex", flexDirection: "column", gap: 24 }}>
+    <div className="video-reorder-root">
       {error ? (
         <div className="muted-block" role="alert" style={{ color: "var(--color-danger, #c44)" }}>
           <I18nText zh="排序保存失败：" en="Failed to save order: " />{error}

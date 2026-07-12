@@ -6,7 +6,7 @@ import { ConfirmButton } from "@/components/ConfirmButton";
 import { I18nText } from "@/components/I18nText";
 import { MetricCard } from "@/components/MetricCard";
 import { SubmitButton } from "@/components/SubmitButton";
-import { CONTENT_MODE_OPTIONS, contentModeLabel } from "@/lib/content-style";
+import { CONTENT_MODE_OPTIONS, DEFAULT_BLOG_STYLE, contentModeLabel } from "@/lib/content-style";
 import { LANGUAGE_OPTIONS, CONTENT_LANGUAGE_MODE_OPTIONS } from "@/lib/language";
 import { MODEL_PROVIDER_PRESETS, providerLabel } from "@/lib/model-providers";
 import { FONTS, THEMES, UI_STYLES } from "@/lib/themes";
@@ -178,6 +178,11 @@ export function SettingsClient({
     }
   }
 
+  function switchTabFromKeyboard(next: SettingsTab) {
+    switchTab(next);
+    requestAnimationFrame(() => document.getElementById(`settings-tab-${next}`)?.focus());
+  }
+
   // 让"已保存"提示在 ~2.5s 后淡出，避免一直占着视野。
   // savedFlag 由 server 根据 ?saved=1 query 传入，刷新页面只在保存后那一次显示。
   useEffect(() => {
@@ -200,16 +205,16 @@ export function SettingsClient({
           const idx = order.indexOf(activeTab);
           if (event.key === "ArrowDown" || event.key === "ArrowRight") {
             event.preventDefault();
-            switchTab(order[(idx + 1) % order.length]);
+            switchTabFromKeyboard(order[(idx + 1) % order.length]);
           } else if (event.key === "ArrowUp" || event.key === "ArrowLeft") {
             event.preventDefault();
-            switchTab(order[(idx - 1 + order.length) % order.length]);
+            switchTabFromKeyboard(order[(idx - 1 + order.length) % order.length]);
           } else if (event.key === "Home") {
             event.preventDefault();
-            switchTab(order[0]);
+            switchTabFromKeyboard(order[0]);
           } else if (event.key === "End") {
             event.preventDefault();
-            switchTab(order[order.length - 1]);
+            switchTabFromKeyboard(order[order.length - 1]);
           }
         }}
       >
@@ -237,7 +242,7 @@ export function SettingsClient({
         })}
       </aside>
 
-      <main className="settings-content-pane">
+      <div className="settings-content-pane">
         {savedVisible ? (
           <div className="settings-saved-pill" role="status" aria-live="polite">
             <span aria-hidden="true">✓</span>
@@ -519,12 +524,12 @@ export function SettingsClient({
             <h2 style={{ marginTop: 0 }}><I18nText zh="新增内容风格" en="New Content Style" /></h2>
             <div className="field">
               <label htmlFor="styleName"><I18nText zh="名称" en="Name" /></label>
-              <input id="styleName" name="name" required placeholder="例如：教程指南 / 深度分析" />
+              <input id="styleName" name="name" required placeholder="例如：教程指南 / 深度分析" defaultValue={DEFAULT_BLOG_STYLE.name} />
             </div>
             <div className="field-row">
               <div className="field">
                 <label htmlFor="contentMode"><I18nText zh="内容体裁" en="Content Mode" /></label>
-                <select id="contentMode" name="contentMode" defaultValue="analysis">
+                <select id="contentMode" name="contentMode" defaultValue={DEFAULT_BLOG_STYLE.contentMode}>
                   {CONTENT_MODE_OPTIONS.map((mode) => (
                     <option key={mode.value} value={mode.value}>{mode.label} - {mode.description}</option>
                   ))}
@@ -532,7 +537,8 @@ export function SettingsClient({
               </div>
               <div className="field">
                 <label htmlFor="tone"><I18nText zh="输出风格" en="Tone" /></label>
-                <select id="tone" name="tone" defaultValue="客观">
+                <select id="tone" name="tone" defaultValue={DEFAULT_BLOG_STYLE.tone}>
+                  <option>{DEFAULT_BLOG_STYLE.tone}</option>
                   <option>客观</option>
                   <option>深度分析</option>
                   <option>科普解读</option>
@@ -544,7 +550,7 @@ export function SettingsClient({
             <div className="field-row">
               <div className="field">
                 <label htmlFor="length"><I18nText zh="篇幅偏好" en="Length" /></label>
-                <select id="length" name="length" defaultValue="中">
+                <select id="length" name="length" defaultValue={DEFAULT_BLOG_STYLE.length}>
                   <option>短</option>
                   <option>中</option>
                   <option>长</option>
@@ -552,16 +558,22 @@ export function SettingsClient({
               </div>
               <div className="field">
                 <label htmlFor="focus"><I18nText zh="关注重点" en="Focus" /></label>
-                <input id="focus" name="focus" defaultValue="核心事实, 行业影响, 背景脉络, 多方观点" />
+                <input id="focus" name="focus" defaultValue={DEFAULT_BLOG_STYLE.focus} />
               </div>
             </div>
             <div className="field">
               <label htmlFor="outputStructure"><I18nText zh="输出结构" en="Output Structure" /></label>
-              <input id="outputStructure" name="outputStructure" defaultValue="标题 -> 导语 -> 正文分章节叙述 -> 背景分析 -> 参考来源" />
+              <input id="outputStructure" name="outputStructure" defaultValue={DEFAULT_BLOG_STYLE.outputStructure} />
             </div>
             <div className="field">
               <label htmlFor="customInstructions"><I18nText zh="自定义提示词" en="Custom Instructions" /></label>
-              <textarea id="customInstructions" name="customInstructions" defaultValue="写一篇有深度的中文博客文章，要求正式标题、导语段落、分章节连贯叙述，禁止写成摘要或要点列表。" />
+              <textarea id="customInstructions" name="customInstructions" defaultValue={DEFAULT_BLOG_STYLE.customInstructions} />
+              <small className="muted">
+                <I18nText
+                  zh="这里控制选题和文风；事实边界、证据不足不成文、禁止凑字数等发布规则始终优先。"
+                  en="This controls angle and voice. Evidence, no-padding, and publication-safety rules always take precedence."
+                />
+              </small>
             </div>
             <label><input type="checkbox" name="isDefault" value="true" /> <I18nText zh="设为默认风格" en="Set as Default Style" /></label>
             <SubmitButton pendingLabel={<I18nText zh="保存中…" en="Saving…" />}><I18nText zh="保存内容风格" en="Save Content Style" /></SubmitButton>
@@ -675,7 +687,7 @@ export function SettingsClient({
           <SubmitButton pendingLabel={<I18nText zh="保存中…" en="Saving…" />}><I18nText zh="保存账号" en="Save Account" /></SubmitButton>
         </form>
       ) : null}
-      </main>
+      </div>
     </div>
   );
 }

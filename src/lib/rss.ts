@@ -1,6 +1,11 @@
 import FeedParser from "feedparser";
 import { Readable } from "node:stream";
 import { safeFetch } from "./url-safety";
+import {
+  InvalidSourceMaterialError,
+  isRetryableSourceStatus,
+  RetryableSourceFetchError
+} from "./source-quality";
 
 type RssItem = {
   title: string;
@@ -51,9 +56,14 @@ export async function fetchRss(url: string): Promise<RssItem[]> {
     headers: { "User-Agent": "ShiBeiBlog/0.1" },
     signal: controller.signal
   }).finally(() => clearTimeout(timeout));
-  if (!response.ok || !response.body) {
-    throw new Error(`RSS fetch failed: ${response.status}`);
+  if (!response.ok) {
+    const message = `RSS 来源返回 HTTP ${response.status}`;
+    if (isRetryableSourceStatus(response.status)) {
+      throw new RetryableSourceFetchError(message);
+    }
+    throw new InvalidSourceMaterialError(message);
   }
+  if (!response.body) throw new RetryableSourceFetchError("RSS 来源未返回响应体");
 
   const text = await response.text();
   return new Promise((resolve, reject) => {

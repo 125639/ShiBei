@@ -16,11 +16,16 @@ export const metadata: Metadata = {
   alternates: { canonical: "/posts" }
 };
 
-const COMPILE_KIND_LABELS: Record<string, string> = {
-  SINGLE_ARTICLE: "单篇文章",
-  DAILY_DIGEST: "每日合集",
-  WEEKLY_ROUNDUP: "周报/合集"
+const COMPILE_KIND_LABELS: Record<string, { zh: string; en: string }> = {
+  SINGLE_ARTICLE: { zh: "单篇文章", en: "Article" },
+  DAILY_DIGEST: { zh: "每日合集", en: "Daily digest" },
+  WEEKLY_ROUNDUP: { zh: "周报/合集", en: "Weekly roundup" }
 };
+
+function CompileKindTag({ kind }: { kind: string }) {
+  const label = COMPILE_KIND_LABELS[kind];
+  return <span className="tag">{label ? <I18nText zh={label.zh} en={label.en} /> : kind}</span>;
+}
 
 const GRID_FEATURED_VARIANTS = ["bento-large", "bento-wide"] as const;
 const PAGE_SIZE = 24;
@@ -131,7 +136,7 @@ export default async function PostsPage({ searchParams }: { searchParams: Promis
   }
 
   return (
-    <main className="container bento-page">
+    <main className="container bento-page public-list-page posts-page">
       <section className="page-intro bento-card bento-wide">
         <p className="eyebrow">Posts</p>
         <h1 className="page-title"><I18nText zh="内容文章" en="Posts" /></h1>
@@ -234,7 +239,7 @@ function PostsLayout({ mode, posts }: { mode: DisplayMode; posts: PostListEntry[
               {hero.topics.slice(0, 3).map((topic) => (
                 <Link key={topic.id} className="tag" href={`/posts?topic=${encodeURIComponent(topic.slug)}`}>{topic.name}</Link>
               ))}
-              <span className="tag">{COMPILE_KIND_LABELS[hero.kind] || hero.kind}</span>
+              <CompileKindTag kind={hero.kind} />
             </div>
             <h2>
               <Link className="card-link" href={`/posts/${hero.slug}`}>
@@ -266,7 +271,7 @@ function PostsLayout({ mode, posts }: { mode: DisplayMode; posts: PostListEntry[
                 {post.topics.slice(0, 2).map((topic) => (
                   <Link key={topic.id} className="tag" href={`/posts?topic=${encodeURIComponent(topic.slug)}`}>{topic.name}</Link>
                 ))}
-                <span className="tag">{COMPILE_KIND_LABELS[post.kind] || post.kind}</span>
+                <CompileKindTag kind={post.kind} />
               </div>
               <h3>
                 <Link className="card-link" href={`/posts/${post.slug}`}>

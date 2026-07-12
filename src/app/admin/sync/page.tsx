@@ -246,7 +246,7 @@ export default async function SyncAdminPage({
               <I18nText zh="下载全量 ZIP（含本地视频）" en="Full ZIP (with local videos)" />
             </a>
             {exportIncrementalHref ? (
-              <a className="button-secondary" href={exportIncrementalHref} download>
+              <a className="button secondary" href={exportIncrementalHref} download>
                 <I18nText zh={`下载增量 ZIP（自 ${state?.lastExportedAt?.toLocaleString("zh-CN")}）`} en={`Incremental ZIP (since ${state?.lastExportedAt?.toLocaleString("zh-CN")})`} />
               </a>
             ) : null}

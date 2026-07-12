@@ -30,7 +30,7 @@ export async function POST(
       baseUrl: String(form.get("baseUrl") || "https://api.openai.com/v1").trim(),
       model: String(form.get("model") || "gpt-4o-mini").trim(),
       temperature: clampNumber(form.get("temperature"), 0.3, 0, 2),
-      maxTokens: clampNumber(form.get("maxTokens"), 1600, 1, 200000),
+      maxTokens: clampNumber(form.get("maxTokens"), 8000, 1, 200000),
       stream: form.get("stream") === "true",
       isDefault,
       ...(apiKey ? { apiKeyEnc: encryptSecret(apiKey) } : {})

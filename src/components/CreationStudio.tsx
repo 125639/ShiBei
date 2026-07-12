@@ -310,18 +310,19 @@ export function CreationStudio() {
             {!isMember && quotaRemaining !== null ? (
               <>
                 {" "}未登录状态下单个 IP 最多生成 {quotaLimit} 篇（还剩 {quotaRemaining} 篇），且发布后不可删除；
-                <Link className="text-link" href="/account">注册账号</Link>后不受此限并可随时删除、导出自己的作品。
+                <Link className="text-link" href="/account">使用邀请码注册账号</Link>后不受此限并可随时删除、导出自己的作品。
               </>
             ) : null}
           </p>
 
-          <div className="field">
-            <label>1. 选择题材——同时确定这篇文章的评分标尺</label>
+          <fieldset className="field creation-choice-field">
+            <legend>1. 选择题材——同时确定这篇文章的评分标尺</legend>
             <div className="creation-genre-grid">
               {genres.map((genre) => (
                 <button
                   key={genre.id}
                   type="button"
+                  aria-pressed={genre.id === genreId}
                   className={`creation-genre-card${genre.id === genreId ? " selected" : ""}`}
                   onClick={() => setGenreId(genre.id)}
                 >
@@ -338,16 +339,17 @@ export function CreationStudio() {
                 </button>
               ))}
             </div>
-          </div>
+          </fieldset>
 
           {modes ? (
-            <div className="field">
-              <label>2. 成文模式</label>
+            <fieldset className="field creation-choice-field">
+              <legend>2. 成文模式</legend>
               <div className="creation-option-row">
                 {(Object.keys(modes) as ModeKey[]).map((key) => (
                   <button
                     key={key}
                     type="button"
+                    aria-pressed={mode === key}
                     className={`creation-option-card${mode === key ? " selected" : ""}`}
                     onClick={() => setMode(key)}
                   >
@@ -356,17 +358,18 @@ export function CreationStudio() {
                   </button>
                 ))}
               </div>
-            </div>
+            </fieldset>
           ) : null}
 
           {depths ? (
-            <div className="field">
-              <label>3. 访谈深度</label>
+            <fieldset className="field creation-choice-field">
+              <legend>3. 访谈深度</legend>
               <div className="creation-option-row">
                 {(Object.keys(depths) as DepthKey[]).map((key) => (
                   <button
                     key={key}
                     type="button"
+                    aria-pressed={depth === key}
                     className={`creation-option-card${depth === key ? " selected" : ""}`}
                     onClick={() => setDepth(key)}
                   >
@@ -375,7 +378,7 @@ export function CreationStudio() {
                   </button>
                 ))}
               </div>
-            </div>
+            </fieldset>
           ) : null}
 
           <div className="field">
@@ -502,7 +505,7 @@ export function CreationStudio() {
         <section className="form-card form-stack">
           <h2>已公开：{work.title}</h2>
           <p className="muted-block">
-            这篇作品已发布到社区{work.isAnonymous ? "。匿名发布的作品不可删除；注册账号后新发布的作品可随时删除。" : "，你可以随时在账户页删除它。"}
+            这篇作品已发布到社区{work.isAnonymous ? "。匿名发布的作品不可删除；使用邀请码注册后，新发布的作品可随时删除。" : "，你可以随时在账户页删除它。"}
           </p>
           <div className="row-actions">
             {work.slug ? <Link className="button" href={`/community/${work.slug}`}>查看发布页</Link> : null}

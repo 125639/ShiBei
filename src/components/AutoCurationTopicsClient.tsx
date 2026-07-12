@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { describeAlarmCron } from "@/lib/alarm-schedule";
 import { ConfirmButton } from "@/components/ConfirmButton";
 import { I18nText } from "@/components/I18nText";
@@ -270,15 +270,63 @@ function TopicSettingsDialog({
 }) {
   const isNew = !topic;
   const formAction = isNew ? "/api/admin/content-topics" : `/api/admin/content-topics/${topic.id}`;
+  const dialogRef = useRef<HTMLDivElement | null>(null);
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
+
+  useEffect(() => {
+    const previouslyFocused = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+
+    const frame = window.requestAnimationFrame(() => {
+      dialogRef.current?.querySelector<HTMLElement>("input:not([disabled]), button:not([disabled]), select:not([disabled]), textarea:not([disabled])")?.focus();
+    });
+
+    const handleEscape = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      event.preventDefault();
+      onCloseRef.current();
+    };
+    document.addEventListener("keydown", handleEscape);
+
+    return () => {
+      window.cancelAnimationFrame(frame);
+      document.removeEventListener("keydown", handleEscape);
+      document.body.style.overflow = previousOverflow;
+      previouslyFocused?.focus();
+    };
+  }, []);
+
+  const trapFocus = (event: React.KeyboardEvent<HTMLDivElement>) => {
+    if (event.key !== "Tab") return;
+    const focusable = Array.from(
+      event.currentTarget.querySelectorAll<HTMLElement>(
+        'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
+      )
+    ).filter((element) => !element.hidden && element.getAttribute("aria-hidden") !== "true");
+    if (!focusable.length) return;
+    const first = focusable[0];
+    const last = focusable[focusable.length - 1];
+    if (event.shiftKey && document.activeElement === first) {
+      event.preventDefault();
+      last.focus();
+    } else if (!event.shiftKey && document.activeElement === last) {
+      event.preventDefault();
+      first.focus();
+    }
+  };
 
   return (
     <div className="auto-topic-dialog-backdrop" role="presentation" onMouseDown={onClose}>
       <div
+        ref={dialogRef}
         className="auto-topic-dialog"
         role="dialog"
         aria-modal="true"
         aria-labelledby="auto-topic-dialog-title"
         onMouseDown={(event) => event.stopPropagation()}
+        onKeyDown={trapFocus}
       >
         <div className="auto-topic-dialog-header">
           <div>
