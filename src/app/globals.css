@@ -8773,13 +8773,15 @@ a.bento-card:hover .text-link {
   }
 
   .article-body-grid {
-    grid-template-columns: minmax(0, 740px) minmax(208px, 240px);
+    /* 目录默认收成右侧一条刻度轨，正文因此更宽；hover 时目录浮层向左滑出。 */
+    grid-template-columns: minmax(0, 816px) 26px;
     justify-content: center;
-    gap: clamp(48px, 5vw, 72px);
+    gap: clamp(28px, 3.4vw, 52px);
   }
 
   .article-toc-rail {
     display: block;
+    position: relative; /* 展开浮层的定位锚点 */
     /* 父网格 align-items:start 会把本列压缩成目录自身高度，
        sticky 失去可移动区间——拉伸满行高才能全程跟随滚动 */
     align-self: stretch;
@@ -8787,7 +8789,7 @@ a.bento-card:hover .text-link {
   }
 
   /* Firefly：目录是右侧栏小组件（见 PublicShell 的 ff-toc-widget，
-     对齐官方主题），正文卡片不再分出 216px 列挤压行宽 */
+     对齐官方主题），正文卡片不再分出列挤压行宽 */
   :root[data-ui="firefly"] .article-body-grid {
     grid-template-columns: minmax(0, 1fr);
   }
@@ -8800,13 +8802,112 @@ a.bento-card:hover .text-link {
     display: none;
   }
 
+  /* 收起态：sticky 浮层，右缘对齐轨道，margin-left:auto 钉住右缘，
+     宽度增长即向左展开，不挤压正文。 */
   .article-toc-rail .article-toc {
     position: sticky;
     top: 96px;
+    margin-left: auto;
+    width: 26px;
     max-height: calc(100vh - 140px);
+    overflow: hidden;
+    z-index: 5;
+    border: var(--border-w) solid transparent;
+    border-radius: var(--radius-md);
+    transition: width 0.24s cubic-bezier(0.4, 0, 0.2, 1),
+      background-color 0.2s ease, border-color 0.2s ease,
+      box-shadow 0.2s ease, padding 0.2s ease;
+  }
+
+  /* 展开态：hover 或键盘聚焦时浮层向左滑出，显示完整标题。鼠标移开即收回。 */
+  .article-toc-rail:hover .article-toc,
+  .article-toc-rail:focus-within .article-toc {
+    width: 252px;
     overflow-y: auto;
     overscroll-behavior: contain;
-    padding-right: 4px;
+    padding: var(--sp-xs) var(--sp-2xs) var(--sp-xs) var(--sp-sm);
+    background: color-mix(in srgb, var(--surface-strong) 92%, var(--paper));
+    border-color: var(--line);
+    box-shadow: 0 16px 44px color-mix(in srgb, var(--ink) 14%, transparent);
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+  }
+
+  /* 收起态标题隐藏，展开时随浮层淡入 */
+  .article-toc-rail .article-toc-title {
+    opacity: 0;
+    white-space: nowrap;
+    transition: opacity 0.18s ease;
+  }
+  .article-toc-rail:hover .article-toc-title,
+  .article-toc-rail:focus-within .article-toc-title {
+    opacity: 1;
+  }
+
+  /* 收起态：每条标题压成一根刻度线，顺带充当阅读进度指示。
+     h3（toc-depth-2）刻度更短更淡，当前小节的刻度加长并高亮。 */
+  .article-toc-rail .article-toc a {
+    position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    height: 15px;
+    padding: 0;
+    border-left: 0;
+    border-radius: 0;
+  }
+  .article-toc-rail .article-toc a .toc-label {
+    min-width: 0;
+    opacity: 0;
+    transform: translateX(6px);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    transition: opacity 0.18s ease, transform 0.18s ease;
+  }
+  .article-toc-rail .article-toc a::after {
+    content: "";
+    flex: none;
+    width: 16px;
+    height: 2px;
+    border-radius: 2px;
+    background: color-mix(in srgb, var(--ink) 26%, transparent);
+    transition: width 0.18s ease, background-color 0.18s ease, opacity 0.18s ease;
+  }
+  .article-toc-rail .article-toc .toc-depth-2 a::after {
+    width: 10px;
+    opacity: 0.72;
+  }
+  .article-toc-rail .article-toc a:hover::after {
+    background: var(--accent);
+  }
+  .article-toc-rail .article-toc a.is-active::after {
+    width: 22px;
+    background: var(--accent);
+  }
+
+  /* 展开态：恢复正常文字链接排版，刻度淡出 */
+  .article-toc-rail:hover .article-toc a,
+  .article-toc-rail:focus-within .article-toc a {
+    height: auto;
+    justify-content: flex-start;
+    padding: 5px 10px;
+    border-left: 2px solid transparent;
+    border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+  }
+  .article-toc-rail:hover .article-toc a::after,
+  .article-toc-rail:focus-within .article-toc a::after {
+    width: 0;
+    opacity: 0;
+  }
+  .article-toc-rail:hover .article-toc a .toc-label,
+  .article-toc-rail:focus-within .article-toc a .toc-label {
+    opacity: 1;
+    transform: none;
+  }
+  .article-toc-rail:hover .article-toc a.is-active,
+  .article-toc-rail:focus-within .article-toc a.is-active {
+    border-left-color: var(--accent);
   }
 }
 

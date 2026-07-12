@@ -136,7 +136,7 @@ export function ArticleToc({
               aria-current={activeId === item.id ? "location" : undefined}
               onClick={(event) => jumpTo(event, item.id)}
             >
-              {item.text}
+              <span className="toc-label">{item.text}</span>
             </a>
           </li>
         ))}
