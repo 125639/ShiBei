@@ -1,11 +1,13 @@
 import { Worker, UnrecoverableError } from "bullmq";
 import { CompilationKind } from "@prisma/client";
+import { writeFileSync } from "node:fs";
 import {
   generateDigest,
   generateContentArticle,
   generateSummary,
   estimateAudience,
   translateTitleSummaryToEnglish,
+  ModelRequestError,
   type EvidenceItem
 } from "../lib/ai";
 import {
@@ -44,9 +46,14 @@ import {
   rotateEvidence
 } from "./evidence";
 import {
+  assessEvidenceSufficiency,
+  assessSourceSufficiency,
   assertPublishableGeneratedArticle,
+  assertSufficientSourceMaterial,
   assertUsableSourceMaterial,
   InvalidSourceMaterialError,
+  RetryableSourceFetchError,
+  UnpublishableGeneratedArticleError,
   isUsableSourceMaterial
 } from "../lib/source-quality";
 import {
@@ -71,11 +78,19 @@ import {
 import { hostFromUrl } from "../lib/html";
 import { extractTitleAndSummary } from "../lib/post-derive";
 import { classifyTopic } from "../lib/topic-classify";
+import { publicationData } from "../lib/publication-policy";
+import { normalizeContentMode } from "../lib/content-style";
+import { artifactRawItemId } from "../lib/job-artifact";
 
 function workerConcurrency(envName: string, fallback = 1) {
   const n = Number(process.env[envName] || fallback);
   if (!Number.isFinite(n)) return fallback;
   return Math.min(Math.max(Math.floor(n), 1), 4);
+}
+
+function requiresSectionHeadings(style: { contentMode: string; length: string }) {
+  const mode = normalizeContentMode(style.contentMode);
+  return style.length !== "短" && mode !== "essay" && mode !== "opinion";
 }
 
 type FetchJobData = {
@@ -108,7 +123,7 @@ async function loadModelAndStyle(fetchJob: { modelConfigId: string | null; conte
   return { modelConfig, style };
 }
 
-async function createDraftFromRawItem(rawItemId: string, generated: string) {
+async function createDraftFromRawItem(rawItemId: string, generated: string, publishable = true) {
   const rawItem = await prisma.rawItem.findUniqueOrThrow({
     where: { id: rawItemId },
     include: { fetchJob: true }
@@ -116,7 +131,7 @@ async function createDraftFromRawItem(rawItemId: string, generated: string) {
   const parsed = extractTitleAndSummary(generated, rawItem.title);
   const slugBase = slugify(`${parsed.title}-${rawItem.id}`);
   const slug = `${slugBase}-${Date.now().toString(36)}`;
-  const publication = await getPublicationData();
+  const publication = await getPublicationData(publishable);
   const topicLink = await resolveTopicLink(rawItem.fetchJob?.contentTopicId);
 
   // 抓取来源（web/rss）的文章没有显式主题，用词库归类器自动挂一个分类，
@@ -132,8 +147,10 @@ async function createDraftFromRawItem(rawItemId: string, generated: string) {
   }
   const connectTopicId = topicLink.connect || autoTopicId;
 
-  return prisma.post.create({
-    data: {
+  return prisma.post.upsert({
+    where: { rawItemId: rawItem.id },
+    update: {},
+    create: {
       slug,
       title: parsed.title,
       summary: parsed.summary,
@@ -188,12 +205,20 @@ async function classifyTopicForContent(input: {
   }
 }
 
-async function createDraftFromResearch(fetchJobId: string, keyword: string, scopeLabel: string, evidence: EvidenceItem[], generated: string, index?: number) {
+async function createDraftFromResearch(
+  fetchJobId: string,
+  keyword: string,
+  scopeLabel: string,
+  evidence: EvidenceItem[],
+  generated: string,
+  index?: number,
+  publishable = true
+) {
   const parsed = extractTitleAndSummary(generated, keyword);
   const slugBase = slugify(`${parsed.title}-${fetchJobId}`);
   const slug = `${slugBase}-${Date.now().toString(36)}${index ? `-${index}` : ""}`;
   const sourceUrl = `keyword://${encodeURIComponent(keyword)}`;
-  const publication = await getPublicationData();
+  const publication = await getPublicationData(publishable);
   const fetchJob = await prisma.fetchJob.findUnique({ where: { id: fetchJobId } });
   const topicLink = await resolveTopicLink(fetchJob?.contentTopicId);
   const markdown = [
@@ -210,18 +235,24 @@ async function createDraftFromResearch(fetchJobId: string, keyword: string, scop
     ].filter(Boolean).join("\n"))
   ].join("\n");
 
-  const rawItem = await prisma.rawItem.create({
-    data: {
-      title: `关键词研究：${keyword}`,
-      url: sourceUrl,
-      content: evidence.map((item) => `${item.title}\n${item.summary}`).join("\n\n"),
-      markdown,
-      fetchJobId
-    }
+  const rawItemId = artifactRawItemId(fetchJobId, `keyword:${index ?? 1}`);
+  const researchData = {
+    title: `关键词研究：${keyword}`,
+    url: sourceUrl,
+    content: evidence.map((item) => `${item.title}\n${item.summary}`).join("\n\n"),
+    markdown,
+    fetchJobId
+  };
+  const rawItem = await prisma.rawItem.upsert({
+    where: { id: rawItemId },
+    create: { id: rawItemId, ...researchData },
+    update: researchData
   });
 
-  return prisma.post.create({
-    data: {
+  return prisma.post.upsert({
+    where: { rawItemId: rawItem.id },
+    update: {},
+    create: {
       slug,
       title: parsed.title,
       summary: parsed.summary,
@@ -243,17 +274,21 @@ async function resolveTopicLink(topicId: string | null | undefined): Promise<{ c
   return { connect: topic.id, kind: topic.compileKind };
 }
 
-async function getPublicationData() {
+async function getPublicationData(publishable = true) {
   const settings = await prisma.siteSettings.findUnique({ where: { id: "site" } });
   const autoPublish = settings?.autoPublish ?? false;
-  return {
-    status: autoPublish ? "PUBLISHED" as const : "DRAFT" as const,
-    publishedAt: autoPublish ? new Date() : null
-  };
+  return publicationData(autoPublish, publishable);
 }
 
 async function processWeb(fetchJobId: string) {
   const fetchJob = await prisma.fetchJob.findUniqueOrThrow({ where: { id: fetchJobId } });
+  const rawItemId = artifactRawItemId(fetchJob.id, "web");
+  const existing = await prisma.rawItem.findUnique({
+    where: { id: rawItemId },
+    select: { post: { select: { id: true } } }
+  });
+  if (existing?.post) return;
+
   const settings = await prisma.siteSettings.findUnique({ where: { id: "site" } });
   const textOnly = (settings as { textOnlyMode?: boolean } | null)?.textOnlyMode === true;
 
@@ -264,15 +299,18 @@ async function processWeb(fetchJobId: string) {
     content: result.content,
     markdown: result.markdown
   });
-  const rawItem = await prisma.rawItem.create({
-    data: {
-      title: result.title,
-      url: sourcePageUrl,
-      content: result.content,
-      markdown: result.markdown,
-      sourceId: fetchJob.sourceId,
-      fetchJobId: fetchJob.id
-    }
+  const webData = {
+    title: result.title,
+    url: sourcePageUrl,
+    content: result.content,
+    markdown: result.markdown,
+    sourceId: fetchJob.sourceId,
+    fetchJobId: fetchJob.id
+  };
+  const rawItem = await prisma.rawItem.upsert({
+    where: { id: rawItemId },
+    create: { id: rawItemId, ...webData },
+    update: webData
   });
 
   const post = await summarizeRawItem(rawItem.id, fetchJob.id);
@@ -395,6 +433,92 @@ async function attachImagesFromEvidence(postId: string, evidence: EvidenceItem[]
   await embedArticleImagesInPostContent(postId, images);
 }
 
+/**
+ * 搜索/RSS 往往只给一两句 teaser。写稿前把靠前的薄资料回源抓成正文，避免
+ * “多来源”实际只是多条标题。抓取失败保留原摘要，后续证据门禁再决定能否成文。
+ */
+async function enrichEvidenceForWriting(evidence: EvidenceItem[], maxFetches = 6) {
+  // 先按归一化 URL 去重再分配抓取预算：重复链接不该先烧掉一次 Playwright
+  // 抓取、末尾才被丢弃。
+  const seenInput = new Set<string>();
+  const distinct = evidence.filter((item) => {
+    const key = normalizeEvidenceUrl(item.url);
+    if (seenInput.has(key)) return false;
+    seenInput.add(key);
+    return true;
+  });
+
+  const enriched: EvidenceItem[] = [];
+  let fetches = 0;
+
+  for (const item of distinct) {
+    const alreadyFullText = item.materialKind === "fulltext" || (item.materialKind === undefined && item.summary.trim().length >= 900);
+    if (fetches >= maxFetches || alreadyFullText || !/^https?:\/\//i.test(item.url)) {
+      enriched.push(item);
+      continue;
+    }
+
+    fetches++;
+    try {
+      const scraped = await scrapeWebPage(item.url);
+      const finalUrl = scraped.finalUrl || item.url;
+      const assessment = assessSourceSufficiency({
+        url: finalUrl,
+        title: scraped.title || item.title,
+        content: scraped.content,
+        markdown: scraped.markdown
+      });
+      if (!assessment.ok) {
+        enriched.push(item);
+        continue;
+      }
+      enriched.push({
+        ...item,
+        title: scraped.title || item.title,
+        url: finalUrl,
+        summary: clipEvidenceText(sanitizeEvidenceExcerpt(scraped.markdown || scraped.content), 5000),
+        materialKind: "fulltext"
+      });
+    } catch (error) {
+      console.error(`[research] evidence enrichment failed ${item.url}:`, error);
+      enriched.push(item);
+    }
+  }
+
+  // 抓取后的最终跳转 URL 仍可能与其他条目撞车，出口再按同一规则去重一次。
+  const seen = new Set<string>();
+  return enriched.filter((item) => {
+    const key = normalizeEvidenceUrl(item.url);
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+function sanitizeEvidenceExcerpt(markdown: string) {
+  return markdown
+    .replace(/<figure\b[^>]*>[\s\S]*?<\/figure>/gi, " ")
+    .replace(/!\[[^\]]*]\((?:[^()\s]|\([^()\s]*\))+\)/g, " ")
+    // 内嵌链接尚未被独立抓取核验，只保留锚文本；可引用 URL 始终是该证据块的顶层链接。
+    .replace(/\[([^\]]+)]\((?:[^()\s]|\([^()\s]*\))+\)/g, "$1")
+    .replace(/<https?:\/\/[^>\s]+>/gi, " ")
+    .replace(/https?:\/\/[^\s<>"'”’)\]}，。；！？]+/gi, " ")
+    .replace(/<[^>]+>/g, " ")
+    .replace(/[ \t]+/g, " ")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
+function clipEvidenceText(value: string, limit: number) {
+  if (value.length <= limit) return value;
+  const head = value.slice(0, limit);
+  const floor = Math.floor(limit * 0.72);
+  const paragraph = head.lastIndexOf("\n\n");
+  if (paragraph >= floor) return head.slice(0, paragraph).trimEnd();
+  const sentence = Math.max(head.lastIndexOf("。"), head.lastIndexOf("！"), head.lastIndexOf("？"), head.lastIndexOf(". "));
+  return head.slice(0, sentence >= floor ? sentence + 1 : limit).trimEnd();
+}
+
 function sourcePlatformForVideo(videoUrl: string, sourcePageUrl?: string | null): string | null {
   if (sourcePageUrl && isVideoMediaUrl(videoUrl) && isDomesticVideoUrl(sourcePageUrl)) {
     return hostFromUrl(sourcePageUrl) || hostFromUrl(videoUrl);
@@ -404,9 +528,11 @@ function sourcePlatformForVideo(videoUrl: string, sourcePageUrl?: string | null)
 
 async function processRss(fetchJobId: string) {
   const fetchJob = await prisma.fetchJob.findUniqueOrThrow({ where: { id: fetchJobId } });
+  const settings = await prisma.siteSettings.findUnique({ where: { id: "site" } });
   const items = await fetchRss(fetchJob.sourceUrl);
+  // feed 条目缺 link 时既无法回源抓取，也无法建幂等槽/防重发键，直接视为不可用。
   const usableItems = items.filter((item) =>
-    isUsableSourceMaterial({
+    Boolean(item.link) && isUsableSourceMaterial({
       title: item.title,
       content: item.summary
     })
@@ -415,19 +541,109 @@ async function processRss(fetchJobId: string) {
     throw new InvalidSourceMaterialError("RSS 源没有可用条目：疑似错误页、访问受限内容或空内容");
   }
 
-  for (const item of usableItems.slice(0, 3)) {
-    const rawItem = await prisma.rawItem.create({
-      data: {
+  // 幂等槽键含 fetchJob.id，只防「同一任务重试」内的重复。管理员重跑同一来源
+  // 或调度器再次抓取会生成新任务，必须按 URL 查历史已成稿条目，否则同一批
+  // feed 条目会被重新生成再发布一遍。历史 rawItem.url 可能是 feed 链接，也可能
+  // 是抓取后的最终跳转 URL，所以进循环前与抓取后各比对一次。
+  const priorRows = fetchJob.sourceId
+    ? await prisma.rawItem.findMany({
+        where: { sourceId: fetchJob.sourceId, post: { isNot: null } },
+        select: { url: true }
+      })
+    : [];
+  const publishedUrls = new Set(priorRows.map((row) => normalizeEvidenceUrl(row.url)));
+
+  let completed = 0;
+  let alreadyPublished = 0;
+  const failures: string[] = [];
+  for (const item of usableItems) {
+    if (completed >= 3) break;
+    const normalizedLink = normalizeEvidenceUrl(item.link) || item.link;
+    if (publishedUrls.has(normalizedLink)) {
+      alreadyPublished++;
+      continue;
+    }
+    try {
+      // 以 feed 原始链接而非跳转后 URL 定义幂等槽。整个 BullMQ 任务
+      // 重试时，已成功的条目直接复用，不再生成和发布。
+      const rawItemId = artifactRawItemId(fetchJob.id, `rss:${normalizedLink}`);
+      const existing = await prisma.rawItem.findUnique({
+        where: { id: rawItemId },
+        select: { post: { select: { id: true } } }
+      });
+      if (existing?.post) {
+        completed++;
+        continue;
+      }
+
+      const feedMarkdown = `# ${item.title}\n\n${item.summary}\n\n来源：${item.link}`;
+      let material = {
         title: item.title,
         url: item.link,
         content: item.summary,
-        markdown: `# ${item.title}\n\n${item.summary}\n\n来源：${item.link}`,
+        markdown: feedMarkdown,
+        images: [] as ArticleImageCandidate[]
+      };
+
+      // RSS description 通常只有几十至几百字。薄摘要不能直接扩写成长文，先回到
+      // 条目原页抓正文；只有 feed 本身已提供足量全文时才省略这次抓取。
+      if (!assessSourceSufficiency(material).ok) {
+        const scraped = await scrapeWebPage(item.link);
+        const finalUrl = scraped.finalUrl || item.link;
+        if (publishedUrls.has(normalizeEvidenceUrl(finalUrl))) {
+          alreadyPublished++;
+          continue;
+        }
+        assertSufficientSourceMaterial({
+          url: finalUrl,
+          title: scraped.title || item.title,
+          content: scraped.content,
+          markdown: scraped.markdown
+        });
+        material = {
+          title: scraped.title || item.title,
+          url: finalUrl,
+          content: scraped.content,
+          markdown: scraped.markdown,
+          images: withImageSource(scraped.images || [], finalUrl, scraped.title || item.title)
+        };
+      }
+
+      const rawItemData = {
+        title: material.title,
+        url: material.url,
+        content: material.content,
+        markdown: material.markdown,
         sourceId: fetchJob.sourceId,
         fetchJobId: fetchJob.id,
         publishedAt: item.date
+      };
+      const rawItem = await prisma.rawItem.upsert({
+        where: { id: rawItemId },
+        create: { id: rawItemId, ...rawItemData },
+        update: rawItemData
+      });
+      const post = await summarizeRawItem(rawItem.id, fetchJob.id);
+      if (autoImageSearchEnabled(settings) && material.images.length) {
+        await embedArticleImagesInPostContent(post.id, material.images);
       }
-    });
-    await summarizeRawItem(rawItem.id, fetchJob.id);
+      completed++;
+      publishedUrls.add(normalizedLink);
+      publishedUrls.add(normalizeEvidenceUrl(material.url));
+    } catch (error) {
+      // 瞬时模型故障、成稿协议问题和数据库错误都应交给队列重试，不能被
+      // 包装成“RSS 来源永久无效”。只有确定的坏素材才跳过并尝试下一条。
+      if (!(error instanceof InvalidSourceMaterialError)) throw error;
+      const reason = error instanceof Error ? error.message : String(error);
+      failures.push(`${item.title}: ${reason}`);
+      console.error(`[rss] skipped insufficient or failed item ${item.link}:`, error);
+    }
+  }
+
+  // 全部条目都已在历史任务中成稿属于「无新内容」，是正常结果；
+  // 只有既没有新成稿、也没有任何历史成稿可复用时才算来源失败。
+  if (!completed && !alreadyPublished) {
+    throw new InvalidSourceMaterialError(`RSS 条目均未达到发布门槛：${failures.join("；").slice(0, 1000)}`);
   }
 }
 
@@ -436,27 +652,39 @@ async function processVideo(fetchJobId: string) {
     where: { id: fetchJobId },
     include: { source: true }
   });
+  const rawItemId = artifactRawItemId(fetchJob.id, "video");
+  const existing = await prisma.rawItem.findUnique({
+    where: { id: rawItemId },
+    select: { post: { select: { id: true } } }
+  });
+  if (existing?.post) return;
+
   const settings = await prisma.siteSettings.findUnique({ where: { id: "site" } });
   const textOnly = (settings as { textOnlyMode?: boolean } | null)?.textOnlyMode === true;
   const title = fetchJob.source?.name || "视频资源";
   const originalUrl = fetchJob.sourceUrl;
   const summary = "管理员添加的视频资源。";
-  const rawItem = await prisma.rawItem.create({
-    data: {
-      title,
-      url: originalUrl,
-      content: `${title}\n${originalUrl}`,
-      markdown: `# ${title}\n\n视频来源：${originalUrl}`,
-      sourceId: fetchJob.sourceId,
-      fetchJobId: fetchJob.id
-    }
+  const videoData = {
+    title,
+    url: originalUrl,
+    content: `${title}\n${originalUrl}`,
+    markdown: `# ${title}\n\n视频来源：${originalUrl}`,
+    sourceId: fetchJob.sourceId,
+    fetchJobId: fetchJob.id
+  };
+  const rawItem = await prisma.rawItem.upsert({
+    where: { id: rawItemId },
+    create: { id: rawItemId, ...videoData },
+    update: videoData
   });
 
   const publication = await getPublicationData();
   const topicLink = await resolveTopicLink(fetchJob.contentTopicId);
   const slugBase = slugify(`${title}-${fetchJob.id}`);
-  const post = await prisma.post.create({
-    data: {
+  const post = await prisma.post.upsert({
+    where: { rawItemId: rawItem.id },
+    update: {},
+    create: {
       slug: `${slugBase}-${Date.now().toString(36)}`,
       title,
       summary,
@@ -500,15 +728,19 @@ async function processKeywordResearch(fetchJobId: string, keyword: string, scope
   const fetchJob = await prisma.fetchJob.findUniqueOrThrow({ where: { id: fetchJobId } });
   const { modelConfig, style } = await loadModelAndStyle(fetchJob);
   const scopeLabel = researchScopeLabel(scope);
-  const evidence = await collectKeywordEvidence(keyword, scope, { topicId: fetchJob.contentTopicId });
+  const collectedEvidence = await collectKeywordEvidence(keyword, scope, { topicId: fetchJob.contentTopicId });
+  const evidence = await enrichEvidenceForWriting(collectedEvidence, depth === "deep" ? 8 : 6);
 
-  if (!evidence.length) {
+  const evidenceAssessment = assessEvidenceSufficiency(evidence, evidencePolicyForDepth(depth));
+  if (!evidenceAssessment.ok) {
     await createDraftFromResearch(
       fetchJob.id,
       keyword,
       scopeLabel,
-      [],
-      `# ${keyword}\n\n没有搜索到足够资料，暂时无法形成文章草稿。请换一个更具体的关键词，或检查信息源是否可访问。`
+      evidence,
+      `# ${keyword}\n\n> 资料未达到发布门槛：${evidenceAssessment.reason}。系统保留研究线索供管理员补充资料后重试。`,
+      undefined,
+      false
     );
     return;
   }
@@ -521,14 +753,27 @@ async function processKeywordResearch(fetchJobId: string, keyword: string, scope
         scopeLabel,
         evidence,
         `# ${count > 1 ? `${keyword}（第 ${index} 篇）` : keyword}\n\n> 未配置模型或内容风格，已保留关键词研究资料作为草稿。\n\n${evidence.map((item) => `- [${item.title}](${item.url})：${item.summary}`).join("\n")}`,
-        index
+        index,
+        false
       );
     }
     return;
   }
 
+  const previousArticles: Array<{ title: string; summary: string }> = [];
   for (let index = 1; index <= count; index++) {
+    const existing = await prisma.rawItem.findUnique({
+      where: { id: artifactRawItemId(fetchJob.id, `keyword:${index}`) },
+      select: { post: { select: { title: true, summary: true } } }
+    });
+    if (existing?.post) {
+      previousArticles.push(existing.post);
+      continue;
+    }
+
     let generated: string;
+    let publishable = true;
+    const articleEvidence = rotateEvidence(evidence, index - 1);
     try {
       generated = await generateContentArticle({
         modelConfig,
@@ -538,17 +783,38 @@ async function processKeywordResearch(fetchJobId: string, keyword: string, scope
         articleIndex: index,
         articleCount: count,
         depth,
-        evidence: rotateEvidence(evidence, index - 1)
+        evidence: articleEvidence,
+        previousArticles
       });
-      assertPublishableGeneratedArticle(generated);
+      assertPublishableGeneratedArticle(generated, {
+        allowedSourceUrls: articleEvidence.map((item) => item.url),
+        requireInlineCitation: true,
+        requireSectionHeadings: requiresSectionHeadings(style)
+      });
+      previousArticles.push(extractTitleAndSummary(generated, keyword));
     } catch (error) {
-      generated = buildResearchFallbackDraft(keyword, scopeLabel, rotateEvidence(evidence, index - 1), error, index, count, depth);
+      if (error instanceof ModelRequestError) throw error;
+      if (!(error instanceof UnpublishableGeneratedArticleError)) throw error;
+      publishable = false;
+      generated = buildResearchFallbackDraft(keyword, scopeLabel, articleEvidence, error, index, count, depth);
     }
 
-    const post = await createDraftFromResearch(fetchJob.id, keyword, scopeLabel, evidence, generated, index);
-    await attachImagesFromEvidence(post.id, evidence);
-    await attachVideosFromEvidence(post.id, evidence, `关键词「${keyword}」`);
+    const post = await createDraftFromResearch(fetchJob.id, keyword, scopeLabel, evidence, generated, index, publishable);
+    if (publishable) {
+      await attachImagesFromEvidence(post.id, evidence);
+      await attachVideosFromEvidence(post.id, evidence, `关键词「${keyword}」`);
+    }
   }
+}
+
+function evidencePolicyForDepth(depth: ResearchDepth) {
+  if (depth === "deep") {
+    return { minItems: 3, minTotalInformationChars: 2200, strongSingleItemChars: null, minFullTextItems: 3 };
+  }
+  if (depth === "standard") {
+    return { minItems: 2, minTotalInformationChars: 700, strongSingleItemChars: 900, minFullTextItems: 1 };
+  }
+  return { minItems: 2, minTotalInformationChars: 1200, strongSingleItemChars: null, minFullTextItems: 2 };
 }
 
 function clampPopularity(value: number) {
@@ -562,14 +828,21 @@ async function summarizeRawItem(rawItemId: string, fetchJobId: string) {
   ]);
   const { modelConfig, style } = await loadModelAndStyle(fetchJob);
 
-  assertUsableSourceMaterial({
+  // assertSufficientSourceMaterial 内部先做同样的可用性评估（错误页/拦截页
+  // 识别），再做信息量门槛，单独的 usable 断言是重复计算。
+  assertSufficientSourceMaterial({
+    url: rawItem.url,
     title: rawItem.title,
     content: rawItem.content,
     markdown: rawItem.markdown
   });
 
   if (!modelConfig || !style) {
-    return createDraftFromRawItem(rawItem.id, `# ${rawItem.title}\n\n${rawItem.markdown}\n\n> 未配置模型或内容风格，已保留原始内容作为草稿。`);
+    return createDraftFromRawItem(
+      rawItem.id,
+      `# ${rawItem.title}\n\n${rawItem.markdown}\n\n> 未配置模型或内容风格，已保留原始内容作为草稿。`,
+      false
+    );
   }
 
   const generated = await generateSummary({
@@ -578,10 +851,23 @@ async function summarizeRawItem(rawItemId: string, fetchJobId: string) {
     item: {
       title: rawItem.title,
       url: rawItem.url,
-      markdown: rawItem.markdown
+      markdown: rawItem.markdown,
+      publishedAt: rawItem.publishedAt
     }
   });
-  assertPublishableGeneratedArticle(generated);
+  try {
+    assertPublishableGeneratedArticle(generated, {
+      allowedSourceUrls: [rawItem.url],
+      requireInlineCitation: true,
+      requireSectionHeadings: requiresSectionHeadings(style)
+    });
+  } catch (error) {
+    if (error instanceof UnpublishableGeneratedArticleError) {
+      // 保留模型原稿供管理员查看，但绝不让版式/引用未达标的内容继承自动发布。
+      return createDraftFromRawItem(rawItem.id, generated, false);
+    }
+    throw error;
+  }
 
   return createDraftFromRawItem(rawItem.id, generated);
 }
@@ -764,7 +1050,10 @@ async function processDigest(fetchJobId: string, topicId: string, digestKind: "D
   const scope = isResearchScope(topic.scope) ? topic.scope : "all";
   const scopeLabel = researchScopeLabel(scope);
   const windowMs = digestWindowMs(digestKind);
-  const windowStart = new Date(Date.now() - windowMs);
+  // 以 FetchJob 入队时间固定窗口终点，避免队列积压后相邻日报出现漂移、缺口或重叠。
+  const windowEnd = fetchJob.createdAt;
+  const windowStart = new Date(windowEnd.getTime() - windowMs);
+  const latestAcceptedTime = windowEnd.getTime() + 5 * 60 * 1000;
   const windowLabel = digestWindowLabel(digestKind);
   const keywords = parseTopicKeywords(topic.keywords);
 
@@ -778,8 +1067,10 @@ async function processDigest(fetchJobId: string, topicId: string, digestKind: "D
       if (allEvidence.length >= 16) break;
       const key = normalizeEvidenceUrl(item.url);
       if (seen.has(key)) continue;
-      // When publishedAt is known, drop entries outside the window. Items without dates are kept.
-      if (item.publishedAt && item.publishedAt < windowStart) continue;
+      // 定时报/周报必须能证明条目位于时间窗口内。没有日期的资料可用于普通研究，
+      // 但不能被包装成“过去 24 小时 / 7 天”的新进展。
+      const publishedTime = item.publishedAt?.getTime() ?? Number.NaN;
+      if (!Number.isFinite(publishedTime) || publishedTime < windowStart.getTime() || publishedTime > latestAcceptedTime) continue;
       seen.add(key);
       allEvidence.push(item);
     }
@@ -788,13 +1079,33 @@ async function processDigest(fetchJobId: string, topicId: string, digestKind: "D
   const formatLabel = digestKind === "WEEKLY_ROUNDUP" ? "周报综述" : "每日要闻";
   const fallbackTitle = `${topic.name} · ${formatLabel}`;
 
-  if (!allEvidence.length) {
-    const fallback = `# ${fallbackTitle}\n\n> ${windowLabel}内未抓到足够${topic.name}主题资料，本期暂无内容。可调整关键词或来源后再试。`;
-    await createDraftFromDigest(fetchJob.id, topic.id, digestKind, fallbackTitle, [], fallback, windowLabel, scopeLabel);
+  const enrichedEvidence = await enrichEvidenceForWriting(allEvidence, 8);
+  allEvidence.splice(0, allEvidence.length, ...enrichedEvidence);
+
+  const digestEvidenceAssessment = assessEvidenceSufficiency(allEvidence, {
+    minItems: 3,
+    minTotalInformationChars: digestKind === "WEEKLY_ROUNDUP" ? 1600 : 1100,
+    strongSingleItemChars: null,
+    minFullTextItems: 3
+  });
+  if (!digestEvidenceAssessment.ok) {
+    const fallback = `# ${fallbackTitle}\n\n> 资料未达到定时报发布门槛：${digestEvidenceAssessment.reason}。系统已保留本期资料，补充后可重新生成。`;
+    await createDraftFromDigest(
+      fetchJob.id,
+      topic.id,
+      digestKind,
+      fallbackTitle,
+      allEvidence,
+      fallback,
+      windowLabel,
+      scopeLabel,
+      false
+    );
     return;
   }
 
   let generated: string;
+  let publishable = true;
   if (modelConfig && style) {
     try {
       generated = await generateDigest({
@@ -806,17 +1117,36 @@ async function processDigest(fetchJobId: string, topicId: string, digestKind: "D
         digestKind,
         evidence: allEvidence
       });
-      assertPublishableGeneratedArticle(generated);
+      assertPublishableGeneratedArticle(generated, {
+        allowedSourceUrls: allEvidence.map((item) => item.url),
+        requireInlineCitation: true
+      });
     } catch (error) {
+      if (error instanceof ModelRequestError) throw error;
+      if (!(error instanceof UnpublishableGeneratedArticleError)) throw error;
+      publishable = false;
       generated = buildDigestFallback(topic.name, formatLabel, windowLabel, scopeLabel, allEvidence, error);
     }
   } else {
+    publishable = false;
     generated = buildDigestFallback(topic.name, formatLabel, windowLabel, scopeLabel, allEvidence, new Error("未配置模型或内容风格"));
   }
 
-  const post = await createDraftFromDigest(fetchJob.id, topic.id, digestKind, fallbackTitle, allEvidence, generated, windowLabel, scopeLabel);
-  await attachImagesFromEvidence(post.id, allEvidence);
-  await attachVideosFromEvidence(post.id, allEvidence, `${topic.name} ${windowLabel}`);
+  const post = await createDraftFromDigest(
+    fetchJob.id,
+    topic.id,
+    digestKind,
+    fallbackTitle,
+    allEvidence,
+    generated,
+    windowLabel,
+    scopeLabel,
+    publishable
+  );
+  if (publishable) {
+    await attachImagesFromEvidence(post.id, allEvidence);
+    await attachVideosFromEvidence(post.id, allEvidence, `${topic.name} ${windowLabel}`);
+  }
 }
 
 async function createDraftFromDigest(
@@ -827,13 +1157,14 @@ async function createDraftFromDigest(
   evidence: EvidenceItem[],
   generated: string,
   windowLabel: string,
-  scopeLabel: string
+  scopeLabel: string,
+  publishable = true
 ) {
   const parsed = extractTitleAndSummary(generated, fallbackTitle);
   const slugBase = slugify(`${parsed.title}-${fetchJobId}`);
   const slug = `${slugBase}-${Date.now().toString(36)}`;
   const sourceUrl = `digest://topic?topicId=${encodeURIComponent(topicId)}&kind=${encodeURIComponent(digestKind)}`;
-  const publication = await getPublicationData();
+  const publication = await getPublicationData(publishable);
   const markdown = [
     `# ${fallbackTitle}`,
     "",
@@ -848,18 +1179,24 @@ async function createDraftFromDigest(
     ].filter(Boolean).join("\n"))
   ].join("\n");
 
-  const rawItem = await prisma.rawItem.create({
-    data: {
-      title: fallbackTitle,
-      url: sourceUrl,
-      content: evidence.map((item) => `${item.title}\n${item.summary}`).join("\n\n") || "（本期无证据）",
-      markdown,
-      fetchJobId
-    }
+  const rawItemId = artifactRawItemId(fetchJobId, "digest");
+  const digestData = {
+    title: fallbackTitle,
+    url: sourceUrl,
+    content: evidence.map((item) => `${item.title}\n${item.summary}`).join("\n\n") || "（本期无证据）",
+    markdown,
+    fetchJobId
+  };
+  const rawItem = await prisma.rawItem.upsert({
+    where: { id: rawItemId },
+    create: { id: rawItemId, ...digestData },
+    update: digestData
   });
 
-  return prisma.post.create({
-    data: {
+  return prisma.post.upsert({
+    where: { rawItemId: rawItem.id },
+    update: {},
+    create: {
       slug,
       title: parsed.title,
       summary: parsed.summary,
@@ -949,7 +1286,8 @@ const workerHandler = async (job: { data: FetchJobData; attemptsMade?: number; o
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     // 来源本身是错误页 → 永久失败，不重试。
-    const permanent = error instanceof InvalidSourceMaterialError;
+    const permanent = error instanceof InvalidSourceMaterialError ||
+      (error instanceof ModelRequestError && !error.retryable);
     // BullMQ v5：处理中 attemptsMade 为 0-based，本次是第 attempt 次。
     const attempt = (job.attemptsMade ?? 0) + 1;
     const totalAttempts = job.opts?.attempts ?? 1;
@@ -970,7 +1308,10 @@ const workerHandler = async (job: { data: FetchJobData; attemptsMade?: number; o
       where: { id: fetchJob.id },
       data: { status: "FAILED", error: message }
     });
-    await recordSourceFailure(healthSourceId);
+    // 只有明确的来源内容/抓取错误才记来源健康；数据库、模型、
+    // 成稿协议等内部故障绝不得误暂停正常来源。
+    const causedBySource = error instanceof InvalidSourceMaterialError || error instanceof RetryableSourceFetchError;
+    await recordSourceFailure(causedBySource ? healthSourceId : null);
 
     // 永久失败包成 UnrecoverableError，让 BullMQ 跳过剩余重试。
     if (permanent) throw new UnrecoverableError(message);
@@ -1043,6 +1384,19 @@ for (const worker of [fetchWorker, researchWorker, audienceWorker, scheduleWorke
   });
 }
 
+// Docker healthcheck reads this heartbeat. A live Redis/Postgres container is
+// insufficient when the worker event loop itself is stalled.
+const WORKER_HEARTBEAT_PATH = "/tmp/shibei-worker-heartbeat";
+const writeWorkerHeartbeat = () => {
+  try {
+    writeFileSync(WORKER_HEARTBEAT_PATH, String(Date.now()));
+  } catch (error) {
+    console.error("[worker] failed to write heartbeat:", error);
+  }
+};
+writeWorkerHeartbeat();
+const workerHeartbeatInterval = setInterval(writeWorkerHeartbeat, 30_000);
+
 // Graceful shutdown: 给正在执行的 job 一个机会跑完,而不是被 SIGTERM 直接掐掉。
 // BullMQ 的 worker.close() 会停接新 job、等待当前 job 结束再关闭连接。
 let shuttingDown = false;
@@ -1054,6 +1408,7 @@ async function shutdown(signal: string) {
   clearInterval(cleanupInterval);
   clearTimeout(listI18nBootTimer);
   clearInterval(listI18nInterval);
+  clearInterval(workerHeartbeatInterval);
   await Promise.allSettled([
     fetchWorker.close(),
     researchWorker.close(),

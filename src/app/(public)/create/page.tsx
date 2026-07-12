@@ -12,7 +12,7 @@ export const metadata: Metadata = {
 
 export default function CreatePage() {
   return (
-    <main className="container bento-page">
+    <main className="container bento-page creation-page">
       <section className="page-intro bento-card bento-wide">
         <p className="eyebrow">Co-create</p>
         <h1 className="page-title"><I18nText zh="共创工作室" en="Co-creation Studio" /></h1>

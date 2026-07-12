@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { Editor } from "@tiptap/react";
 import { MODEL_PROVIDER_PRESETS } from "@/lib/model-providers";
 import { markdownToHtml } from "@/lib/markdown";
+import { createDocumentSaveCoordinator, isAiSelectionCurrent } from "@/lib/writing-client-state";
 import { NotionEditor, type AiSelectionKind, type AiSelectionRequest } from "./NotionEditor";
 
 type DocMeta = { id: string; title: string; updatedAt: string };
@@ -12,10 +13,13 @@ type DocFull = DocMeta & { content: string };
 type SaveState = "idle" | "dirty" | "saving" | "saved" | "error";
 
 type AiTask = {
+  requestId: number;
   mode: "selection" | "continue";
   kind: AiSelectionKind | "continue";
   label: string;
   source: string;
+  docId: string;
+  revision: number;
   from: number;
   to: number;
   status: "loading" | "done" | "error";
@@ -25,6 +29,7 @@ type AiTask = {
 
 const LEGACY_DRAFT_KEY = "shibei-write-draft-v1";
 const MODEL_KEY = "shibei-write-model-v2";
+const SAVE_RETRY_MS = 5_000;
 
 const AI_INSTRUCTIONS: Record<AiSelectionKind, { label: string; instruction: string }> = {
   polish: {
@@ -84,9 +89,31 @@ export function WritingStudio() {
 
   const editorRef = useRef<Editor | null>(null);
   const titleRef = useRef<HTMLTextAreaElement | null>(null);
-  const pendingRef = useRef<{ title: string; content: string } | null>(null);
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const activeIdRef = useRef<string>("");
+  const contentRevisionRef = useRef(0);
+  const documentRequestRef = useRef(0);
+  const documentActionRef = useRef(false);
+  const aiRequestRef = useRef(0);
+  const aiAbortRef = useRef<AbortController | null>(null);
+  const saveCoordinatorRef = useRef<ReturnType<typeof createDocumentSaveCoordinator<{ title: string; content: string }>> | null>(null);
+  if (!saveCoordinatorRef.current) {
+    saveCoordinatorRef.current = createDocumentSaveCoordinator(async (id, pending) => {
+      const { doc } = await requestJson<{ doc: DocMeta }>(`/api/public/writing/docs/${id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(pending)
+      });
+      if (activeIdRef.current === id) setSavedAt(doc.updatedAt);
+      setDocs((current) => {
+        const updated = current.map((item) =>
+          item.id === id ? { ...item, title: pending.title, updatedAt: doc.updatedAt } : item
+        );
+        const target = updated.find((item) => item.id === id);
+        return target ? [target, ...updated.filter((item) => item.id !== id)] : updated;
+      });
+    });
+  }
 
   const wordCount = useMemo(() => {
     const text = (active?.content || "").replace(/\s+/g, "");
@@ -161,48 +188,62 @@ export function WritingStudio() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const flushSave = useCallback(async (docId?: string) => {
+  const flushSave = useCallback(async (docId?: string): Promise<boolean> => {
     const id = docId || activeIdRef.current;
-    const pending = pendingRef.current;
-    if (!id || !pending) return;
-    pendingRef.current = null;
+    if (!id || !saveCoordinatorRef.current?.peek(id)) return true;
     if (saveTimerRef.current) { clearTimeout(saveTimerRef.current); saveTimerRef.current = null; }
-    setSaveState("saving");
+    if (activeIdRef.current === id) setSaveState("saving");
     try {
-      const { doc } = await requestJson<{ doc: DocMeta }>(`/api/public/writing/docs/${id}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(pending)
-      });
-      setSaveState("saved");
-      setSavedAt(doc.updatedAt);
-      // 最近编辑的文档置顶,与 Notion 侧栏习惯一致
-      setDocs((current) => {
-        const updated = current.map((item) =>
-          item.id === id ? { ...item, title: pending.title, updatedAt: doc.updatedAt } : item
-        );
-        const target = updated.find((item) => item.id === id);
-        return target ? [target, ...updated.filter((item) => item.id !== id)] : updated;
-      });
+      await saveCoordinatorRef.current.flush(id);
+      if (activeIdRef.current === id) setSaveState("saved");
+      return true;
     } catch {
-      pendingRef.current = pending; // 保留待存内容,下次重试
-      setSaveState("error");
+      if (activeIdRef.current === id) {
+        setSaveState("error");
+        // Keep retrying the newest coalesced value. The coordinator retains it
+        // after failures, so transient network errors no longer require another
+        // keystroke and the timer callback cannot create an unhandled rejection.
+        if (saveCoordinatorRef.current?.peek(id)) {
+          saveTimerRef.current = setTimeout(() => {
+            saveTimerRef.current = null;
+            void flushSave(id);
+          }, SAVE_RETRY_MS);
+        }
+      }
+      return false;
     }
   }, []);
 
   const scheduleSave = useCallback((title: string, content: string) => {
-    pendingRef.current = { title, content };
+    const id = activeIdRef.current;
+    if (!id) return;
+    saveCoordinatorRef.current?.enqueue(id, { title, content });
     setSaveState("dirty");
     if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
-    saveTimerRef.current = setTimeout(() => { void flushSave(); }, 1200);
+    saveTimerRef.current = setTimeout(() => {
+      saveTimerRef.current = null;
+      void flushSave(id);
+    }, 1200);
   }, [flushSave]);
 
   const openDoc = useCallback(async (id: string, list?: DocMeta[]) => {
-    await flushSave();
+    if (id === activeIdRef.current) {
+      setListOpen(false);
+      return;
+    }
+    const requestId = ++documentRequestRef.current;
+    const previousId = activeIdRef.current;
+    setFatal("");
+    if (!(await flushSave(previousId)) || requestId !== documentRequestRef.current) return;
     try {
       const { doc } = await requestJson<{ doc: DocFull }>(`/api/public/writing/docs/${id}`);
+      if (requestId !== documentRequestRef.current) return;
+      // Edits can still arrive while the target document is loading. Drain the
+      // previous document once more immediately before committing the switch.
+      if (!(await flushSave(previousId)) || requestId !== documentRequestRef.current) return;
       setActive(doc);
       activeIdRef.current = doc.id;
+      contentRevisionRef.current = 0;
       setSaveState("idle");
       setSavedAt(doc.updatedAt);
       setAi(null);
@@ -214,18 +255,29 @@ export function WritingStudio() {
   }, [flushSave]);
 
   const createDoc = useCallback(async () => {
-    await flushSave();
+    if (documentActionRef.current) return;
+    documentActionRef.current = true;
+    const requestId = ++documentRequestRef.current;
+    const previousId = activeIdRef.current;
+    setFatal("");
     try {
+      if (!(await flushSave(previousId)) || requestId !== documentRequestRef.current) return;
       const { doc } = await requestJson<{ doc: DocFull }>("/api/public/writing/docs", { method: "POST" });
       setDocs((current) => [{ id: doc.id, title: doc.title, updatedAt: doc.updatedAt }, ...current]);
+      // The POST may finish after the user selected another document. Keep the
+      // created document in the list, but do not steal focus from the newer action.
+      if (requestId !== documentRequestRef.current) return;
       setActive(doc);
       activeIdRef.current = doc.id;
+      contentRevisionRef.current = 0;
       setSaveState("idle");
       setSavedAt(doc.updatedAt);
       setAi(null);
       setTimeout(() => titleRef.current?.focus(), 50);
     } catch (err) {
       setFatal(err instanceof Error ? err.message : String(err));
+    } finally {
+      documentActionRef.current = false;
     }
   }, [flushSave]);
 
@@ -237,7 +289,7 @@ export function WritingStudio() {
       const rest = docs.filter((item) => item.id !== id);
       setDocs(rest);
       if (activeIdRef.current === id) {
-        pendingRef.current = null;
+        saveCoordinatorRef.current?.clear(id);
         if (rest.length) await openDoc(rest[0].id);
         else await createDoc();
       }
@@ -248,28 +300,68 @@ export function WritingStudio() {
 
   // 卸载前尽力保存
   useEffect(() => {
-    const handler = () => {
+    const persistPending = () => {
       const id = activeIdRef.current;
-      const pending = pendingRef.current;
+      const pending = saveCoordinatorRef.current?.peek(id)?.value;
       if (!id || !pending) return;
+      const body = JSON.stringify(pending);
+      let queued = false;
       try {
-        navigator.sendBeacon?.(
-          `/api/public/writing/docs/${id}`,
-          new Blob([JSON.stringify(pending)], { type: "application/json" })
-        );
+        const blob = new Blob([body], { type: "application/json" });
+        // Browsers commonly cap the entire keepalive/beacon queue near 64 KiB.
+        // Do not pretend a large draft was queued when it was guaranteed to fail.
+        if (blob.size <= 60_000) {
+          queued = navigator.sendBeacon?.(`/api/public/writing/docs/${id}`, blob) ?? false;
+        }
       } catch { /* ignore */ }
+      if (!queued && body.length <= 60_000) {
+        void fetch(`/api/public/writing/docs/${id}`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body,
+          keepalive: true
+        }).catch(() => undefined);
+      }
     };
-    window.addEventListener("pagehide", handler);
-    return () => window.removeEventListener("pagehide", handler);
+    const onBeforeUnload = (event: BeforeUnloadEvent) => {
+      const id = activeIdRef.current;
+      if (!id || !saveCoordinatorRef.current?.peek(id)) return;
+      persistPending();
+      event.preventDefault();
+      event.returnValue = "";
+    };
+    window.addEventListener("pagehide", persistPending);
+    window.addEventListener("beforeunload", onBeforeUnload);
+    return () => {
+      window.removeEventListener("pagehide", persistPending);
+      window.removeEventListener("beforeunload", onBeforeUnload);
+      if (saveTimerRef.current) {
+        clearTimeout(saveTimerRef.current);
+        saveTimerRef.current = null;
+      }
+      // Next.js client-side navigation unmounts the studio without firing
+      // pagehide. Keep the normal PATCH alive as well as the beacon fallback.
+      persistPending();
+      const id = activeIdRef.current;
+      if (id) void saveCoordinatorRef.current?.flush(id).catch(() => undefined);
+      aiAbortRef.current?.abort();
+    };
   }, []);
 
   // —— AI ——
-  const customModel = apiKey.trim() && baseUrl.trim() && model.trim()
-    ? { baseUrl: baseUrl.trim(), model: model.trim(), apiKey: apiKey.trim() }
-    : null;
+  const customModel = useMemo(
+    () => apiKey.trim() && baseUrl.trim() && model.trim()
+      ? { baseUrl: baseUrl.trim(), model: model.trim(), apiKey: apiKey.trim() }
+      : null,
+    [apiKey, baseUrl, model]
+  );
 
-  const runAi = useCallback(async (task: Omit<AiTask, "status" | "output" | "error">) => {
-    setAi({ ...task, status: "loading", output: "", error: "" });
+  const runAi = useCallback(async (task: Omit<AiTask, "requestId" | "status" | "output" | "error">) => {
+    const requestId = ++aiRequestRef.current;
+    aiAbortRef.current?.abort();
+    const controller = new AbortController();
+    aiAbortRef.current = controller;
+    setAi({ ...task, requestId, status: "loading", output: "", error: "" });
     try {
       const instruction = task.mode === "continue"
         ? "从【当前文稿】的结尾自然续写 1-3 段：保持既有语言、口吻与 markdown 格式。只输出续写的新内容，不要重复原文，不要解释。"
@@ -280,11 +372,19 @@ export function WritingStudio() {
       const { output } = await requestJson<{ output: string }>("/api/public/writing/assist", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ title: active?.title || "", draft, instruction, language: "zh", customModel })
+        body: JSON.stringify({ title: active?.title || "", draft, instruction, language: "zh", customModel }),
+        signal: controller.signal
       });
-      setAi((current) => current && current.mode === task.mode ? { ...current, status: "done", output: output.trim() } : current);
+      setAi((current) => current?.requestId === requestId
+        ? { ...current, status: "done", output: output.trim() }
+        : current);
     } catch (err) {
-      setAi((current) => current ? { ...current, status: "error", error: err instanceof Error ? err.message : String(err) } : current);
+      if (controller.signal.aborted) return;
+      setAi((current) => current?.requestId === requestId
+        ? { ...current, status: "error", error: err instanceof Error ? err.message : String(err) }
+        : current);
+    } finally {
+      if (aiRequestRef.current === requestId) aiAbortRef.current = null;
     }
   }, [active?.title, active?.content, customModel]);
 
@@ -294,24 +394,53 @@ export function WritingStudio() {
       kind: request.kind,
       label: AI_INSTRUCTIONS[request.kind].label,
       source: request.text,
+      docId: activeIdRef.current,
+      revision: contentRevisionRef.current,
       from: request.from,
       to: request.to
     });
   }, [runAi]);
 
   const onAiContinue = useCallback(() => {
-    void runAi({ mode: "continue", kind: "continue", label: "续写", source: "", from: 0, to: 0 });
+    void runAi({ mode: "continue", kind: "continue", label: "续写", source: "", docId: activeIdRef.current, revision: contentRevisionRef.current, from: 0, to: 0 });
   }, [runAi]);
 
-  const insertAiOutput = (strategy: "replace" | "below") => {
+  const aiSelectionIsCurrent = Boolean(
+    ai
+    && ai.mode === "selection"
+    && active
+    && editorRef.current
+    && ai.from >= 0
+    && ai.to >= ai.from
+    && ai.to <= editorRef.current.state.doc.content.size
+    && isAiSelectionCurrent(
+      { docId: ai.docId, revision: ai.revision, source: ai.source },
+      {
+        docId: active.id,
+        revision: contentRevisionRef.current,
+        selectedText: editorRef.current.state.doc.textBetween(ai.from, ai.to, "\n")
+      }
+    )
+  );
+  const aiContinuationIsCurrent = Boolean(
+    ai
+    && ai.mode === "continue"
+    && active
+    && ai.docId === active.id
+    && ai.revision === contentRevisionRef.current
+  );
+
+  const insertAiOutput = (strategy: "replace" | "below" | "end") => {
     const editor = editorRef.current;
     if (!editor || !ai || ai.status !== "done" || !ai.output) return;
     // tiptap-markdown 接管了 insertContent 的字符串解析:直接喂 markdown,
     // 粗体/列表/标题等按富文本落进文档(与全站存储格式一致)。
     const markdown = ai.output;
+    if (ai.mode === "continue" && !aiContinuationIsCurrent) return;
+    if (ai.mode === "selection" && !aiSelectionIsCurrent && strategy !== "end") return;
     if (ai.mode === "selection" && strategy === "replace") {
       editor.chain().focus().deleteRange({ from: ai.from, to: ai.to }).insertContentAt(ai.from, markdown).run();
-    } else if (ai.mode === "selection") {
+    } else if (ai.mode === "selection" && strategy === "below") {
       editor.chain().focus().insertContentAt(ai.to, markdown).run();
     } else {
       editor.chain().focus("end").insertContentAt(editor.state.doc.content.size, markdown).run();
@@ -335,11 +464,18 @@ export function WritingStudio() {
 
   return (
     <div className="writing-studio">
-      <button className="writing-list-toggle button secondary" type="button" onClick={() => setListOpen((v) => !v)}>
+      {fatal ? <p className="form-error" role="alert">{fatal}</p> : null}
+      <button
+        className="writing-list-toggle button secondary"
+        type="button"
+        aria-expanded={listOpen}
+        aria-controls="writing-document-sidebar"
+        onClick={() => setListOpen((v) => !v)}
+      >
         文档（{docs.length}）
       </button>
 
-      <aside className={`writing-sidebar${listOpen ? " open" : ""}`}>
+      <aside id="writing-document-sidebar" className={`writing-sidebar${listOpen ? " open" : ""}`} aria-label="文档与模型设置">
         <div className="writing-sidebar-head">
           <strong>我的文档</strong>
           <button className="text-link" type="button" onClick={() => void createDoc()}>+ 新建</button>
@@ -347,11 +483,16 @@ export function WritingStudio() {
         <ul className="writing-doc-list">
           {docs.map((doc) => (
             <li key={doc.id} className={doc.id === active.id ? "active" : ""}>
-              <button className="writing-doc-item" type="button" onClick={() => void openDoc(doc.id)}>
+              <button
+                className="writing-doc-item"
+                type="button"
+                aria-current={doc.id === active.id ? "true" : undefined}
+                onClick={() => void openDoc(doc.id)}
+              >
                 <span className="writing-doc-title">{doc.title || "无标题"}</span>
                 <span className="writing-doc-time">{relativeTime(doc.updatedAt)}</span>
               </button>
-              <button className="writing-doc-delete" type="button" aria-label="删除文档" title="删除" onClick={() => void deleteDoc(doc.id)}>×</button>
+              <button className="writing-doc-delete" type="button" aria-label={`删除文档：${doc.title || "无标题"}`} title="删除" onClick={() => void deleteDoc(doc.id)}>×</button>
             </li>
           ))}
         </ul>
@@ -380,7 +521,7 @@ export function WritingStudio() {
 
       <div className="writing-canvas">
         <div className="writing-meta-row">
-          <span className={`writing-save-state state-${saveState}`}>{saveLabel}</span>
+          <span className={`writing-save-state state-${saveState}`} role="status" aria-live="polite">{saveLabel}</span>
           <span className="writing-word-count">{wordCount} 字</span>
           <a
             className="text-link"
@@ -394,6 +535,7 @@ export function WritingStudio() {
         <textarea
           ref={titleRef}
           className="writing-title"
+          aria-label="文稿标题"
           placeholder="无标题"
           rows={1}
           maxLength={300}
@@ -418,6 +560,7 @@ export function WritingStudio() {
           initialMarkdown={active.content}
           onReady={(editor) => { editorRef.current = editor; }}
           onMarkdownChange={(markdown) => {
+            contentRevisionRef.current += 1;
             setActive((current) => current ? { ...current, content: markdown } : current);
             scheduleSave(active.title, markdown);
           }}
@@ -426,7 +569,7 @@ export function WritingStudio() {
         />
 
         {ai ? (
-          <div className={`ai-review-card status-${ai.status}`} role="dialog" aria-label="AI 结果">
+          <div className={`ai-review-card status-${ai.status}`} role="region" aria-label="AI 结果">
             <div className="ai-review-head">
               <strong>AI {ai.label}</strong>
               {ai.status === "loading" ? <span className="muted">思考中…</span> : null}
@@ -435,18 +578,28 @@ export function WritingStudio() {
             {ai.status === "error" ? <p className="form-error">{ai.error}</p> : null}
             {ai.status === "done" ? (
               <>
+                <p className="sr-only" role="status">AI {ai.label}内容已生成</p>
                 {/* markdownToHtml 内部走 DOMPurify,富文本预览与插入结果一致 */}
                 <div
                   className="ai-review-output prose"
                   dangerouslySetInnerHTML={{ __html: markdownToHtml(ai.output) }}
                 />
                 <div className="ai-review-actions">
-                  {ai.mode === "selection" ? (
+                  {ai.mode === "selection" && aiSelectionIsCurrent ? (
                     <button className="button" type="button" onClick={() => insertAiOutput("replace")}>替换选区</button>
                   ) : null}
-                  <button className="button secondary" type="button" onClick={() => insertAiOutput("below")}>
-                    {ai.mode === "selection" ? "插入下方" : "插入文末"}
-                  </button>
+                  {ai.mode === "selection" && !aiSelectionIsCurrent ? (
+                    <>
+                      <p className="form-error" role="alert">原选区已变化，为避免覆盖错误内容，只能安全插入文末。</p>
+                      <button className="button secondary" type="button" onClick={() => insertAiOutput("end")}>插入文末</button>
+                    </>
+                  ) : ai.mode === "continue" && !aiContinuationIsCurrent ? (
+                    <p className="form-error" role="alert">正文已变化，这份续写基于旧稿生成，请重新生成后再插入。</p>
+                  ) : (
+                    <button className="button secondary" type="button" onClick={() => insertAiOutput("below")}>
+                      {ai.mode === "selection" ? "插入下方" : "插入文末"}
+                    </button>
+                  )}
                   <button className="button secondary" type="button" onClick={() => void runAi(ai)}>重试</button>
                   <button className="text-link" type="button" onClick={() => setAi(null)}>舍弃</button>
                 </div>

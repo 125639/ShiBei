@@ -30,6 +30,11 @@ export function ArticleToc({
   const [activeId, setActiveId] = useState("");
   const didHashScroll = useRef(false);
 
+  useEffect(() => {
+    didHashScroll.current = false;
+    setActiveId("");
+  }, [pathname]);
+
   const scan = useCallback(() => {
     const container = document.querySelector(containerSelector);
     if (!container) {

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { I18nText } from "@/components/I18nText";
 import { DEFAULT_LANGUAGE, isLanguageKey } from "@/lib/language";
 import {
@@ -16,6 +16,7 @@ import {
   type ThemeKey
 } from "@/lib/themes";
 import { useUserPrefs } from "./useUserPrefs";
+import { useDismissableOverlay } from "./useDismissableOverlay";
 
 type ThemeQuickSwitchDefaults = {
   theme?: string;
@@ -28,38 +29,24 @@ type ThemeQuickSwitchDefaults = {
 export function ThemeQuickSwitch({ siteDefaults }: { siteDefaults?: ThemeQuickSwitchDefaults }) {
   const [open, setOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement | null>(null);
+  const triggerRef = useRef<HTMLButtonElement | null>(null);
   const defaults = useMemo(() => normalizeDefaults(siteDefaults), [siteDefaults]);
   const { prefs, update, hydrated } = useUserPrefs(defaults);
   const currentTheme = THEMES.find((theme) => theme.key === prefs.theme) || THEMES[0];
   const isEnglish = hydrated && prefs.language === "en";
 
-  useEffect(() => {
-    if (!open) return;
-
-    function onPointerDown(event: PointerEvent) {
-      if (!rootRef.current?.contains(event.target as Node)) setOpen(false);
-    }
-
-    function onKeyDown(event: KeyboardEvent) {
-      if (event.key === "Escape") setOpen(false);
-    }
-
-    document.addEventListener("pointerdown", onPointerDown);
-    document.addEventListener("keydown", onKeyDown);
-    return () => {
-      document.removeEventListener("pointerdown", onPointerDown);
-      document.removeEventListener("keydown", onKeyDown);
-    };
-  }, [open]);
+  useDismissableOverlay(open, rootRef, () => setOpen(false), triggerRef);
 
   function chooseTheme(theme: ThemeKey) {
     update({ theme });
     setOpen(false);
+    requestAnimationFrame(() => triggerRef.current?.focus());
   }
 
   return (
     <div className="theme-switcher" ref={rootRef}>
       <button
+        ref={triggerRef}
         type="button"
         className="theme-switcher-trigger"
         aria-expanded={open}
@@ -76,7 +63,7 @@ export function ThemeQuickSwitch({ siteDefaults }: { siteDefaults?: ThemeQuickSw
       <div
         id="theme-switcher-menu"
         className="theme-switcher-menu"
-        role="radiogroup"
+        role="group"
         aria-label={isEnglish ? "Color theme" : "颜色主题"}
         hidden={!open}
       >
@@ -86,8 +73,7 @@ export function ThemeQuickSwitch({ siteDefaults }: { siteDefaults?: ThemeQuickSw
             <button
               key={theme.key}
               type="button"
-              role="radio"
-              aria-checked={active}
+              aria-pressed={active}
               className={`theme-switcher-option${active ? " active" : ""}`}
               onClick={() => chooseTheme(theme.key)}
             >

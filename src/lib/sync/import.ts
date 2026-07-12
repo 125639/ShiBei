@@ -117,19 +117,23 @@ export async function importFromZip(buffer: Buffer): Promise<ImportResult> {
     }
   }
 
-  // 4) 更新 SyncState
+  // 4) 更新 SyncState。只在整个导入没有错误时推进增量水位；否则下一轮
+  // 必须重新覆盖本批数据，避免失败记录因 updatedAt 早于新水位而永久漏同步。
   try {
+    const completedAt = new Date();
+    const importedThrough = new Date(bundle.manifest.exportedAt);
+    const succeeded = result.errors.length === 0;
     await prisma.syncState.upsert({
       where: { id: "sync" },
       create: {
         id: "sync",
-        lastImportedAt: new Date(),
+        ...(succeeded ? { lastImportedAt: importedThrough } : {}),
         lastImportedPostCount: result.postsUpserted,
         lastError: result.errors.length ? result.errors.slice(0, 5).join("\n") : null,
-        updatedAt: new Date(),
+        updatedAt: completedAt,
       },
       update: {
-        lastImportedAt: new Date(),
+        ...(succeeded ? { lastImportedAt: importedThrough } : {}),
         lastImportedPostCount: result.postsUpserted,
         lastError: result.errors.length ? result.errors.slice(0, 5).join("\n") : null,
       },
@@ -145,35 +149,9 @@ async function upsertPost(payload: SyncPostPayload): Promise<"upserted" | "skipp
   if (!payload?.id || !payload.slug) {
     throw new Error("post payload 缺少 id 或 slug");
   }
-  const existingPost = await prisma.post.findFirst({
-    where: { OR: [{ id: payload.id }, { slug: payload.slug }] },
-    select: { id: true, slug: true, updatedAt: true },
-  });
   const incomingUpdatedAt = new Date(payload.updatedAt);
   if (Number.isNaN(incomingUpdatedAt.getTime())) {
     throw new Error("post payload 的 updatedAt 不是合法 ISO 时间");
-  }
-  if (existingPost && incomingUpdatedAt <= existingPost.updatedAt) {
-    return "skipped";
-  }
-
-  // 准备 tags / topics 关联（按 name/slug upsert）
-  const tagConnects = await Promise.all(
-    payload.tags.map(async (t) => {
-      const tag = await prisma.tag.upsert({
-        where: { name: t.name },
-        create: { name: t.name },
-        update: {},
-      });
-      return { id: tag.id };
-    })
-  );
-
-  const topicConnects: { id: string }[] = [];
-  for (const t of payload.topics) {
-    // Topic 表(ContentTopic)在 frontend 模式下大概率为空。我们按 slug 查；找不到就跳过该 topic 关联（避免在前端创建空 Topic）。
-    const existingTopic = await prisma.contentTopic.findUnique({ where: { slug: t.slug }, select: { id: true } });
-    if (existingTopic) topicConnects.push({ id: existingTopic.id });
   }
 
   const baseData = {
@@ -194,37 +172,70 @@ async function upsertPost(payload: SyncPostPayload): Promise<"upserted" | "skipp
     publishedAt: payload.publishedAt ? new Date(payload.publishedAt) : null,
   };
 
-  if (existingPost) {
-    await prisma.post.update({
-      where: { id: existingPost.id },
-      data: {
-        ...baseData,
-        // tags / topics:set 替换（incoming 视为权威）
-        tags: { set: tagConnects },
-        topics: { set: topicConnects },
-      },
-    });
-  } else {
-    await prisma.post.create({
-      data: {
-        id: payload.id,
-        ...baseData,
-        tags: { connect: tagConnects },
-        topics: { connect: topicConnects },
-      },
-    });
-  }
-  return "upserted";
+  return retryUniqueConflict(() =>
+    prisma.$transaction(async (tx) => {
+      const existingPost = await tx.post.findFirst({
+        where: { OR: [{ id: payload.id }, { slug: payload.slug }] },
+        select: { id: true, updatedAt: true },
+      });
+      if (existingPost && incomingUpdatedAt <= existingPost.updatedAt) return "skipped";
+
+      // 关联准备和正文写入必须处于同一事务，避免正文成功但关系只写入一半。
+      const tagConnects = await Promise.all(
+        payload.tags.map(async (t) => {
+          const tag = await tx.tag.upsert({
+            where: { name: t.name },
+            create: { name: t.name },
+            update: {},
+          });
+          return { id: tag.id };
+        })
+      );
+      const topicConnects: { id: string }[] = [];
+      for (const t of payload.topics) {
+        // frontend 模式下不凭同步包创建空 Topic，只连接本地已有项。
+        const topic = await tx.contentTopic.findUnique({ where: { slug: t.slug }, select: { id: true } });
+        if (topic) topicConnects.push({ id: topic.id });
+      }
+
+      if (!existingPost) {
+        await tx.post.create({
+          data: {
+            id: payload.id,
+            ...baseData,
+            tags: { connect: tagConnects },
+            topics: { connect: topicConnects },
+          },
+        });
+        return "upserted";
+      }
+
+      // 原子比较并更新。若检查后已有更新版本先写入，count 为 0，旧包不会覆盖它。
+      const updated = await tx.post.updateMany({
+        where: { id: existingPost.id, updatedAt: { lt: incomingUpdatedAt } },
+        data: baseData,
+      });
+      if (updated.count === 0) return "skipped";
+
+      // updateMany 不支持关系写入；条件更新已锁住该行，在同一事务中替换权威关系。
+      // 显式保留远端 updatedAt，避免关系更新触发 @updatedAt 改成导入时刻。
+      await tx.post.update({
+        where: { id: existingPost.id },
+        data: {
+          tags: { set: tagConnects },
+          topics: { set: topicConnects },
+          updatedAt: incomingUpdatedAt,
+        },
+      });
+      return "upserted";
+    })
+  );
 }
 
 async function upsertVideo(payload: SyncVideoPayload): Promise<"upserted" | "skipped"> {
   if (!payload?.id) {
     throw new Error("video payload 缺少 id");
   }
-  const existing = await prisma.video.findUnique({
-    where: { id: payload.id },
-    select: { id: true, type: true, localPath: true, updatedAt: true },
-  });
   const incomingUpdatedAt = new Date(payload.updatedAt);
   if (Number.isNaN(incomingUpdatedAt.getTime())) {
     throw new Error("video payload 的 updatedAt 不是合法 ISO 时间");
@@ -233,62 +244,79 @@ async function upsertVideo(payload: SyncVideoPayload): Promise<"upserted" | "ski
   // 边缘 case:之前一次"轻量同步"把视频写成了 LINK(因为当时无 mp4 文件),
   // 现在带着文件重来。即便 updatedAt 没变,只要本地刚刚落盘了对应文件,
   // 就允许把 LINK 提升回 LOCAL。否则用户视角:文件落盘了却看不到播放器。
-  const localFileNow = payload.localPath && (await localFileExists(payload.localPath));
-  const canUpgradeToLocal =
-    existing &&
-    payload.type === "LOCAL" &&
-    existing.type !== "LOCAL" &&
-    localFileNow;
+  const localFileNow = Boolean(payload.localPath && (await localFileExists(payload.localPath)));
 
-  if (existing && incomingUpdatedAt <= existing.updatedAt && !canUpgradeToLocal) {
-    return "skipped";
+  return retryUniqueConflict(() =>
+    prisma.$transaction(async (tx) => {
+      const existing = await tx.video.findUnique({
+        where: { id: payload.id },
+        select: { id: true, type: true, updatedAt: true },
+      });
+      const canUpgradeToLocal = Boolean(
+        existing && payload.type === "LOCAL" && existing.type !== "LOCAL" && localFileNow
+      );
+      if (existing && incomingUpdatedAt <= existing.updatedAt && !canUpgradeToLocal) return "skipped";
+
+      // 检查 incoming.postId 是否在本地存在；不存在则置 null 避免 FK 失败。
+      let postId: string | null = null;
+      if (payload.postId) {
+        const post = await tx.post.findUnique({ where: { id: payload.postId }, select: { id: true } });
+        postId = post ? post.id : null;
+      }
+
+      const localPath = localFileNow ? payload.localPath : null;
+      const data = {
+        title: payload.title,
+        type: localPath ? payload.type : payload.type === "LOCAL" ? VideoType.LINK : payload.type,
+        url: localPath ? payload.url : payload.type === "LOCAL" ? payload.url || "" : payload.url,
+        coverUrl: payload.coverUrl,
+        summary: payload.summary,
+        displayMode: payload.displayMode === "link" ? "link" : "embed",
+        sortOrder: payload.sortOrder,
+        durationSec: payload.durationSec,
+        region: payload.region,
+        sourcePlatform: payload.sourcePlatform,
+        sourcePageUrl: payload.sourcePageUrl,
+        localPath,
+        fileSizeBytes: localPath ? payload.fileSizeBytes : null,
+        attribution: payload.attribution,
+        postId,
+        createdAt: new Date(payload.createdAt),
+        // LINK→LOCAL 的补偿导入需要成为新版本，否则下一轮会再次被视为旧数据。
+        updatedAt: canUpgradeToLocal && existing && incomingUpdatedAt <= existing.updatedAt
+          ? new Date()
+          : incomingUpdatedAt,
+      };
+
+      if (!existing) {
+        await tx.video.create({ data: { id: payload.id, ...data } });
+        return "upserted";
+      }
+
+      const updated = await tx.video.updateMany({
+        where: canUpgradeToLocal && incomingUpdatedAt <= existing.updatedAt
+          ? { id: payload.id, updatedAt: existing.updatedAt, type: { not: VideoType.LOCAL } }
+          : { id: payload.id, updatedAt: { lt: incomingUpdatedAt } },
+        data,
+      });
+      return updated.count === 1 ? "upserted" : "skipped";
+    })
+  );
+}
+
+async function retryUniqueConflict<T>(operation: () => Promise<T>): Promise<T> {
+  try {
+    return await operation();
+  } catch (error) {
+    // 两个导入都观察到“不存在”时只会有一个 create 成功；重跑后按 updatedAt
+    // 重新判定即可。持久的唯一键冲突仍会在第二次抛出，不会被吞掉。
+    if (!isUniqueConstraintError(error)) throw error;
+    return operation();
   }
+}
 
-  // 检查 incoming.postId 是否在本地存在；不存在则置 null 避免 FK 失败。
-  let postId: string | null = null;
-  if (payload.postId) {
-    const post = await prisma.post.findUnique({ where: { id: payload.postId }, select: { id: true } });
-    postId = post ? post.id : null;
-  }
-
-  const localPath = localFileNow ? payload.localPath : null;
-  const data = {
-    title: payload.title,
-    type: localPath ? payload.type : payload.type === "LOCAL" ? VideoType.LINK : payload.type,
-    url: localPath ? payload.url : payload.type === "LOCAL" ? "" : payload.url,
-    coverUrl: payload.coverUrl,
-    summary: payload.summary,
-    displayMode: payload.displayMode === "link" ? "link" : "embed",
-    sortOrder: payload.sortOrder,
-    durationSec: payload.durationSec,
-    region: payload.region,
-    sourcePlatform: payload.sourcePlatform,
-    sourcePageUrl: payload.sourcePageUrl,
-    localPath,
-    fileSizeBytes: localPath ? payload.fileSizeBytes : null,
-    attribution: payload.attribution,
-    postId,
-    createdAt: new Date(payload.createdAt),
-    // 升级 LINK→LOCAL 时,如果不更新 updatedAt 就会被下次同步又当成 stale skip。
-    // 主动把 updatedAt 拨到 max(existing, incoming, now)。
-    updatedAt:
-      canUpgradeToLocal && existing && incomingUpdatedAt <= existing.updatedAt
-        ? new Date()
-        : incomingUpdatedAt,
-  };
-
-  // 如果是 LOCAL 视频但本地文件没拿到,降级 LINK 时 url 必须有值;否则 prisma 会抛 NOT NULL。
-  // payload.url 在 LOCAL 模式下通常是 "/uploads/video/xxx.mp4"——保留它,前端会显示为不可播放占位。
-  if (data.url === "") {
-    data.url = payload.url || "";
-  }
-
-  if (existing) {
-    await prisma.video.update({ where: { id: payload.id }, data });
-  } else {
-    await prisma.video.create({ data: { id: payload.id, ...data } });
-  }
-  return "upserted";
+function isUniqueConstraintError(error: unknown): boolean {
+  return typeof error === "object" && error !== null && "code" in error && error.code === "P2002";
 }
 
 async function localFileExists(localPath: string): Promise<boolean> {

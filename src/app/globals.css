@@ -382,7 +382,9 @@ a {
 }
 
 :root[data-language="en"] .i18n-en {
-  display: inline;
+  /* revert 回到元素自身的默认 display：I18nText 的 span 仍是 inline，
+     块级 i18n-en 元素（如文章 dek 的 <p>、SVG 里的 tspan）各归其位。 */
+  display: revert;
 }
 
 button,
@@ -635,7 +637,7 @@ textarea {
   font-size: 56px;
   font-weight: 720;
   line-height: 1.05;
-  letter-spacing: -0.015em;
+  letter-spacing: 0;
   text-wrap: pretty;
   font-family: var(--font-display);
 }
@@ -1518,7 +1520,7 @@ details.form-card > form {
   margin-bottom: 0;
   font-size: 28px;
   line-height: 1.2;
-  letter-spacing: -0.01em;
+  letter-spacing: 0;
 }
 
 .admin-page-actions,
@@ -4012,7 +4014,7 @@ button:disabled {
 
 .assistant-welcome h3 {
   margin: 0;
-  font-size: clamp(28px, 5vw, 38px);
+  font-size: 38px;
   line-height: 1.15;
   letter-spacing: 0;
   color: var(--ink);
@@ -5645,9 +5647,9 @@ button:disabled {
 
 .apple-hero h1 {
   margin: 0;
-  font-size: clamp(40px, 6vw, 80px);
+  font-size: 80px;
   line-height: 1.05;
-  letter-spacing: -0.025em;
+  letter-spacing: 0;
   font-weight: 700;
   font-family: var(--font-display);
   max-width: 14ch;
@@ -5656,7 +5658,7 @@ button:disabled {
 
 .apple-hero p.lead {
   margin: 0;
-  font-size: clamp(18px, 1.8vw, 22px);
+  font-size: 22px;
   line-height: 1.45;
   color: var(--ink-soft);
   font-weight: 400;
@@ -5691,15 +5693,15 @@ button:disabled {
   font-size: 14px;
   font-weight: 500;
   color: var(--accent);
-  letter-spacing: -0.005em;
+  letter-spacing: 0;
   text-transform: none;
 }
 
 .apple-section-head h2 {
   margin: 0;
-  font-size: clamp(28px, 3.5vw, 48px);
+  font-size: 48px;
   line-height: 1.1;
-  letter-spacing: -0.015em;
+  letter-spacing: 0;
   font-weight: 600;
   font-family: var(--font-display);
   color: var(--ink);
@@ -5738,9 +5740,9 @@ button:disabled {
 }
 
 .kpi-belt .kpi-value {
-  font-size: clamp(34px, 4vw, 48px);
+  font-size: 48px;
   font-weight: 600;
-  letter-spacing: -0.02em;
+  letter-spacing: 0;
   color: var(--ink);
   font-family: var(--font-display);
 }
@@ -5748,7 +5750,7 @@ button:disabled {
 .kpi-belt .kpi-label {
   font-size: 14px;
   color: var(--muted);
-  letter-spacing: -0.005em;
+  letter-spacing: 0;
 }
 
 .apple-article-header {
@@ -5764,14 +5766,14 @@ button:disabled {
   font-size: 14px;
   font-weight: 500;
   color: var(--accent);
-  letter-spacing: -0.005em;
+  letter-spacing: 0;
 }
 
 .apple-article-header h1 {
   margin: 0;
-  font-size: clamp(36px, 5vw, 56px);
+  font-size: 56px;
   line-height: 1.08;
-  letter-spacing: -0.02em;
+  letter-spacing: 0;
   font-weight: 600;
   font-family: var(--font-display);
   max-width: 22ch;
@@ -5827,7 +5829,7 @@ button:disabled {
   padding: 12px 22px;
   font-size: 17px;
   font-weight: 500;
-  letter-spacing: -0.005em;
+  letter-spacing: 0;
   border: none;
   background: var(--accent);
   color: var(--white);
@@ -5858,7 +5860,7 @@ button:disabled {
 :root[data-theme="apple"] .nav a {
   font-size: 14px;
   font-weight: 500;
-  letter-spacing: -0.005em;
+  letter-spacing: 0;
   color: var(--ink-soft);
   border: none;
   padding: 8px 12px;
@@ -5884,21 +5886,21 @@ button:disabled {
 }
 
 :root[data-theme="apple"] .prose h1 {
-  font-size: clamp(36px, 5vw, 56px);
-  letter-spacing: -0.02em;
+  font-size: 56px;
+  letter-spacing: 0;
   font-weight: 600;
 }
 
 :root[data-theme="apple"] .prose h2 {
-  font-size: clamp(26px, 3vw, 36px);
-  letter-spacing: -0.015em;
+  font-size: 36px;
+  letter-spacing: 0;
   font-weight: 600;
   margin-top: 1.8em;
 }
 
 :root[data-theme="apple"] .prose h3 {
-  font-size: clamp(20px, 2vw, 24px);
-  letter-spacing: -0.01em;
+  font-size: 24px;
+  letter-spacing: 0;
   font-weight: 600;
   margin-top: 1.6em;
 }
@@ -5908,7 +5910,7 @@ button:disabled {
   padding: 4px 12px;
   font-size: 12px;
   font-weight: 500;
-  letter-spacing: -0.005em;
+  letter-spacing: 0;
   background: color-mix(in oklab, var(--paper) 80%, var(--line));
   color: var(--ink-soft);
 }
@@ -6121,9 +6123,9 @@ button:disabled {
 
 .error-card h1 {
   margin: 0;
-  font-size: clamp(28px, 4vw, 40px);
+  font-size: 40px;
   line-height: 1.15;
-  letter-spacing: -0.015em;
+  letter-spacing: 0;
   font-family: var(--font-display);
 }
 
@@ -6729,7 +6731,7 @@ button:disabled {
 }
 
 :root[data-ui="paper"] .apple-hero h1 {
-  font-size: clamp(34px, 5vw, 62px);
+  font-size: 62px;
 }
 
 :root[data-ui="paper"] .prose {
@@ -6996,7 +6998,7 @@ button:disabled {
 
 :root[data-ui="firefly"] .ff-banner-title {
   font-family: var(--font-display);
-  font-size: clamp(34px, 5vw, 52px);
+  font-size: 52px;
   font-weight: 800;
   letter-spacing: 0.02em;
   color: #ffffff;
@@ -7006,7 +7008,7 @@ button:disabled {
 }
 
 :root[data-ui="firefly"] .ff-banner-motto {
-  font-size: clamp(14px, 1.6vw, 17px);
+  font-size: 17px;
   color: rgba(255, 255, 255, 0.94);
   text-shadow: 0 1px 12px rgba(20, 56, 45, 0.5);
 }
@@ -8201,7 +8203,7 @@ a.bento-card:hover .text-link {
   .apple-hero h1,
   :root[data-ui="editorial"] .apple-hero h1,
   :root[data-ui="paper"] .apple-hero h1 {
-    font-size: clamp(30px, 8.5vw, 40px);
+    font-size: 36px;
     line-height: 1.14;
   }
 
@@ -8291,7 +8293,7 @@ a.bento-card:hover .text-link {
   }
 
   .apple-article-header h1 {
-    font-size: clamp(26px, 7.5vw, 34px);
+    font-size: 30px;
     line-height: 1.2;
   }
 
@@ -8349,7 +8351,7 @@ a.bento-card:hover .text-link {
   .apple-hero h1,
   :root[data-ui="editorial"] .apple-hero h1,
   :root[data-ui="paper"] .apple-hero h1 {
-    font-size: clamp(27px, 8.5vw, 32px);
+    font-size: 30px;
   }
 
   .hero h1,

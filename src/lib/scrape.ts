@@ -1,6 +1,10 @@
 import { chromium, type Browser, type Page } from "playwright";
 import TurndownService from "turndown";
-import { InvalidSourceMaterialError } from "./source-quality";
+import {
+  InvalidSourceMaterialError,
+  isRetryableSourceStatus,
+  RetryableSourceFetchError
+} from "./source-quality";
 import { assertSafeResolvedFetchUrl, isHttpUrl, isSafeResolvedFetchUrl } from "./url-safety";
 import { VIDEO_MEDIA_URL_RE } from "./video-policy";
 
@@ -89,6 +93,9 @@ export async function scrapeWebPage(url: string) {
     const mainStatus = mainResponse?.status() ?? null;
     if (mainStatus && mainStatus >= 400) {
       const finalUrl = page.url();
+      if (isRetryableSourceStatus(mainStatus)) {
+        throw new RetryableSourceFetchError(`来源页面返回 HTTP ${mainStatus}: ${finalUrl}`);
+      }
       throw new InvalidSourceMaterialError(`来源页面返回 HTTP ${mainStatus}: ${finalUrl}`);
     }
     await page.waitForLoadState("load", { timeout: 10_000 }).catch(() => undefined);

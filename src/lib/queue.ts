@@ -8,9 +8,26 @@ export const scheduleQueueName = "shibei-schedule";
 export const videoDownloadQueueName = "shibei-video-download";
 
 export function createRedisConnection() {
-  return new IORedis(process.env.REDIS_URL || "redis://localhost:6379", {
+  const redis = new IORedis(process.env.REDIS_URL || "redis://localhost:6379", {
     maxRetriesPerRequest: null
   });
+  redis.on("error", () => undefined);
+  return redis;
+}
+
+type QueueRegistry = {
+  connection?: IORedis;
+};
+
+const queueRegistry = globalThis as typeof globalThis & { shibeiQueues?: QueueRegistry };
+
+function getSharedQueue(name: string, defaultJobOptions: typeof JOB_HYGIENE | typeof NETWORK_JOB_OPTIONS) {
+  const registry = queueRegistry.shibeiQueues ||= {};
+  registry.connection ||= createRedisConnection();
+  // Callers intentionally close their short-lived Queue facade in finally.
+  // BullMQ does not close an externally supplied IORedis connection, so sharing
+  // only the socket removes the leak without returning a previously closed Queue.
+  return new Queue(name, { connection: registry.connection, defaultJobOptions });
 }
 
 // 完成/失败的 job 只在 Redis 里保留有限条数（诊断走 DB 的 FetchJob 表，
@@ -30,23 +47,23 @@ const NETWORK_JOB_OPTIONS = {
 } as const;
 
 export function getFetchQueue() {
-  return new Queue(fetchQueueName, { connection: createRedisConnection(), defaultJobOptions: NETWORK_JOB_OPTIONS });
+  return getSharedQueue(fetchQueueName, NETWORK_JOB_OPTIONS);
 }
 
 export function getResearchQueue() {
-  return new Queue(researchQueueName, { connection: createRedisConnection(), defaultJobOptions: NETWORK_JOB_OPTIONS });
+  return getSharedQueue(researchQueueName, NETWORK_JOB_OPTIONS);
 }
 
 export function getAudienceQueue() {
-  return new Queue(audienceQueueName, { connection: createRedisConnection(), defaultJobOptions: NETWORK_JOB_OPTIONS });
+  return getSharedQueue(audienceQueueName, NETWORK_JOB_OPTIONS);
 }
 
 // schedule 任务只是往队列里派生 job，重试可能重复派生；video 下载 15 分钟级
 // 且 lib 内有自己的状态机——都保持单次尝试，只加 Redis 清理。
 export function getScheduleQueue() {
-  return new Queue(scheduleQueueName, { connection: createRedisConnection(), defaultJobOptions: JOB_HYGIENE });
+  return getSharedQueue(scheduleQueueName, JOB_HYGIENE);
 }
 
 export function getVideoDownloadQueue() {
-  return new Queue(videoDownloadQueueName, { connection: createRedisConnection(), defaultJobOptions: JOB_HYGIENE });
+  return getSharedQueue(videoDownloadQueueName, JOB_HYGIENE);
 }

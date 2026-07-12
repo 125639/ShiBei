@@ -192,5 +192,17 @@ export function markdownToHtml(markdown: string, opts?: MarkdownOptions): string
 
   // 正文图片默认懒加载 + 异步解码，长文首屏不再被图片阻塞。
   // 只补没有声明 loading 的 <img>，已有属性的保持原样。
-  return safeHtml.replace(/<img (?![^>]*\bloading=)/g, '<img loading="lazy" decoding="async" ');
+  const withLazyImages = safeHtml.replace(
+    /<img (?![^>]*\bloading=)/g,
+    '<img loading="lazy" decoding="async" '
+  );
+
+  // Markdown 表格可能比手机视口更宽。包一层可聚焦的滚动区域，既避免内容
+  // 被页面的横向裁切吞掉，也让键盘用户能够进入区域后横向浏览。
+  return withLazyImages
+    .replace(
+      /<table(?:\s[^>]*)?>/g,
+      (tableTag) => '<div class="prose-table-scroll" role="region" aria-label="数据表，可横向滚动 / Scrollable data table" tabindex="0">' + tableTag
+    )
+    .replace(/<\/table>/g, "</table></div>");
 }

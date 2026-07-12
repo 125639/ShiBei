@@ -45,7 +45,9 @@ async function creationChatCompletion(prompt: string, system: string): Promise<s
   if (!modelConfig) {
     throw new Error("管理员尚未配置写作模型，请先在 /admin/settings 添加模型。");
   }
-  return requestChatCompletion(modelConfig, prompt, system);
+  // 与 frontend 桥接端点行为一致：交互式共创拿到截断的部分文本好过整体失败；
+  // JSON 协议的调用方截断后解析照样报错，不会把坏数据当成功。
+  return requestChatCompletion(modelConfig, prompt, system, { acceptTruncated: true });
 }
 
 function formatDimensionLines(dimensions: CreationDimension[]) {

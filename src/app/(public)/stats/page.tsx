@@ -1,5 +1,6 @@
 import Link from "next/link";
 import type { Metadata } from "next";
+import type { ReactNode } from "react";
 import { BarChart, DonutChart, LineChart, StackedBarChart } from "@/components/Charts";
 import { I18nText } from "@/components/I18nText";
 import { prisma } from "@/lib/prisma";
@@ -14,6 +15,12 @@ export const metadata: Metadata = {
 };
 
 const VALID: StatsWindow[] = ["today", "week", "total"];
+
+const WINDOW_LABELS: Record<StatsWindow, { zh: string; en: string }> = {
+  today: { zh: "当天", en: "today" },
+  week: { zh: "本周", en: "this week" },
+  total: { zh: "总计", en: "all time" }
+};
 
 export default async function StatsPage({
   searchParams
@@ -31,7 +38,7 @@ export default async function StatsPage({
   const showVideos = settings?.videosEnabled === true;
 
   return (
-    <main className="container bento-page">
+    <main className="container bento-page public-list-page stats-page">
       <section className="page-intro bento-card bento-wide">
         <p className="eyebrow">Statistics</p>
         <h1 className="page-title"><I18nText zh="数据看板" en="Statistics" /></h1>
@@ -62,31 +69,31 @@ export default async function StatsPage({
       </nav>
 
       <div className="bento-grid stats-metric-bento">
-        <Metric label="文章 · 当天" value={stats.todayNews} />
-        <Metric label="文章 · 本周" value={stats.weekNews} />
-        <Metric label="文章 · 总数" value={stats.totals.news} />
+        <Metric label={<I18nText zh="文章 · 当天" en="Posts · Today" />} value={stats.todayNews} />
+        <Metric label={<I18nText zh="文章 · 本周" en="Posts · Week" />} value={stats.weekNews} />
+        <Metric label={<I18nText zh="文章 · 总数" en="Posts · Total" />} value={stats.totals.news} />
         {showVideos ? (
           <>
-            <Metric label="视频 · 当天" value={stats.todayVideos} />
-            <Metric label="视频 · 本周" value={stats.weekVideos} />
-            <Metric label="视频 · 总数" value={stats.totals.videos} />
+            <Metric label={<I18nText zh="视频 · 当天" en="Videos · Today" />} value={stats.todayVideos} />
+            <Metric label={<I18nText zh="视频 · 本周" en="Videos · Week" />} value={stats.weekVideos} />
+            <Metric label={<I18nText zh="视频 · 总数" en="Videos · Total" />} value={stats.totals.videos} />
           </>
         ) : null}
       </div>
 
       <div className="bento-grid chart-bento">
         <div className="chart-card bento-card bento-wide">
-          <h3>文章数量（按日，近 {stats.newsBuckets.length} 天）</h3>
+          <h3><I18nText zh={`文章数量（按日，近 ${stats.newsBuckets.length} 天）`} en={`Posts per day (last ${stats.newsBuckets.length} days)`} /></h3>
           <BarChart buckets={stats.newsBuckets} ariaLabel="按日文章柱状图" />
         </div>
         {showVideos ? (
           <>
             <div className="chart-card bento-card bento-wide">
-              <h3>视频数量（按日，近 {stats.videoBuckets.length} 天）</h3>
+              <h3><I18nText zh={`视频数量（按日，近 ${stats.videoBuckets.length} 天）`} en={`Videos per day (last ${stats.videoBuckets.length} days)`} /></h3>
               <LineChart buckets={stats.videoBuckets} ariaLabel="按日视频折线图" />
             </div>
             <div className="chart-card bento-card bento-wide">
-              <h3>文章 vs 视频（堆叠对比）</h3>
+              <h3><I18nText zh="文章 vs 视频（堆叠对比）" en="Posts vs videos (stacked)" /></h3>
               <StackedBarChart
                 primary={stats.newsBuckets}
                 secondary={stats.videoBuckets}
@@ -96,11 +103,11 @@ export default async function StatsPage({
           </>
         ) : null}
         <div className="chart-card bento-card">
-          <h3>文章分类占比（{labelOf(window)}）</h3>
+          <h3><I18nText zh={`文章分类占比（${WINDOW_LABELS[window].zh}）`} en={`Topic share (${WINDOW_LABELS[window].en})`} /></h3>
           <DonutChart slices={stats.topicSlices} ariaLabel="文章分类环形图" />
         </div>
         <div className="chart-card bento-card">
-          <h3>当天 24 小时分布</h3>
+          <h3><I18nText zh="当天 24 小时分布" en="Today by hour" /></h3>
           <BarChart
             buckets={stats.hourBuckets}
             showAllLabels={false}
@@ -109,9 +116,14 @@ export default async function StatsPage({
           />
         </div>
         <div className="chart-card bento-card">
-          <h3>分类详情</h3>
+          <h3><I18nText zh="分类详情" en="Topic details" /></h3>
           {stats.topicSlices.length === 0 ? (
-            <p className="muted">暂无分类数据。先在管理后台添加 ContentTopic 与已发布文章。</p>
+            <p className="muted">
+              <I18nText
+                zh="暂无分类数据。先在管理后台添加 ContentTopic 与已发布文章。"
+                en="No topic data yet. Add content topics and published posts in the admin console first."
+              />
+            </p>
           ) : (
             <TopicBreakdown slices={stats.topicSlices} />
           )}
@@ -121,14 +133,17 @@ export default async function StatsPage({
       <p className="muted" style={{ marginTop: 24, fontSize: 13 }}>
         <I18nText zh="生成于" en="Generated at" />{" "}
         <time dateTime={new Date(stats.generatedAt).toISOString()}>
-          {new Date(stats.generatedAt).toLocaleString("zh-CN")}
+          <I18nText
+            zh={new Date(stats.generatedAt).toLocaleString("zh-CN")}
+            en={new Date(stats.generatedAt).toLocaleString("en-US")}
+          />
         </time>
       </p>
     </main>
   );
 }
 
-function Metric({ label, value }: { label: string; value: number }) {
+function Metric({ label, value }: { label: ReactNode; value: number }) {
   return (
     <div className="metric-card bento-card">
       <div className="bento-kpi">{value}</div>
@@ -185,8 +200,4 @@ function TopicBreakdown({ slices }: { slices: { id: string; name: string; slug: 
       })}
     </ul>
   );
-}
-
-function labelOf(window: StatsWindow) {
-  return window === "today" ? "当天" : window === "week" ? "本周" : "总计";
 }

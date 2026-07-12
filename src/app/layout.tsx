@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import "@fontsource-variable/noto-sans-sc";
 import "./globals.css";
+import "./design-system.css";
 import { UserPreferencesScript } from "@/components/UserPreferencesScript";
 import { CustomCursor } from "@/components/CustomCursor";
 import { NavigationProgress } from "@/components/NavigationProgress";
@@ -39,7 +40,7 @@ export const viewport: Viewport = {
   initialScale: 1,
   viewportFit: "cover",
   themeColor: [
-    { media: "(prefers-color-scheme: light)", color: "#ffffff" },
+    { media: "(prefers-color-scheme: light)", color: "#f7f8fc" },
     { media: "(prefers-color-scheme: dark)", color: "#0d1320" }
   ]
 };

@@ -116,15 +116,15 @@ export function MusicPlayer() {
         onPause={() => setPlaying(false)}
       />
       {collapsed ? (
-        <button onClick={() => setCollapsed(false)} aria-label="展开播放器" aria-expanded="false" title="展开">
+        <button type="button" onClick={() => setCollapsed(false)} aria-label="展开播放器" aria-expanded="false" title="展开">
           ♫
         </button>
       ) : (
         <>
-          <button onClick={togglePlay} aria-label={playing ? "暂停" : "播放"} title={playing ? "暂停" : "播放"}>
+          <button type="button" onClick={togglePlay} aria-label={playing ? "暂停" : "播放"} title={playing ? "暂停" : "播放"}>
             {playing ? "❚❚" : "▶"}
           </button>
-          <button onClick={nextTrack} aria-label="下一首" title="下一首">
+          <button type="button" onClick={nextTrack} aria-label="下一首" title="下一首">
             ⏭
           </button>
           <span className="music-title" title={currentTrack.title}>
@@ -143,10 +143,10 @@ export function MusicPlayer() {
             style={{ width: 64 }}
             onChange={(e) => update({ musicVolume: parseFloat(e.target.value) })}
           />
-          <button onClick={() => setCollapsed(true)} aria-label="折叠播放器" aria-expanded="true" title="折叠">
+          <button type="button" onClick={() => setCollapsed(true)} aria-label="折叠播放器" aria-expanded="true" title="折叠">
             –
           </button>
-          <button onClick={close} aria-label="关闭" title="关闭播放器">
+          <button type="button" onClick={close} aria-label="关闭" title="关闭播放器">
             ✕
           </button>
         </>

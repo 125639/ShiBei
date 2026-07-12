@@ -6,6 +6,8 @@ describe("url safety", () => {
   test("rejects private IP literals before fetch", () => {
     assert.throws(() => assertSafeFetchUrl("http://127.0.0.1:6379/"), /不允许|内网/);
     assert.throws(() => assertSafeFetchUrl("http://169.254.169.254/latest/meta-data"), /内网|保留/);
+    assert.throws(() => assertSafeFetchUrl("http://[::ffff:7f00:1]/"), /内网|保留/);
+    assert.throws(() => assertSafeFetchUrl("http://[::ffff:a9fe:a9fe]/"), /内网|保留/);
   });
 
   test("validates redirect targets before following them", async () => {
@@ -29,4 +31,3 @@ describe("url safety", () => {
     assert.equal(calls, 1);
   });
 });
-

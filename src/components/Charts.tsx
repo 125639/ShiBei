@@ -38,13 +38,14 @@ export function BarChart({
 
   return (
     <svg className="chart-bar" viewBox={`0 0 ${width} ${height}`} role="img" aria-label={ariaLabel}>
-      {[0, 0.25, 0.5, 0.75, 1].map((t, i) => {
-        const y = padY + innerH * (1 - t);
+      <desc>{buckets.map((bucket) => `${bucket.label}: ${bucket.count}`).join("；")}</desc>
+      {axisTicks(niceMax).map((v, i) => {
+        const y = padY + innerH * (1 - v / niceMax);
         return (
           <g key={i}>
             <line className="chart-grid-line" x1={padX} x2={width - padX} y1={y} y2={y} />
             <text x={padX - 6} y={y + 4} textAnchor="end" fontSize="11">
-              {Math.round(niceMax * t)}
+              {v}
             </text>
           </g>
         );
@@ -112,13 +113,14 @@ export function LineChart({
 
   return (
     <svg className="chart-line" viewBox={`0 0 ${width} ${height}`} role="img" aria-label={ariaLabel}>
-      {[0, 0.25, 0.5, 0.75, 1].map((t, i) => {
-        const y = padY + innerH * (1 - t);
+      <desc>{buckets.map((bucket) => `${bucket.label}: ${bucket.count}`).join("；")}</desc>
+      {axisTicks(niceMax).map((v, i) => {
+        const y = padY + innerH * (1 - v / niceMax);
         return (
           <g key={i}>
             <line className="chart-grid-line" x1={padX} x2={width - padX} y1={y} y2={y} />
             <text x={padX - 6} y={y + 4} textAnchor="end" fontSize="11">
-              {Math.round(niceMax * t)}
+              {v}
             </text>
           </g>
         );
@@ -171,6 +173,9 @@ export function DonutChart({
   return (
     <div>
       <svg className="chart-donut" viewBox={`0 0 ${size} ${size}`} role="img" aria-label={ariaLabel}>
+        <desc>
+          {arcs.map((arc) => `${arc.name}: ${arc.count}（${((arc.count / total) * 100).toFixed(1)}%）`).join("；")}
+        </desc>
         {arcs.map((a) => (
           <path key={a.id} d={a.path} fill={a.color}>
             <title>{`${a.name}: ${a.count}（${((a.count / total) * 100).toFixed(1)}%）`}</title>
@@ -180,7 +185,8 @@ export function DonutChart({
           {total}
         </text>
         <text x={cx} y={cy + 16} textAnchor="middle" fontSize="11" fill="var(--muted)">
-          总条目
+          <tspan className="i18n-zh" lang="zh-CN">总条目</tspan>
+          <tspan className="i18n-en" lang="en">Total</tspan>
         </text>
       </svg>
       <div className="chart-legend">
@@ -203,8 +209,8 @@ export function StackedBarChart({
   height = 200,
   primaryColor = "var(--chart-1)",
   secondaryColor = "var(--chart-2)",
-  primaryLabel = "文章",
-  secondaryLabel = "视频",
+  primaryLabel,
+  secondaryLabel,
   ariaLabel = "堆叠柱状图"
 }: {
   primary: StatsBucket[];
@@ -217,6 +223,9 @@ export function StackedBarChart({
   ariaLabel?: string;
 }) {
   if (!primary.length) return <p className="muted"><I18nText zh="暂无数据" en="No data yet" /></p>;
+  // 未显式传标签时，desc/title 等纯字符串场景用中文缺省，可见图例走双语 I18nText。
+  const primaryText = primaryLabel ?? "文章";
+  const secondaryText = secondaryLabel ?? "视频";
   const padX = 28;
   const padY = 22;
   const width = 600;
@@ -233,13 +242,16 @@ export function StackedBarChart({
   return (
     <div>
       <svg className="chart-bar" viewBox={`0 0 ${width} ${height}`} role="img" aria-label={ariaLabel}>
-        {[0, 0.25, 0.5, 0.75, 1].map((t, i) => {
-          const y = padY + innerH * (1 - t);
+        <desc>
+          {primary.map((bucket, index) => `${bucket.label} · ${primaryText}: ${bucket.count}，${secondaryText}: ${secondary[index]?.count || 0}`).join("；")}
+        </desc>
+        {axisTicks(niceMax).map((v, i) => {
+          const y = padY + innerH * (1 - v / niceMax);
           return (
             <g key={i}>
               <line className="chart-grid-line" x1={padX} x2={width - padX} y1={y} y2={y} />
               <text x={padX - 6} y={y + 4} textAnchor="end" fontSize="11">
-                {Math.round(niceMax * t)}
+                {v}
               </text>
             </g>
           );
@@ -261,7 +273,7 @@ export function StackedBarChart({
                 fill={primaryColor}
                 rx={2}
               >
-                <title>{`${b.label} · ${primaryLabel}: ${b.count}`}</title>
+                <title>{`${b.label} · ${primaryText}: ${b.count}`}</title>
               </rect>
               <rect
                 x={x}
@@ -271,7 +283,7 @@ export function StackedBarChart({
                 fill={secondaryColor}
                 rx={2}
               >
-                <title>{`${b.label} · ${secondaryLabel}: ${v}`}</title>
+                <title>{`${b.label} · ${secondaryText}: ${v}`}</title>
               </rect>
               {i % labelEvery === 0 && (
                 <text x={x + (barW - 4) / 2} y={height - 4} textAnchor="middle" fontSize="11">
@@ -285,11 +297,11 @@ export function StackedBarChart({
       <div className="chart-legend">
         <span>
           <span className="dot" style={{ background: primaryColor }} />
-          {primaryLabel}
+          {primaryLabel ?? <I18nText zh="文章" en="Posts" />}
         </span>
         <span>
           <span className="dot" style={{ background: secondaryColor }} />
-          {secondaryLabel}
+          {secondaryLabel ?? <I18nText zh="视频" en="Videos" />}
         </span>
       </div>
     </div>
@@ -297,6 +309,15 @@ export function StackedBarChart({
 }
 
 /* ================= Helpers ================= */
+
+// 坐标轴只标整数：计数类图表出现 0.25×niceMax 这类分数刻度时，
+// Math.round 会产生重复（1,1,1,0,0）或跳号（5,4,3,1,0）的轴标。
+function axisTicks(niceMax: number): number[] {
+  const step = niceMax <= 5 ? 1 : Number.isInteger(niceMax / 4) ? niceMax / 4 : niceMax / 5;
+  const ticks: number[] = [];
+  for (let v = 0; v <= niceMax; v += step) ticks.push(v);
+  return ticks;
+}
 
 function niceCeil(v: number) {
   if (v <= 1) return 1;

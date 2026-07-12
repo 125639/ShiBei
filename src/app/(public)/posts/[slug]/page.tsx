@@ -11,6 +11,7 @@ import { getCachedSiteChromeSettings } from "@/lib/site-settings-cache";
 import { absoluteSiteUrl } from "@/lib/site-url";
 import { VideoEmbed } from "@/lib/video";
 import { VIDEO_SHORTCODE_RE } from "@/lib/video-display";
+import { summaryDuplicatesContentLead } from "@/lib/post-derive";
 
 // ISR：整页缓存 5 分钟，管理端的每次内容变更都会用具体路径调
 // revalidatePublicContent([`/posts/${slug}`]) 精准失效（含批量/图片/视频路由），
@@ -161,6 +162,16 @@ export default async function PostDetailPage({ params }: { params: Promise<{ slu
       })
     : [];
 
+  // dek 的显隐按语言分别判定：中文摘要是否复读中文导语、英文摘要是否复读英文
+  // 导语互不相干。若只用中文侧判定，英文读者会平白丢失独立 dek 或看到重复 dek。
+  const zhLead = post.summary && !summaryDuplicatesContentLead(post.content, post.title, post.summary)
+    ? post.summary
+    : null;
+  const enSummary = post.summaryEn || post.summary;
+  const enLead = enSummary && !summaryDuplicatesContentLead(post.contentEn || post.content, post.titleEn || post.title, enSummary)
+    ? enSummary
+    : null;
+
   const articleJsonLd = {
     "@context": "https://schema.org",
     "@type": "Article",
@@ -190,11 +201,8 @@ export default async function PostDetailPage({ params }: { params: Promise<{ slu
         <h1>
           <I18nText zh={post.title} en={post.titleEn || post.title} />
         </h1>
-        {post.summary ? (
-          <p className="lead">
-            <I18nText zh={post.summary} en={post.summaryEn || post.summary} />
-          </p>
-        ) : null}
+        {zhLead ? <p className="lead i18n-zh" lang="zh-CN">{zhLead}</p> : null}
+        {enLead ? <p className="lead i18n-en" lang="en">{enLead}</p> : null}
         <div className="meta-row">
           {post.publishedAt ? (
             <time dateTime={post.publishedAt.toISOString()}>{post.publishedAt.toLocaleDateString("zh-CN")}</time>
@@ -205,7 +213,7 @@ export default async function PostDetailPage({ params }: { params: Promise<{ slu
             <Link key={topic.id} className="tag" href={`/posts?topic=${encodeURIComponent(topic.slug)}`}>{topic.name}</Link>
           ))}
           {post.tags.slice(1).map((tag) => <span className="tag" key={tag.id}>{tag.name}</span>)}
-          {post.sourceUrl ? (
+          {post.sourceUrl && /^https?:\/\//i.test(post.sourceUrl) ? (
             <a className="text-link" href={post.sourceUrl} target="_blank" rel="noopener noreferrer">
               <I18nText zh="原始来源" en="Original source" />
             </a>

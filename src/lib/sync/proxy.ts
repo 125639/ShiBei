@@ -30,6 +30,7 @@ export async function proxyToBackend(request: Request, targetPath: string): Prom
       lower === "content-length" ||
       lower === "cookie" ||
       lower === "authorization" ||
+      lower === "x-real-ip" ||
       lower === "x-forwarded-for" ||
       lower === "x-forwarded-host" ||
       lower === "x-forwarded-proto"
@@ -38,7 +39,8 @@ export async function proxyToBackend(request: Request, targetPath: string): Prom
     }
     forwardHeaders.set(key, value);
   }
-  const clientIp = request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || request.headers.get("x-real-ip")?.trim();
+  const clientIp = request.headers.get("x-real-ip")?.trim()
+    || request.headers.get("x-forwarded-for")?.split(",").at(-1)?.trim();
   if (clientIp) forwardHeaders.set("x-forwarded-for", clientIp);
   forwardHeaders.set("x-forwarded-host", incomingUrl.host);
   forwardHeaders.set("x-forwarded-proto", incomingUrl.protocol.replace(":", ""));
@@ -56,8 +58,9 @@ export async function proxyToBackend(request: Request, targetPath: string): Prom
   try {
     upstream = await fetch(targetUrl, init);
   } catch (err) {
+    console.error("[backend-proxy] upstream request failed:", err);
     return NextResponse.json(
-      { error: `代理到 backend 失败: ${err instanceof Error ? err.message : String(err)}` },
+      { error: "代理到 backend 失败，请稍后重试" },
       { status: 502 }
     );
   }

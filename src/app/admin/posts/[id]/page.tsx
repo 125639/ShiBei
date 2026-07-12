@@ -170,7 +170,7 @@ export default async function AdminPostEditPage({ params }: { params: Promise<{ 
                   <form action="/api/admin/videos/download" method="post" style={{ marginRight: 8 }}>
                     <input type="hidden" name="videoId" value={video.id} />
                     <input type="hidden" name="redirect" value={`/admin/posts/${post.id}`} />
-                    <button className="button-secondary" type="submit">
+                    <button className="button secondary" type="submit">
                       {video.downloadStatus === "failed" ? <I18nText zh="重试下载" en="Retry download" /> : <I18nText zh="下载到本地" en="Download locally" />}
                     </button>
                   </form>
@@ -188,7 +188,7 @@ export default async function AdminPostEditPage({ params }: { params: Promise<{ 
                     <option value="before-references">参考来源前 / Before refs</option>
                     <option value="end">文末 / End</option>
                   </select>
-                  <button className="button-secondary" type="submit"><I18nText zh="插入/调整位置" en="Insert / reposition" /></button>
+                  <button className="button secondary" type="submit"><I18nText zh="插入/调整位置" en="Insert / reposition" /></button>
                 </form>
                 <form
                   action={`/api/admin/videos/delete?id=${encodeURIComponent(video.id)}&redirect=${encodeURIComponent(`/admin/posts/${post.id}`)}`}
@@ -322,7 +322,7 @@ export default async function AdminPostEditPage({ params }: { params: Promise<{ 
                 </select>
               </div>
             </div>
-            <button className="button-secondary" type="submit"><I18nText zh="挂到本文章并插入" en="Attach & Insert" /></button>
+            <button className="button secondary" type="submit"><I18nText zh="挂到本文章并插入" en="Attach & Insert" /></button>
           </form>
         )}
         <p className="hint">

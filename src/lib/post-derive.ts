@@ -17,16 +17,36 @@ export function extractTitleAndSummary(markdown: string, fallbackTitle: string) 
   const body = headingMatch && headingIndex >= 0
     ? markdown.slice(0, headingIndex) + markdown.slice(headingIndex + headingMatch[0].length)
     : markdown;
-  const plain = body
-    .replace(/^#+\s+/gm, "")
-    .replace(/[-*]\s+/g, "")
-    .replace(/\[[^\]]+\]\([^\)]+\)/g, "")
-    .replace(/\s+/g, " ")
-    .trim();
+  // 卡片摘要只取导语的第一个实质段落，绝不继续跨过 H2 拼接“摘要 / 关键点”等
+  // 模板标题。页面会同时展示 dek 和正文导语，短而独立的首段也更接近真实博客。
+  const beforeFirstSection = body.split(/^##\s+/m)[0] || "";
+  const plain = firstProseParagraph(beforeFirstSection) || firstProseParagraph(body);
   return {
     title: title.slice(0, 120),
     summary: plain.slice(0, 220) || "AI 已生成草稿，请管理员审核。"
   };
+}
+
+function firstProseParagraph(markdown: string) {
+  const cleaned = markdown
+    .replace(/```[\s\S]*?```/g, " ")
+    .replace(/<figure\b[^>]*>[\s\S]*?<\/figure>/gi, " ")
+    .replace(/!\[[^\]]*]\((?:[^()\s]|\([^()\s]*\))+\)/g, " ")
+    .replace(/\[([^\]]+)]\((?:[^()\s]|\([^()\s]*\))+\)/g, "$1")
+    .replace(/\[\[video:[^\]]+]]/gi, " ");
+
+  for (const block of cleaned.split(/\n\s*\n/)) {
+    const plain = block
+      .replace(/^#{1,6}\s+.*$/gm, " ")
+      .replace(/^>\s?/gm, "")
+      .replace(/^\s*(?:[-*+] |\d+[.)]\s+)/gm, "")
+      .replace(/<[^>]+>/g, " ")
+      .replace(/[*_`~]/g, "")
+      .replace(/\s+/g, " ")
+      .trim();
+    if (plain) return plain;
+  }
+  return "";
 }
 
 /**
@@ -57,9 +77,29 @@ export function stripTitleHeading(markdown: string, title: string | null | undef
   return lines.slice(next).join("\n");
 }
 
+/** 页头摘要若只是正文导语的复制或截断，详情页只展示正文，避免连续读到两遍。 */
+export function summaryDuplicatesContentLead(
+  markdown: string,
+  title: string | null | undefined,
+  summary: string | null | undefined
+) {
+  if (!markdown || !summary) return false;
+  const lead = firstProseParagraph(stripTitleHeading(markdown, title));
+  const leadNorm = normalizeForSummaryMatch(lead);
+  const summaryNorm = normalizeForSummaryMatch(summary);
+  if (Math.min(leadNorm.length, summaryNorm.length) < 20) return false;
+  return leadNorm.startsWith(summaryNorm) || summaryNorm.startsWith(leadNorm);
+}
+
 function normalizeForTitleMatch(value: string) {
   return value
     .toLowerCase()
     .replace(/[*_`~]/g, "")
     .replace(/[\s\u201C\u201D\u2018\u2019«»"'（）()\[\]【】《》<>·—–\-…~!?:;,.，。！？；：、]/g, "");
+}
+
+function normalizeForSummaryMatch(value: string) {
+  return value
+    .toLowerCase()
+    .replace(/[\s*_`~#>\[\]（）()“”‘’"'，。！？!?；;：:、—–\-…]/g, "");
 }
