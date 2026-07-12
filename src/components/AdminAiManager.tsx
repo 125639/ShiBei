@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState, type RefObject } from "react";
+import Link from "next/link";
 import type { JobStatus } from "@prisma/client";
 import { I18nText } from "./I18nText";
 import { StatusPill } from "./StatusPill";
@@ -115,17 +116,18 @@ export function AdminAiManager({
   const [batches, setBatches] = useState<AdminAiBatchView[]>(initialBatches);
   const [refreshing, setRefreshing] = useState(false);
   const [retryingJobId, setRetryingJobId] = useState("");
-  // 批次展开状态:未手动操作过时,进行中的批次和最新批次默认展开
-  const [batchOpen, setBatchOpen] = useState<Record<string, boolean>>({});
+  // 顶部批次条里当前展开明细的批次(一次一个,点卡片切换)
+  const [expandedBatchId, setExpandedBatchId] = useState<string | null>(null);
 
   const planRef = useRef<HTMLElement | null>(null);
-  const executedRef = useRef<HTMLElement | null>(null);
+  const batchesRef = useRef<HTMLElement | null>(null);
 
-  // 计划/执行结果渲染在表单下方,出结果后滚过去,避免用户以为没反应
-  function revealPanel(ref: RefObject<HTMLElement | null>) {
+  // 结果不在视口内时(计划在表单下方/批次条在页顶),出结果后滚过去,避免用户以为没反应。
+  // 执行后计划面板卸载会让页面高度骤变,平滑滚动会被打断,这种场景用瞬时定位。
+  function revealPanel(ref: RefObject<HTMLElement | null>, behavior: ScrollBehavior = "smooth") {
     window.setTimeout(() => {
-      ref.current?.scrollIntoView({ behavior: "smooth", block: "start" });
-    }, 80);
+      ref.current?.scrollIntoView({ behavior, block: "start" });
+    }, 120);
   }
 
   const nameById = useMemo(() => {
@@ -140,6 +142,10 @@ export function AdminAiManager({
     () => (plan ? plan.tasks.reduce((sum, task) => sum + task.articleCount, 0) : 0),
     [plan]
   );
+
+  const expandedBatch = expandedBatchId
+    ? batches.find((batch) => batch.id === expandedBatchId) || null
+    : null;
 
   async function callApi(payload: Record<string, unknown>) {
     const response = await fetch("/api/admin/ai-admin", {
@@ -234,10 +240,12 @@ export function AdminAiManager({
         tasks: plan.tasks,
         recurring: plan.recurring
       });
-      setExecuted(data as unknown as ExecuteResult);
+      const result = data as unknown as ExecuteResult;
+      setExecuted(result);
       setPlan(null);
-      void refreshBatches();
-      revealPanel(executedRef);
+      await refreshBatches();
+      setExpandedBatchId(result.batchId);
+      revealPanel(batchesRef, "auto");
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
@@ -279,7 +287,97 @@ export function AdminAiManager({
   const busy = planning || revising || executing;
 
   return (
-    <div className="admin-ai-layout">
+    <div className="admin-ai-page">
+      {batches.length ? (
+        <section className="admin-panel admin-ai-result admin-ai-batches" ref={batchesRef} aria-live="polite">
+          <div className="admin-ai-batches-head">
+            <h2><I18nText zh="执行批次" en="Batches" /></h2>
+            <div className="row-actions">
+              <button className="text-link" type="button" disabled={refreshing} onClick={() => void refreshBatches()}>
+                {refreshing ? <I18nText zh="刷新中…" en="Refreshing..." /> : <I18nText zh="刷新" en="Refresh" />}
+              </button>
+              <Link className="text-link" href="/admin/jobs"><I18nText zh="全部任务" en="All jobs" /></Link>
+            </div>
+          </div>
+          {executed ? (
+            <p className="muted">
+              <I18nText
+                zh={`已入队 ${executed.tasks.length} 个任务（${executed.totalArticles} 篇）${executed.recurring.length ? `，创建 ${executed.recurring.filter((r) => r.created).length} 个周期主题` : ""}。`}
+                en={`Queued ${executed.tasks.length} tasks (${executed.totalArticles} articles)${executed.recurring.length ? `, created ${executed.recurring.filter((r) => r.created).length} recurring topics` : ""}.`}
+              />
+              {executed.warnings.length ? ` ${executed.warnings.join("；")}` : null}
+            </p>
+          ) : null}
+          <div className="admin-ai-batch-strip">
+            {batches.map((batch) => {
+              const done = batch.jobs.filter((job) => job.status === "COMPLETED").length;
+              const failed = batch.jobs.filter((job) => job.status === "FAILED").length;
+              const active = batch.jobs.some((job) => job.status === "QUEUED" || job.status === "RUNNING");
+              const batchStatus: JobStatus = active ? "RUNNING" : failed ? "FAILED" : "COMPLETED";
+              const expanded = expandedBatchId === batch.id;
+              return (
+                <button
+                  key={batch.id}
+                  type="button"
+                  className={`admin-ai-batch-card${expanded ? " is-expanded" : ""}`}
+                  aria-expanded={expanded}
+                  onClick={() => setExpandedBatchId(expanded ? null : batch.id)}
+                >
+                  <span className="admin-ai-batch-summary">{batch.summary}</span>
+                  <span className="muted admin-ai-batch-meta">{new Date(batch.createdAt).toLocaleString()}</span>
+                  <span className="meta-row">
+                    <StatusPill status={batchStatus} />
+                    <span className="muted">
+                      <I18nText
+                        zh={`完成 ${done}/${batch.jobs.length}${failed ? `，失败 ${failed}` : ""}`}
+                        en={`${done}/${batch.jobs.length} done${failed ? `, ${failed} failed` : ""}`}
+                      />
+                    </span>
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+          {expandedBatch ? (
+            <div className="admin-ai-batch-detail">
+              <p className="muted admin-ai-batch-request">{expandedBatch.request}</p>
+              <ul className="admin-ai-batch-jobs">
+                {expandedBatch.jobs.map((job) => (
+                  <li key={job.id}>
+                    <StatusPill status={job.status} />
+                    <a className="text-link" href={`/admin/jobs/${job.id}`}>{job.keyword}</a>
+                    {job.status === "FAILED" ? (
+                      <button
+                        className="text-link"
+                        type="button"
+                        disabled={retryingJobId === job.id}
+                        onClick={() => void retryJob(job.id)}
+                      >
+                        {retryingJobId === job.id
+                          ? <I18nText zh="重试中…" en="Retrying..." />
+                          : <I18nText zh="重试" en="Retry" />}
+                      </button>
+                    ) : null}
+                  </li>
+                ))}
+              </ul>
+              {expandedBatch.recurring.length ? (
+                <div className="meta-row">
+                  {expandedBatch.recurring.map((item) => (
+                    <span className="tag" key={item.name}>
+                      {item.name} · <I18nText zh={item.cadence.zh} en={item.cadence.en} />
+                    </span>
+                  ))}
+                  <a className="text-link" href="/admin/auto-curation">
+                    <I18nText zh="管理自动内容" en="Manage auto content" />
+                  </a>
+                </div>
+              ) : null}
+            </div>
+          ) : null}
+        </section>
+      ) : null}
+
       <div className="admin-ai-main">
         <section className="admin-panel admin-ai-command">
           <div>
@@ -458,118 +556,8 @@ export function AdminAiManager({
           </section>
         ) : null}
 
-        {executed ? (
-          <section className="admin-panel admin-ai-result" ref={executedRef} aria-live="polite">
-            <h2><I18nText zh="已执行" en="Executed" /></h2>
-            <p className="muted">
-              <I18nText
-                zh={`已入队 ${executed.tasks.length} 个任务（${executed.totalArticles} 篇）${executed.recurring.length ? `，创建 ${executed.recurring.filter((r) => r.created).length} 个周期主题` : ""}。进度见下方批次。`}
-                en={`Queued ${executed.tasks.length} tasks (${executed.totalArticles} articles)${executed.recurring.length ? `, created ${executed.recurring.filter((r) => r.created).length} recurring topics` : ""}. Progress below.`}
-              />
-            </p>
-            {executed.warnings.length ? (
-              <div className="admin-ai-warning">
-                <ul>
-                  {executed.warnings.map((warning, index) => <li key={index}>{warning}</li>)}
-                </ul>
-              </div>
-            ) : null}
-            {executed.recurring.length ? (
-              <div className="admin-ai-task-list">
-                {executed.recurring.map((item) => (
-                  <article className="admin-ai-task admin-ai-recurring" key={item.name}>
-                    <strong>{item.name}</strong>
-                    <div className="meta-row">
-                      <span className="tag">{item.cadence.zh}</span>
-                      <span className="tag">
-                        {item.created
-                          ? <I18nText zh="已创建" en="Created" />
-                          : <I18nText zh="已存在" en="Existing" />}
-                      </span>
-                      <a className="text-link" href="/admin/auto-curation">
-                        <I18nText zh="管理自动内容" en="Manage auto content" />
-                      </a>
-                    </div>
-                  </article>
-                ))}
-              </div>
-            ) : null}
-          </section>
-        ) : null}
       </div>
 
-      <aside className="admin-ai-side">
-        <section className="admin-panel">
-          <h2><I18nText zh="执行边界" en="Execution Rules" /></h2>
-          <ul className="admin-ai-rules">
-            <li><I18nText zh="先出计划，确认后才执行；不直接发布文章。" en="Plans first, runs only after you confirm; never publishes directly." /></li>
-            <li><I18nText zh="一次性任务复用现有研究流水线；周期需求转成自动内容主题。" en="One-off tasks use the research pipeline; recurring needs become auto-content topics." /></li>
-            <li><I18nText zh="每次执行记录为批次，进度与失败重试都在下方。" en="Each run is recorded as a batch with progress and retry below." /></li>
-          </ul>
-        </section>
-
-        <section className="admin-panel admin-ai-result">
-          <div className="admin-ai-batches-head">
-            <h2><I18nText zh="执行批次" en="Batches" /></h2>
-            <button className="text-link" type="button" disabled={refreshing} onClick={() => void refreshBatches()}>
-              {refreshing ? <I18nText zh="刷新中…" en="Refreshing..." /> : <I18nText zh="刷新" en="Refresh" />}
-            </button>
-          </div>
-          {batches.length === 0 ? (
-            <p className="muted"><I18nText zh="还没有执行过批次。" en="No batches yet." /></p>
-          ) : (
-            batches.map((batch, index) => {
-              const done = batch.jobs.filter((job) => job.status === "COMPLETED").length;
-              const failed = batch.jobs.filter((job) => job.status === "FAILED").length;
-              const active = batch.jobs.some((job) => job.status === "QUEUED" || job.status === "RUNNING");
-              // 进行中和最新的批次默认展开,其余折叠成摘要行
-              const open = batchOpen[batch.id] ?? (active || index === 0);
-              return (
-                <article className="admin-ai-batch" key={batch.id}>
-                  <button
-                    type="button"
-                    className="admin-ai-batch-toggle"
-                    aria-expanded={open}
-                    onClick={() => setBatchOpen((current) => ({ ...current, [batch.id]: !open }))}
-                  >
-                    <span className="admin-ai-batch-summary">{batch.summary}</span>
-                    <span className="admin-ai-batch-caret" aria-hidden>{open ? "▾" : "▸"}</span>
-                  </button>
-                  <p className="muted admin-ai-batch-meta">
-                    {new Date(batch.createdAt).toLocaleString()} ·{" "}
-                    <I18nText
-                      zh={`完成 ${done}/${batch.jobs.length}${failed ? `，失败 ${failed}` : ""}${batch.recurring.length ? `，周期 ${batch.recurring.length}` : ""}`}
-                      en={`${done}/${batch.jobs.length} done${failed ? `, ${failed} failed` : ""}${batch.recurring.length ? `, ${batch.recurring.length} recurring` : ""}`}
-                    />
-                  </p>
-                  {open ? (
-                    <ul className="admin-ai-batch-jobs">
-                      {batch.jobs.map((job) => (
-                        <li key={job.id}>
-                          <StatusPill status={job.status} />
-                          <a className="text-link" href={`/admin/jobs/${job.id}`}>{job.keyword}</a>
-                          {job.status === "FAILED" ? (
-                            <button
-                              className="text-link"
-                              type="button"
-                              disabled={retryingJobId === job.id}
-                              onClick={() => void retryJob(job.id)}
-                            >
-                              {retryingJobId === job.id
-                                ? <I18nText zh="重试中…" en="Retrying..." />
-                                : <I18nText zh="重试" en="Retry" />}
-                            </button>
-                          ) : null}
-                        </li>
-                      ))}
-                    </ul>
-                  ) : null}
-                </article>
-              );
-            })
-          )}
-        </section>
-      </aside>
     </div>
   );
 }
