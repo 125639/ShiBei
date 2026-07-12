@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type RefObject } from "react";
 import type { JobStatus } from "@prisma/client";
 import { I18nText } from "./I18nText";
 import { StatusPill } from "./StatusPill";
@@ -115,6 +115,18 @@ export function AdminAiManager({
   const [batches, setBatches] = useState<AdminAiBatchView[]>(initialBatches);
   const [refreshing, setRefreshing] = useState(false);
   const [retryingJobId, setRetryingJobId] = useState("");
+  // 批次展开状态:未手动操作过时,进行中的批次和最新批次默认展开
+  const [batchOpen, setBatchOpen] = useState<Record<string, boolean>>({});
+
+  const planRef = useRef<HTMLElement | null>(null);
+  const executedRef = useRef<HTMLElement | null>(null);
+
+  // 计划/执行结果渲染在表单下方,出结果后滚过去,避免用户以为没反应
+  function revealPanel(ref: RefObject<HTMLElement | null>) {
+    window.setTimeout(() => {
+      ref.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+    }, 80);
+  }
 
   const nameById = useMemo(() => {
     const map = new Map<string, string>();
@@ -174,6 +186,7 @@ export function AdminAiManager({
       const data = await callApi({ action: "plan", request, scope, depth, articleCount });
       setPlan(data as unknown as PlanResult);
       setFeedback("");
+      revealPanel(planRef);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
@@ -198,6 +211,7 @@ export function AdminAiManager({
       });
       setPlan(data as unknown as PlanResult);
       setFeedback("");
+      revealPanel(planRef);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
@@ -223,6 +237,7 @@ export function AdminAiManager({
       setExecuted(data as unknown as ExecuteResult);
       setPlan(null);
       void refreshBatches();
+      revealPanel(executedRef);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
@@ -265,101 +280,92 @@ export function AdminAiManager({
 
   return (
     <div className="admin-ai-layout">
-      <section className="admin-panel admin-ai-command">
-        <div>
-          <p className="eyebrow">AI Admin</p>
-          <h2><I18nText zh="把需求交给 AI 管理员" en="Delegate a content task" /></h2>
-          <p className="muted">
-            <I18nText
-              zh="用自然语言描述想要的内容（明确篇数、模糊数量、周期性需求都可以）。AI 管理员先给出拆解计划，可以继续用修改意见调整，确认后才会执行；草稿仍需审核后发布。"
-              en="Describe what you want in natural language — exact counts, vague quantities, or recurring needs. The AI admin proposes a plan you can refine with feedback; nothing runs until you confirm. Drafts still require review."
-            />
-          </p>
-        </div>
-
-        <div className="field">
-          <label htmlFor="admin-ai-request"><I18nText zh="任务需求" en="Task request" /></label>
-          <textarea
-            id="admin-ai-request"
-            value={request}
-            onChange={(event) => setRequest(event.target.value)}
-            rows={8}
-            maxLength={6000}
-          />
-        </div>
-
-        <div className="field-row">
-          <div className="field">
-            <label htmlFor="admin-ai-scope"><I18nText zh="默认搜索范围" en="Default scope" /></label>
-            <select id="admin-ai-scope" value={scope} onChange={(event) => setScope(event.target.value as PlannedTask["scope"])}>
-              <option value="all">国内 + 国外 / All</option>
-              <option value="domestic">国内来源 / Domestic</option>
-              <option value="international">国外来源 / International</option>
-            </select>
+      <div className="admin-ai-main">
+        <section className="admin-panel admin-ai-command">
+          <div>
+            <p className="eyebrow">AI Admin</p>
+            <h2><I18nText zh="把需求交给 AI 管理员" en="Delegate a content task" /></h2>
+            <p className="muted">
+              <I18nText
+                zh="用自然语言描述想要的内容（明确篇数、模糊数量、周期性需求都可以）。AI 管理员先给出拆解计划，可以继续用修改意见调整，确认后才会执行；草稿仍需审核后发布。"
+                en="Describe what you want in natural language — exact counts, vague quantities, or recurring needs. The AI admin proposes a plan you can refine with feedback; nothing runs until you confirm. Drafts still require review."
+              />
+            </p>
           </div>
-          <div className="field">
-            <label htmlFor="admin-ai-depth"><I18nText zh="默认文章长度" en="Default length" /></label>
-            <select id="admin-ai-depth" value={depth} onChange={(event) => setDepth(event.target.value as PlannedTask["depth"])}>
-              <option value="standard">标准 / Standard</option>
-              <option value="long">长文 / Long</option>
-              <option value="deep">深度长文 / In-depth</option>
-            </select>
-          </div>
-        </div>
 
-        <div className="field-row">
           <div className="field">
-            <label htmlFor="admin-ai-count"><I18nText zh="每个选题默认篇数" en="Default articles per topic" /></label>
-            <input
-              id="admin-ai-count"
-              type="number"
-              min="1"
-              max="5"
-              value={articleCount}
-              onChange={(event) => setArticleCount(Number(event.target.value) || 1)}
+            <label htmlFor="admin-ai-request"><I18nText zh="任务需求" en="Task request" /></label>
+            <textarea
+              id="admin-ai-request"
+              value={request}
+              onChange={(event) => setRequest(event.target.value)}
+              rows={8}
+              maxLength={6000}
             />
           </div>
-          <div className="field">
-            <label htmlFor="admin-ai-style"><I18nText zh="默认生成风格" en="Default style" /></label>
-            <select id="admin-ai-style" value={contentStyleId} onChange={(event) => setContentStyleId(event.target.value)}>
-              <option value="">使用默认风格 / Default style</option>
-              {styles.map((style) => (
-                <option key={style.id} value={style.id}>
-                  {style.name}{style.isDefault ? "（默认 / default）" : ""}
-                </option>
-              ))}
-            </select>
+
+          <div className="field-row">
+            <div className="field">
+              <label htmlFor="admin-ai-scope"><I18nText zh="默认搜索范围" en="Default scope" /></label>
+              <select id="admin-ai-scope" value={scope} onChange={(event) => setScope(event.target.value as PlannedTask["scope"])}>
+                <option value="all">国内 + 国外 / All</option>
+                <option value="domestic">国内来源 / Domestic</option>
+                <option value="international">国外来源 / International</option>
+              </select>
+            </div>
+            <div className="field">
+              <label htmlFor="admin-ai-depth"><I18nText zh="默认文章长度" en="Default length" /></label>
+              <select id="admin-ai-depth" value={depth} onChange={(event) => setDepth(event.target.value as PlannedTask["depth"])}>
+                <option value="standard">标准 / Standard</option>
+                <option value="long">长文 / Long</option>
+                <option value="deep">深度长文 / In-depth</option>
+              </select>
+            </div>
           </div>
-        </div>
 
-        {error ? <p className="form-error" role="alert">{error}</p> : null}
+          <div className="field-row">
+            <div className="field">
+              <label htmlFor="admin-ai-count"><I18nText zh="每个选题默认篇数" en="Default articles per topic" /></label>
+              <input
+                id="admin-ai-count"
+                type="number"
+                min="1"
+                max="5"
+                value={articleCount}
+                onChange={(event) => setArticleCount(Number(event.target.value) || 1)}
+              />
+            </div>
+            <div className="field">
+              <label htmlFor="admin-ai-style"><I18nText zh="默认生成风格" en="Default style" /></label>
+              <select id="admin-ai-style" value={contentStyleId} onChange={(event) => setContentStyleId(event.target.value)}>
+                <option value="">使用默认风格 / Default style</option>
+                {styles.map((style) => (
+                  <option key={style.id} value={style.id}>
+                    {style.name}{style.isDefault ? "（默认 / default）" : ""}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </div>
 
-        <button
-          className="button admin-ai-submit"
-          type="button"
-          disabled={busy || request.trim().length < 4}
-          onClick={generatePlan}
-        >
-          {planning
-            ? <I18nText zh="AI 正在思考拆解…" en="Planning..." />
-            : plan
-              ? <I18nText zh="重新规划" en="Re-plan" />
-              : <I18nText zh="生成计划" en="Generate plan" />}
-        </button>
-      </section>
+          {error ? <p className="form-error" role="alert">{error}</p> : null}
 
-      <aside className="admin-ai-side">
-        <section className="admin-panel">
-          <h2><I18nText zh="执行边界" en="Execution Rules" /></h2>
-          <ul className="admin-ai-rules">
-            <li><I18nText zh="先出计划，确认后才执行；不直接发布文章。" en="Plans first, runs only after you confirm; never publishes directly." /></li>
-            <li><I18nText zh="一次性任务复用现有研究流水线；周期需求转成自动内容主题。" en="One-off tasks use the research pipeline; recurring needs become auto-content topics." /></li>
-            <li><I18nText zh="每次执行记录为批次，进度与失败重试都在下方。" en="Each run is recorded as a batch with progress and retry below." /></li>
-          </ul>
+          <button
+            className="button admin-ai-submit"
+            type="button"
+            disabled={busy || request.trim().length < 4}
+            onClick={generatePlan}
+          >
+            {planning
+              ? <I18nText zh="AI 正在思考拆解…" en="Planning..." />
+              : plan
+                ? <I18nText zh="重新规划" en="Re-plan" />
+                : <I18nText zh="生成计划" en="Generate plan" />}
+          </button>
         </section>
 
         {plan ? (
-          <section className="admin-panel admin-ai-result" aria-live="polite">
+          <section className="admin-panel admin-ai-result" ref={planRef} aria-live="polite">
             <h2><I18nText zh="拆解计划（待确认）" en="Proposed Plan" /></h2>
             <p className="muted">{plan.summary}</p>
             <p className="muted">
@@ -453,7 +459,7 @@ export function AdminAiManager({
         ) : null}
 
         {executed ? (
-          <section className="admin-panel admin-ai-result" aria-live="polite">
+          <section className="admin-panel admin-ai-result" ref={executedRef} aria-live="polite">
             <h2><I18nText zh="已执行" en="Executed" /></h2>
             <p className="muted">
               <I18nText
@@ -490,6 +496,17 @@ export function AdminAiManager({
             ) : null}
           </section>
         ) : null}
+      </div>
+
+      <aside className="admin-ai-side">
+        <section className="admin-panel">
+          <h2><I18nText zh="执行边界" en="Execution Rules" /></h2>
+          <ul className="admin-ai-rules">
+            <li><I18nText zh="先出计划，确认后才执行；不直接发布文章。" en="Plans first, runs only after you confirm; never publishes directly." /></li>
+            <li><I18nText zh="一次性任务复用现有研究流水线；周期需求转成自动内容主题。" en="One-off tasks use the research pipeline; recurring needs become auto-content topics." /></li>
+            <li><I18nText zh="每次执行记录为批次，进度与失败重试都在下方。" en="Each run is recorded as a batch with progress and retry below." /></li>
+          </ul>
+        </section>
 
         <section className="admin-panel admin-ai-result">
           <div className="admin-ai-batches-head">
@@ -501,12 +518,23 @@ export function AdminAiManager({
           {batches.length === 0 ? (
             <p className="muted"><I18nText zh="还没有执行过批次。" en="No batches yet." /></p>
           ) : (
-            batches.map((batch) => {
+            batches.map((batch, index) => {
               const done = batch.jobs.filter((job) => job.status === "COMPLETED").length;
               const failed = batch.jobs.filter((job) => job.status === "FAILED").length;
+              const active = batch.jobs.some((job) => job.status === "QUEUED" || job.status === "RUNNING");
+              // 进行中和最新的批次默认展开,其余折叠成摘要行
+              const open = batchOpen[batch.id] ?? (active || index === 0);
               return (
                 <article className="admin-ai-batch" key={batch.id}>
-                  <p className="admin-ai-batch-summary">{batch.summary}</p>
+                  <button
+                    type="button"
+                    className="admin-ai-batch-toggle"
+                    aria-expanded={open}
+                    onClick={() => setBatchOpen((current) => ({ ...current, [batch.id]: !open }))}
+                  >
+                    <span className="admin-ai-batch-summary">{batch.summary}</span>
+                    <span className="admin-ai-batch-caret" aria-hidden>{open ? "▾" : "▸"}</span>
+                  </button>
                   <p className="muted admin-ai-batch-meta">
                     {new Date(batch.createdAt).toLocaleString()} ·{" "}
                     <I18nText
@@ -514,26 +542,28 @@ export function AdminAiManager({
                       en={`${done}/${batch.jobs.length} done${failed ? `, ${failed} failed` : ""}${batch.recurring.length ? `, ${batch.recurring.length} recurring` : ""}`}
                     />
                   </p>
-                  <ul className="admin-ai-batch-jobs">
-                    {batch.jobs.map((job) => (
-                      <li key={job.id}>
-                        <StatusPill status={job.status} />
-                        <a className="text-link" href={`/admin/jobs/${job.id}`}>{job.keyword}</a>
-                        {job.status === "FAILED" ? (
-                          <button
-                            className="text-link"
-                            type="button"
-                            disabled={retryingJobId === job.id}
-                            onClick={() => void retryJob(job.id)}
-                          >
-                            {retryingJobId === job.id
-                              ? <I18nText zh="重试中…" en="Retrying..." />
-                              : <I18nText zh="重试" en="Retry" />}
-                          </button>
-                        ) : null}
-                      </li>
-                    ))}
-                  </ul>
+                  {open ? (
+                    <ul className="admin-ai-batch-jobs">
+                      {batch.jobs.map((job) => (
+                        <li key={job.id}>
+                          <StatusPill status={job.status} />
+                          <a className="text-link" href={`/admin/jobs/${job.id}`}>{job.keyword}</a>
+                          {job.status === "FAILED" ? (
+                            <button
+                              className="text-link"
+                              type="button"
+                              disabled={retryingJobId === job.id}
+                              onClick={() => void retryJob(job.id)}
+                            >
+                              {retryingJobId === job.id
+                                ? <I18nText zh="重试中…" en="Retrying..." />
+                                : <I18nText zh="重试" en="Retry" />}
+                            </button>
+                          ) : null}
+                        </li>
+                      ))}
+                    </ul>
+                  ) : null}
                 </article>
               );
             })
