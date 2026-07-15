@@ -5,7 +5,7 @@ import { I18nText } from "./I18nText";
 
 export type InviteCodeView = {
   id: string;
-  code: string;
+  code: string | null;
   status: "UNUSED" | "USED" | "REVOKED" | string;
   note: string;
   usedBy: string | null;
@@ -19,7 +19,7 @@ const STATUS_LABELS: Record<string, { zh: string; en: string }> = {
   REVOKED: { zh: "已作废", en: "Revoked" }
 };
 
-export function AdminInviteManager({ initialCodes }: { initialCodes: InviteCodeView[] }) {
+export function AdminInviteManager({ initialCodes, page = 1 }: { initialCodes: InviteCodeView[]; page?: number }) {
   const [codes, setCodes] = useState(initialCodes);
   const [count, setCount] = useState(5);
   const [note, setNote] = useState("");
@@ -29,7 +29,7 @@ export function AdminInviteManager({ initialCodes }: { initialCodes: InviteCodeV
   const [copied, setCopied] = useState(false);
 
   async function refresh() {
-    const response = await fetch("/api/admin/invites");
+    const response = await fetch(`/api/admin/invites?page=${page}`);
     if (!response.ok) return;
     const data = (await response.json()) as { codes: InviteCodeView[] };
     setCodes(data.codes);
@@ -56,7 +56,9 @@ export function AdminInviteManager({ initialCodes }: { initialCodes: InviteCodeV
     }
   }
 
-  async function revoke(id: string) {
+  async function revoke(id: string, code: string | null) {
+    const label = code ? `「${code}」` : "该邀请码";
+    if (!window.confirm(`确认永久作废${label}吗？作废后无法恢复，也不能再用于注册。`)) return;
     setError("");
     try {
       const response = await fetch(`/api/admin/invites/${id}`, { method: "DELETE" });
@@ -83,8 +85,8 @@ export function AdminInviteManager({ initialCodes }: { initialCodes: InviteCodeV
         <h2><I18nText zh="生成邀请码" en="Generate invite codes" /></h2>
         <p className="muted">
           <I18nText
-            zh="生成后请复制并手动发放。用户注册只需要用户名 + 邀请码；邀请码同时是该用户之后的登录凭据，请提醒对方妥善保存。"
-            en="Copy the codes and hand them out manually. Users register with a username + code; the code doubles as their login credential afterwards."
+            zh="生成后请复制并手动发放。用户注册时需填写用户名、邀请码，并自行设置强密码；邀请码仅能开户一次，不是登录密码。"
+            en="Copy and distribute codes manually. Registration requires a username, an invite code, and a user-chosen strong password. A code opens an account once and is never a login password."
           />
         </p>
         <div className="field-row">
@@ -149,7 +151,13 @@ export function AdminInviteManager({ initialCodes }: { initialCodes: InviteCodeV
               <tbody>
                 {codes.map((row) => (
                   <tr key={row.id}>
-                    <td><code>{row.code}</code></td>
+                    <td>
+                      {row.code ? (
+                        <code>{row.code}</code>
+                      ) : (
+                        <span className="muted"><I18nText zh="已永久遮盖" en="Permanently masked" /></span>
+                      )}
+                    </td>
                     <td>
                       <span className={`tag invite-status-${row.status.toLowerCase()}`}>
                         <I18nText
@@ -163,7 +171,7 @@ export function AdminInviteManager({ initialCodes }: { initialCodes: InviteCodeV
                     <td>{new Date(row.createdAt).toLocaleDateString()}</td>
                     <td>
                       {row.status === "UNUSED" ? (
-                        <button className="text-link" type="button" onClick={() => void revoke(row.id)}>
+                        <button className="text-link" type="button" onClick={() => void revoke(row.id, row.code)}>
                           <I18nText zh="作废" en="Revoke" />
                         </button>
                       ) : null}

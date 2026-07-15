@@ -113,6 +113,40 @@ export default async function ModulesPage() {
                       </ConfirmButton>
                     </form>
                   </div>
+                  <details style={{ marginTop: 10 }}>
+                    <summary className="text-link" style={{ cursor: "pointer" }}>
+                      <I18nText zh="编辑模块" en="Edit module" />
+                    </summary>
+                    <form className="form-stack" action={`/api/admin/modules/${module.id}`} method="post" style={{ marginTop: 10 }}>
+                      <div className="field-row">
+                        <div className="field">
+                          <label htmlFor={`module-name-${module.id}`}><I18nText zh="名称" en="Name" /></label>
+                          <input id={`module-name-${module.id}`} name="name" required defaultValue={module.name} />
+                        </div>
+                        <div className="field">
+                          <label htmlFor={`module-slug-${module.id}`}>Slug</label>
+                          <input id={`module-slug-${module.id}`} name="slug" required pattern="[a-z0-9-]+" defaultValue={module.slug} />
+                        </div>
+                      </div>
+                      <div className="field">
+                        <label htmlFor={`module-description-${module.id}`}><I18nText zh="简介" en="Description" /></label>
+                        <textarea id={`module-description-${module.id}`} name="description" defaultValue={module.description || ""} />
+                      </div>
+                      <div className="field-row">
+                        <div className="field">
+                          <label htmlFor={`module-color-${module.id}`}><I18nText zh="主色" en="Accent" /></label>
+                          <input id={`module-color-${module.id}`} name="color" type="color" defaultValue={module.color} />
+                        </div>
+                        <div className="field">
+                          <label htmlFor={`module-order-${module.id}`}><I18nText zh="排序" en="Order" /></label>
+                          <input id={`module-order-${module.id}`} name="sortOrder" type="number" defaultValue={module.sortOrder} />
+                        </div>
+                      </div>
+                      <SubmitButton pendingLabel={<I18nText zh="保存中…" en="Saving…" />}>
+                        <I18nText zh="保存模块修改" en="Save module" />
+                      </SubmitButton>
+                    </form>
+                  </details>
                 </div>
               ))}
             </div>

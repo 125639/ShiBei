@@ -13,11 +13,19 @@ export function shouldSeedAiModel(
   existingModelCount: number
 ): ModelConfigInput | null;
 
-export function buildAdminUpsertArgs(
+export function adminUsernameFromEnv(
+  env: Record<string, string | undefined>
+): string;
+
+export function buildAdminCreateData(
   env: Record<string, string | undefined>,
   passwordHash: string
 ): {
-  where: { username: string };
-  update: { passwordHash: string };
-  create: { username: string; passwordHash: string };
+  username: string;
+  passwordHash: string;
+};
+
+export function buildAdminPasswordRotationData(passwordHash: string): {
+  passwordHash: string;
+  tokenVersion: { increment: number };
 };

@@ -3,11 +3,16 @@ import { requireAdmin } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { redirectTo } from "@/lib/redirect";
 import { getVideoDownloadQueue } from "@/lib/queue";
+import { rejectCrossOriginMutation } from "@/lib/request-origin";
+import { revisionMediaBlockedRedirect } from "@/lib/post-revision";
+import { videoTouchesPendingRevision } from "@/lib/video-download";
 
 // 把一条外链/嵌入视频排入后台下载队列（worker 用 yt-dlp 拉回本地）。
 // POST 表单字段：videoId、redirect（可选，仅允许 /admin 内路径）。
 // 下载完成后 Video 变为 LOCAL 本地文件，文章中的短代码直接以本地播放器渲染。
 export async function POST(request: Request) {
+  const denied = rejectCrossOriginMutation(request);
+  if (denied) return denied;
   await requireAdmin();
   const form = await request.formData();
   const videoId = String(form.get("videoId") || "").trim();
@@ -24,6 +29,9 @@ export async function POST(request: Request) {
   }
   if (video.downloadStatus === "queued" || video.downloadStatus === "running") {
     return redirectTo(redirect); // 已在队列/下载中，避免重复任务
+  }
+  if (await videoTouchesPendingRevision(videoId)) {
+    return redirectTo(revisionMediaBlockedRedirect(redirect), request);
   }
   if (!/^https?:\/\//i.test(video.url || "")) {
     return NextResponse.json({ error: "该视频没有可下载的 http(s) 地址" }, { status: 400 });

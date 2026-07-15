@@ -30,7 +30,7 @@ export async function GET(
 
   const [rows, member] = await Promise.all([
     prisma.comment.findMany({
-      where: { postId: id, post: { status: "PUBLISHED" } },
+      where: { postId: id, post: { status: "PUBLISHED", publicationBlockedReason: null } },
       orderBy: { createdAt: "asc" },
       take: 200,
       include: { member: { select: { displayName: true, username: true, email: true } } }
@@ -86,8 +86,11 @@ export async function POST(
   const parsed = await parseJsonBody(request, CreateSchema);
   if (!parsed.ok) return parsed.response;
 
-  const post = await prisma.post.findUnique({ where: { id }, select: { id: true, status: true } });
-  if (!post || post.status !== "PUBLISHED") {
+  const post = await prisma.post.findUnique({
+    where: { id },
+    select: { id: true, status: true, publicationBlockedReason: true }
+  });
+  if (!post || post.status !== "PUBLISHED" || post.publicationBlockedReason) {
     return NextResponse.json({ error: "文章不存在" }, { status: 404 });
   }
 

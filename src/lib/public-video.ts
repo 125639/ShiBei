@@ -1,7 +1,7 @@
 import type { Prisma } from "@prisma/client";
 
 export const publicVideoWhere: Prisma.VideoWhereInput = {
-  post: { status: "PUBLISHED" }
+  post: { status: "PUBLISHED", publicationBlockedReason: null }
 };
 
 export function combineVideoWhere(...clauses: Array<Prisma.VideoWhereInput | null | undefined>): Prisma.VideoWhereInput {

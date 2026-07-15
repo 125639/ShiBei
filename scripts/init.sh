@@ -147,6 +147,21 @@ detect_ip() {
   echo "${ip:-127.0.0.1}"
 }
 
+detect_public_ip() {
+  local ip=""
+  if command -v curl >/dev/null 2>&1; then
+    # Cloud metadata is preferable to a third-party lookup and cannot be
+    # influenced by DNS. Fall back to the routable interface address offline.
+    ip="$(curl -fsS --max-time 2 -H 'Metadata-Flavor: Google' \
+      'http://metadata.google.internal/computeMetadata/v1/instance/network-interfaces/0/access-configs/0/external-ip' \
+      2>/dev/null || true)"
+  fi
+  if [[ ! "$ip" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+    ip="$(detect_ip)"
+  fi
+  printf '%s\n' "$ip"
+}
+
 detect_os() {
   case "$(uname -s 2>/dev/null || true)" in
     Darwin) echo "macos" ;;
@@ -156,6 +171,16 @@ detect_os() {
 }
 
 escape_dq() { printf '%s' "${1//\"/\\\"}"; }
+
+is_secure_backend_url() {
+  local value="${1%/}"
+  [ -z "$value" ] && return 0
+  # Cross-host sync carries SYNC_TOKEN and proxies requests backed by model
+  # credentials. Plain HTTP is only accepted on loopback, where operators can
+  # terminate an SSH/WireGuard tunnel locally.
+  [[ "$value" =~ ^https://[^/]+(/.*)?$ ]] && return 0
+  [[ "$value" =~ ^http://(127\.0\.0\.1|localhost)(:[0-9]+)?$ ]]
+}
 
 # ---------- 主流程（包进函数以便单元测试 source 该文件时不触发） --------------
 _run_wizard() {
@@ -208,12 +233,35 @@ ui_success "APP_MODE = ${BOLD}${APP_MODE}${NC}"
 
 # ---------- [2/6] 站点 URL ---------------------------------------------------
 ui_stage "公开访问地址 (NEXT_PUBLIC_SITE_URL)"
-DETECTED_IP="$(detect_ip)"
-DEFAULT_URL="http://${DETECTED_IP}:3000"
-ui_info "检测到本机 IP：${BOLD}${DETECTED_IP}${NC}"
-ui_info "正式部署建议改为带 HTTPS 的域名（如 https://shibei.example.com）"
+DETECTED_IP="$(detect_public_ip)"
+DEFAULT_URL="https://${DETECTED_IP}"
+ui_info "检测到候选公网 IP：${BOLD}${DETECTED_IP}${NC}"
+ui_info "生产登录固定使用 Secure Cookie，公网地址必须是 HTTPS。"
+ui_info "可填 HTTPS 域名；full 模式也可直接为公网 IPv4 自动签发短周期证书。"
 ask_default SITE_URL "站点 URL" "$DEFAULT_URL"
+SITE_URL="${SITE_URL%/}"
+PUBLIC_HOST=""
+BUILTIN_HTTPS=0
+if [[ "$SITE_URL" =~ ^https://([A-Za-z0-9.-]+)$ ]]; then
+  PUBLIC_HOST="${BASH_REMATCH[1]}"
+  if [ "$APP_MODE" = "full" ]; then BUILTIN_HTTPS=1; fi
+elif [[ "$SITE_URL" =~ ^http://(localhost|127\.0\.0\.1)(:[0-9]+)?$ ]]; then
+  PUBLIC_HOST="${BASH_REMATCH[1]}"
+else
+  ui_error "站点 URL 必须是无路径的 HTTPS 域名/公网 IPv4；只有 localhost 可使用 HTTP。"
+  exit 1
+fi
 ui_success "NEXT_PUBLIC_SITE_URL = $SITE_URL"
+
+TLS_STATE_DIR="/var/lib/shibei-tls"
+APP_BIND_IP="0.0.0.0"
+TRUST_PROXY_HOPS="0"
+UPDATE_RECREATE_SERVICES=""
+if [ "$BUILTIN_HTTPS" = "1" ]; then
+  APP_BIND_IP="127.0.0.1"
+  TRUST_PROXY_HOPS="1"
+  UPDATE_RECREATE_SERVICES="proxy"
+fi
 
 # ---------- [3/6] 管理员账号 -------------------------------------------------
 ui_stage "管理员账号"
@@ -252,7 +300,13 @@ INIT_AI_API_KEY=""
 if [ "$APP_MODE" = "frontend" ]; then
   ui_stage "前端 → 后端 同步参数"
   ui_info "也可以现在留空，启动后在 /admin/sync 网页端填写。"
+  ui_info "跨机必须使用 HTTPS；若用 SSH/WireGuard 私网隧道，填本机 http://127.0.0.1:<端口>。"
   ask_default BACKEND_API_URL "Backend 入口 URL" "https://api.example.com"
+  BACKEND_API_URL="${BACKEND_API_URL%/}"
+  if ! is_secure_backend_url "$BACKEND_API_URL"; then
+    ui_error "Backend 入口会携带 SYNC_TOKEN，跨机必须使用 HTTPS；私网隧道请填 http://127.0.0.1:<端口>。"
+    exit 1
+  fi
   ask_default SYNC_MODE "同步模式 (auto/manual)" "auto"
   ask_default SYNC_INTERVAL_MINUTES "自动拉取间隔（分钟）" "15"
 else
@@ -285,6 +339,10 @@ AIMODELS
     *) ui_info "已跳过 AI 模型配置，可在 /admin/settings 网页端添加。" ;;
   esac
   if [ -n "$INIT_AI_PROVIDER" ]; then
+    if [[ ! "$INIT_AI_BASE_URL" =~ ^https:// ]]; then
+      ui_error "模型 Base URL 必须使用 HTTPS，以免 API Key 通过明文连接泄露。"
+      exit 1
+    fi
     ask_secret INIT_AI_API_KEY "API Key（留空可稍后在网页填）"
     if [ -z "$INIT_AI_API_KEY" ]; then
       ui_warn "未填写 API Key；首次启动后请到 /admin/settings 修改。"
@@ -299,6 +357,9 @@ ui_stage "Install Plan"
 ui_kv "OS"                    "$OS"
 ui_kv "APP_MODE"              "$APP_MODE"
 ui_kv "NEXT_PUBLIC_SITE_URL"  "$SITE_URL"
+if [ "$BUILTIN_HTTPS" = "1" ]; then
+  ui_kv "HTTPS 入口"           "$PUBLIC_HOST（自动证书 + 续期）"
+fi
 ui_kv "ADMIN_USERNAME"        "$ADMIN_USERNAME"
 ui_kv "ADMIN_PASSWORD"        "$ADMIN_PASSWORD"
 ui_kv_secret "AUTH_SECRET"    "$AUTH_SECRET"
@@ -336,8 +397,13 @@ REDIS_URL="redis://redis:6379"
 AUTH_SECRET="$(escape_dq "$AUTH_SECRET")"
 ENCRYPTION_KEY="$(escape_dq "$ENCRYPTION_KEY")"
 
-# --- 公开访问 URL（影响 cookie secure 标志）-----------------------------------
+# --- 公开访问 URL 与可选内置 HTTPS --------------------------------------------
 NEXT_PUBLIC_SITE_URL="$(escape_dq "$SITE_URL")"
+PUBLIC_HOST="$(escape_dq "$PUBLIC_HOST")"
+TLS_STATE_DIR="$(escape_dq "$TLS_STATE_DIR")"
+APP_BIND_IP="$(escape_dq "$APP_BIND_IP")"
+TRUST_PROXY_HOPS="$(escape_dq "$TRUST_PROXY_HOPS")"
+UPDATE_RECREATE_SERVICES="$(escape_dq "$UPDATE_RECREATE_SERVICES")"
 
 # --- 初始管理员账号（首次启动 seed 时写入；登录后请到 /admin/settings 改密码）---
 ADMIN_USERNAME="$(escape_dq "$ADMIN_USERNAME")"
@@ -378,6 +444,15 @@ case "$APP_MODE" in
   backend)  COMPOSE_ARGS=(-f docker-compose.backend.yml) ;;
   frontend) COMPOSE_ARGS=(-f docker-compose.frontend.yml) ;;
 esac
+
+# Compose build args are also the runtime /api/health version identity. Export
+# them for wizard-driven builds just like scripts/deploy.sh and the updater do.
+GIT_COMMIT="$(git -C "$PROJECT_DIR" rev-parse --short HEAD 2>/dev/null || printf 'source')"
+if ! git -C "$PROJECT_DIR" diff --quiet HEAD 2>/dev/null; then
+  GIT_COMMIT="${GIT_COMMIT}-dirty"
+fi
+BUILD_TIME="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+export GIT_COMMIT BUILD_TIME
 COMPOSE_CMD_DISPLAY="docker compose"
 if [ "${#COMPOSE_ARGS[@]}" -gt 0 ]; then
   COMPOSE_CMD_DISPLAY="docker compose ${COMPOSE_ARGS[*]}"
@@ -410,11 +485,36 @@ case "$AUTO_START" in
       ui_info "切到 $PROJECT_DIR 并运行 ${COMPOSE_UP_DISPLAY} ..."
       ui_info "测试环境默认本地 build；如要改用远程镜像，删掉 --build 并 ${COMPOSE_CMD_DISPLAY} pull。"
       if (cd "$PROJECT_DIR" && docker compose "${COMPOSE_ARGS[@]}" "${COMPOSE_UP_ARGS[@]}"); then
-        AUTO_STARTED=1
-        DOCKER_FAILED=0
-        DOCKER_MISSING=0
-        echo
-        ui_success "容器已启动；用 ${COMPOSE_CMD_DISPLAY} ps 看状态、logs -f 看日志。"
+        TLS_BOOTSTRAP_OK=1
+        if [ "$BUILTIN_HTTPS" = "1" ]; then
+          echo
+          ui_info "签发 ${PUBLIC_HOST} 的 HTTPS 证书并安装自动续期…"
+          if [ "${EUID:-$(id -u)}" -eq 0 ]; then
+            TLS_BOOTSTRAP_CMD=("$PROJECT_DIR/scripts/bootstrap-ip-tls.sh")
+          elif command -v sudo >/dev/null 2>&1; then
+            TLS_BOOTSTRAP_CMD=(sudo "$PROJECT_DIR/scripts/bootstrap-ip-tls.sh")
+          else
+            TLS_BOOTSTRAP_CMD=()
+            TLS_BOOTSTRAP_OK=0
+            ui_error "缺少 root/sudo，无法绑定 80/443 或安装证书续期 timer。"
+          fi
+          if [ "${#TLS_BOOTSTRAP_CMD[@]}" -gt 0 ] && ! "${TLS_BOOTSTRAP_CMD[@]}"; then
+            TLS_BOOTSTRAP_OK=0
+            ui_error "HTTPS 证书或反向代理启动失败；应用仍只监听本机，不会退回不安全的公网 HTTP。"
+          fi
+        fi
+
+        if [ "$TLS_BOOTSTRAP_OK" = "1" ]; then
+          AUTO_STARTED=1
+          DOCKER_FAILED=0
+          DOCKER_MISSING=0
+          echo
+          ui_success "容器已启动；用 ${COMPOSE_CMD_DISPLAY} ps 看状态、logs -f 看日志。"
+        else
+          AUTO_STARTED=0
+          DOCKER_FAILED=1
+          DOCKER_MISSING=0
+        fi
       else
         AUTO_STARTED=0
         DOCKER_FAILED=1
@@ -448,6 +548,9 @@ if [ "${DOCKER_FAILED:-0}" = "1" ]; then
   printf "       ${MUTED}cd %s && %s pull && %s up -d --force-recreate${NC}\n" "$PROJECT_DIR" "$COMPOSE_CMD_DISPLAY" "$COMPOSE_CMD_DISPLAY"
   printf "  ${BOLD}3. 检查端口：${NC}sudo lsof -i :3000   ${MUTED}(被占用就改 compose 的 ports 映射)${NC}\n"
   printf "  ${BOLD}4. 重新启动：${NC}cd %s && %s\n" "$PROJECT_DIR" "$COMPOSE_UP_DISPLAY"
+  if [ "$BUILTIN_HTTPS" = "1" ]; then
+    printf "  ${BOLD}5. HTTPS：${NC}sudo %s/scripts/bootstrap-ip-tls.sh\n" "$PROJECT_DIR"
+  fi
   echo
   ui_info "排查后容器跑起来,登录信息:${ACCENT_BRIGHT}${SITE_URL%/}/admin${NC}  账号:${BOLD}${ADMIN_USERNAME} / ${ADMIN_PASSWORD}${NC}"
   echo
@@ -476,7 +579,12 @@ if [ "${DOCKER_MISSING:-0}" = "1" ]; then
   esac
   printf "  ${BOLD}2. 验证：${NC}docker --version && docker compose version\n"
   printf "  ${BOLD}3. 启动：${NC}cd %s && %s\n" "$PROJECT_DIR" "$COMPOSE_UP_DISPLAY"
-  printf "  ${BOLD}4. 健康检查：${NC}curl ${SITE_URL%/}/api/health\n"
+  if [ "$BUILTIN_HTTPS" = "1" ]; then
+    printf "  ${BOLD}4. HTTPS：${NC}sudo %s/scripts/bootstrap-ip-tls.sh\n" "$PROJECT_DIR"
+    printf "  ${BOLD}5. 健康检查：${NC}curl ${SITE_URL%/}/api/health\n"
+  else
+    printf "  ${BOLD}4. 健康检查：${NC}curl ${SITE_URL%/}/api/health\n"
+  fi
   echo
   ui_info "启动后管理后台:${ACCENT_BRIGHT}${SITE_URL%/}/admin${NC}  账号:${BOLD}${ADMIN_USERNAME} / ${ADMIN_PASSWORD}${NC}"
   if [ "$APP_MODE" = "backend" ]; then
@@ -497,6 +605,9 @@ if [ "${AUTO_STARTED:-0}" = "1" ]; then
 else
   # 没自动起：完整把 cd + 启动一行写出来，避免用户在错误目录里跑 docker compose。
   printf "  ${BOLD}启动：${NC}cd %s && %s\n" "$PROJECT_DIR" "$COMPOSE_UP_DISPLAY"
+  if [ "$BUILTIN_HTTPS" = "1" ]; then
+    printf "  ${BOLD}HTTPS：${NC}sudo %s/scripts/bootstrap-ip-tls.sh\n" "$PROJECT_DIR"
+  fi
 fi
 printf "  ${BOLD}健康检查：${NC}curl ${SITE_URL%/}/api/health\n"
 printf "  ${BOLD}管理后台：${NC}${ACCENT_BRIGHT}${SITE_URL%/}/admin${NC}\n"

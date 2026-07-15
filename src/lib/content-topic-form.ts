@@ -11,6 +11,7 @@ export type ParsedTopicForm = {
   articleCount: number;
   keywords: string;
   styleId: string | null;
+  moduleIds: string[];
   cron: string;
   isEnabled: boolean;
   useExa: boolean;
@@ -42,6 +43,7 @@ export function parseTopicForm(form: FormData): ParsedTopicForm | null {
     articleCount: clampInt(Number(form.get("articleCount") || 1), 1, 5, 1),
     keywords,
     styleId: styleIdRaw === "" ? null : styleIdRaw,
+    moduleIds: [...new Set(form.getAll("moduleIds").map(String).filter(Boolean))],
     cron,
     isEnabled: form.get("isEnabled") === "true",
     useExa: form.get("useExa") === "true"

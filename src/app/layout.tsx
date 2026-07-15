@@ -26,11 +26,6 @@ export async function generateMetadata(): Promise<Metadata> {
       siteName,
       title: siteName,
       description
-    },
-    alternates: {
-      types: {
-        "application/rss+xml": "/feed.xml"
-      }
     }
   };
 }
@@ -77,6 +72,11 @@ export default async function RootLayout({ children }: { children: React.ReactNo
       suppressHydrationWarning
     >
       <head>
+        {/* Child pages replace (rather than deep-merge) Metadata.alternates when
+            they declare a canonical URL. Keep the site-wide feed discovery link
+            in the root head so it is present on every route and stays relative
+            in build-time fallback pages. */}
+        <link rel="alternate" type="application/rss+xml" href="/feed.xml" />
         <UserPreferencesScript
           defaultTheme={defaultTheme}
           defaultFont={defaultFont}

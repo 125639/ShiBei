@@ -4,13 +4,17 @@ import { prisma } from "@/lib/prisma";
 import { I18nText } from "@/components/I18nText";
 import { Pagination } from "@/components/Pagination";
 import { RelativeTime } from "@/components/RelativeTime";
-import { CREATION_MODES } from "@/lib/creation";
+import {
+  CREATION_MODES,
+  isCommunityScoreCurrent,
+  scoredCommunitySummary
+} from "@/lib/creation";
 
 export const dynamic = "force-dynamic";
 
 export const metadata: Metadata = {
   title: "读者社区",
-  description: "读者与 AI 共创并主动公开的作品，全部经过按题材标尺的 AI 评分。",
+  description: "读者纯手写或与 AI 访谈共创后主动公开的作品，全部经过按题材标尺的 AI 评分。",
   alternates: { canonical: "/community" }
 };
 
@@ -43,10 +47,21 @@ export default async function CommunityPage({
         slug: true,
         title: true,
         summary: true,
+        content: true,
         mode: true,
+        depth: true,
         score: true,
+        scoredHash: true,
+        scoredRubricHash: true,
         publishedAt: true,
-        genre: { select: { name: true, slug: true } },
+        genre: {
+          select: {
+            name: true,
+            slug: true,
+            dimensions: true,
+            threshold: true
+          }
+        },
         owner: { select: { displayName: true } },
         ownerId: true
       }
@@ -61,8 +76,8 @@ export default async function CommunityPage({
         <h1 className="page-title"><I18nText zh="读者社区" en="Community" /></h1>
         <p className="muted-block">
           <I18nText
-            zh="这里的每一篇都是读者与 AI 访谈共创、由创作者本人决定公开的作品，并通过了按题材标尺的 AI 评分。"
-            en="Every piece here was co-created through an AI interview, scored against its genre rubric, and published by the creator's own choice."
+            zh="这里收录创作者纯手写或与 AI 访谈共创的文章；每篇都按题材标尺评分，并且只由创作者本人决定是否公开。"
+            en="These articles are either written entirely by their creators or co-created through an AI interview. Every piece is scored against its genre rubric and published only by the creator's choice."
           />
         </p>
       </section>
@@ -92,23 +107,31 @@ export default async function CommunityPage({
         </div>
       ) : (
         <div className="bento-grid news-bento">
-          {works.map((work) => (
-            <article key={work.id} className="bento-card linked-card">
-              <div className="meta-row">
-                <span className="tag">{work.genre.name}</span>
-                <span className="tag">{CREATION_MODES[work.mode].label}</span>
-                {work.score !== null ? <span className="tag creation-score-pass">AI 评分 {work.score}</span> : null}
-              </div>
-              <h2>
-                <Link className="card-link" href={`/community/${work.slug}`}>{work.title}</Link>
-              </h2>
-              {work.summary ? <p className="muted">{work.summary}</p> : null}
-              <p className="muted creation-byline">
-                {work.ownerId ? work.owner?.displayName || "注册创作者" : "匿名创作者"}
-                {work.publishedAt ? <> ｜ <RelativeTime value={work.publishedAt.toISOString()} /></> : null}
-              </p>
-            </article>
-          ))}
+          {works.map((work) => {
+            const summary = scoredCommunitySummary(work);
+            const currentScore = isCommunityScoreCurrent(work) ? work.score : null;
+            return (
+              <article key={work.id} className="bento-card linked-card">
+                <div className="meta-row">
+                  <span className="tag">{work.genre.name}</span>
+                  <span className="tag">{CREATION_MODES[work.mode].label}</span>
+                  {currentScore !== null
+                    ? <span className="tag creation-score-pass">AI 评分 {currentScore}</span>
+                    : null}
+                </div>
+                <h2>
+                  <Link className="card-link" href={`/community/${work.slug}`}>{work.title}</Link>
+                </h2>
+                {summary ? <p className="muted">{summary}</p> : null}
+                <p className="muted creation-byline">
+                  {work.ownerId ? work.owner?.displayName || "注册创作者" : "匿名创作者"}
+                  {work.publishedAt
+                    ? <> ｜ <RelativeTime value={work.publishedAt.toISOString()} /></>
+                    : null}
+                </p>
+              </article>
+            );
+          })}
         </div>
       )}
 

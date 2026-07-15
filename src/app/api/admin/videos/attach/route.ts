@@ -1,15 +1,24 @@
+import { Prisma } from "@prisma/client";
 import { NextResponse } from "next/server";
 import { requireAdmin } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { revalidatePublicContent } from "@/lib/revalidate-public";
 import { redirectTo } from "@/lib/redirect";
+import { rejectCrossOriginMutation } from "@/lib/request-origin";
+import { revisionMediaBlockedRedirect } from "@/lib/post-revision";
 import { normalizeVideoDisplayMode, removeVideoShortcode } from "@/lib/video-display";
+
+class PendingRevisionMediaError extends Error {}
+class AttachVideoNotFoundError extends Error {}
+class AttachPostNotFoundError extends Error {}
 
 // 把 Video 关联到 / 解除关联到 一篇文章。
 // POST /api/admin/videos/attach
 //   form: id=<videoId>, postId=<postId 或 空字符串>, redirect=<跳回路径>
 //   postId 为空字符串 → 解除关联（视频成为「未挂载」状态）
 export async function POST(request: Request) {
+  const denied = rejectCrossOriginMutation(request);
+  if (denied) return denied;
   await requireAdmin();
   const form = await request.formData();
   const id = String(form.get("id") || "").trim();
@@ -20,45 +29,69 @@ export async function POST(request: Request) {
     : {};
   if (!id) return NextResponse.json({ error: "missing video id" }, { status: 400 });
 
-  const video = await prisma.video.findUnique({
-    where: { id },
-    include: { post: { select: { id: true, slug: true, content: true, contentEn: true } } }
-  });
-  if (!video) return NextResponse.json({ error: "video not found" }, { status: 404 });
+  const changedPaths = new Set<string>();
+  try {
+    await prisma.$transaction(async (tx) => {
+      const lockedVideos = await tx.$queryRaw<Array<{ id: string }>>(Prisma.sql`
+        SELECT "id" FROM "Video" WHERE "id" = ${id} FOR UPDATE
+      `);
+      if (!lockedVideos.length) throw new AttachVideoNotFoundError();
+      const video = await tx.video.findUnique({ where: { id }, select: { id: true, postId: true } });
+      if (!video) throw new AttachVideoNotFoundError();
 
-  let nextPostSlug: string | null = null;
-  if (postIdRaw) {
-    const post = await prisma.post.findUnique({ where: { id: postIdRaw }, select: { id: true, slug: true } });
-    if (!post) return NextResponse.json({ error: "post not found" }, { status: 404 });
-    nextPostSlug = post.slug;
-    await prisma.video.update({
-      where: { id },
-      data: { ...displayModeData, post: { connect: { id: post.id } } },
-    });
-  } else {
-    await prisma.video.update({
-      where: { id },
-      data: { ...displayModeData, post: { disconnect: true } },
-    });
-  }
-
-  // 挂到别的文章或解除关联时，把原文章正文里的短代码一并清掉：
-  // 渲染层按 ID 解析短代码而不看归属，留着会让"已移走"的视频继续内嵌展示。
-  const previousPost = video.post;
-  if (previousPost && previousPost.id !== postIdRaw && postContainsShortcode(previousPost, id)) {
-    await prisma.post.update({
-      where: { id: previousPost.id },
-      data: {
-        content: removeVideoShortcode(previousPost.content, id),
-        ...(previousPost.contentEn ? { contentEn: removeVideoShortcode(previousPost.contentEn, id) } : {})
+      const postIds = [...new Set([video.postId, postIdRaw || null]
+        .filter((value): value is string => Boolean(value)))].sort();
+      if (postIds.length) {
+        await tx.$queryRaw(Prisma.sql`
+          SELECT "id" FROM "Post"
+          WHERE "id" IN (${Prisma.join(postIds)})
+          ORDER BY "id"
+          FOR UPDATE
+        `);
       }
+      const posts = postIds.length ? await tx.post.findMany({
+        where: { id: { in: postIds } },
+        select: { id: true, slug: true, content: true, contentEn: true, pendingRevision: true }
+      }) : [];
+      const previousPost = video.postId ? posts.find((post) => post.id === video.postId) : null;
+      const nextPost = postIdRaw ? posts.find((post) => post.id === postIdRaw) : null;
+      if (postIdRaw && !nextPost) throw new AttachPostNotFoundError();
+      if ((previousPost && previousPost.pendingRevision !== null) || (nextPost && nextPost.pendingRevision !== null)) {
+        throw new PendingRevisionMediaError();
+      }
+
+      await tx.video.update({
+        where: { id },
+        data: postIdRaw
+          ? { ...displayModeData, post: { connect: { id: postIdRaw } } }
+          : { ...displayModeData, post: { disconnect: true } }
+      });
+
+      // Moving/unmounting also removes the old shortcode atomically. Public
+      // rendering resolves video IDs globally, so leaving it behind would keep
+      // showing a video that no longer belongs to the article.
+      if (previousPost && previousPost.id !== postIdRaw && postContainsShortcode(previousPost, id)) {
+        await tx.post.update({
+          where: { id: previousPost.id },
+          data: {
+            content: removeVideoShortcode(previousPost.content, id),
+            ...(previousPost.contentEn ? { contentEn: removeVideoShortcode(previousPost.contentEn, id) } : {})
+          }
+        });
+      }
+      if (previousPost) changedPaths.add(`/posts/${previousPost.slug}`);
+      if (nextPost) changedPaths.add(`/posts/${nextPost.slug}`);
     });
+  } catch (error) {
+    if (error instanceof PendingRevisionMediaError) {
+      return redirectTo(revisionMediaBlockedRedirect(redirect), request);
+    }
+    if (error instanceof AttachVideoNotFoundError) return NextResponse.json({ error: "video not found" }, { status: 404 });
+    if (error instanceof AttachPostNotFoundError) return NextResponse.json({ error: "post not found" }, { status: 404 });
+    throw error;
   }
 
-  revalidatePublicContent([
-    previousPost ? `/posts/${previousPost.slug}` : null,
-    nextPostSlug ? `/posts/${nextPostSlug}` : null
-  ]);
+  revalidatePublicContent([...changedPaths]);
   return redirectTo(redirect);
 }
 

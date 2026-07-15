@@ -44,12 +44,16 @@ export async function generateMetadata({ params }: { params: Promise<{ slug: str
   const { slug } = await params;
   const [post, settings] = await Promise.all([
     prisma.post.findFirst({
-      where: { slug: { in: getSlugCandidates(slug) }, status: "PUBLISHED" },
+      where: { slug: { in: getSlugCandidates(slug) }, status: "PUBLISHED", publicationBlockedReason: null },
       select: { slug: true, title: true, summary: true, publishedAt: true, updatedAt: true }
     }),
     getCachedSiteChromeSettings().catch(() => null)
   ]);
-  if (!post) return {};
+  // Fail before the streamed page body starts. If only the page component calls
+  // notFound(), Next may already have committed a 200 response and merely render
+  // the 404 boundary inside it. Besides confusing clients, that lets missing
+  // article URLs be indexed as successful pages.
+  if (!post) notFound();
 
   const title = post.title;
   const description = post.summary.slice(0, 180);
@@ -97,7 +101,9 @@ export default async function PostDetailPage({ params }: { params: Promise<{ slu
       where: {
         slug: {
           in: getSlugCandidates(slug)
-        }
+        },
+        status: "PUBLISHED",
+        publicationBlockedReason: null
       },
       select: {
         id: true,
@@ -124,7 +130,7 @@ export default async function PostDetailPage({ params }: { params: Promise<{ slu
       select: { contentLanguageMode: true, videosEnabled: true, commentsEnabled: true }
     })
   ]);
-  if (!post || post.status !== "PUBLISHED") notFound();
+  if (!post) notFound();
   const contentLanguageMode = settings?.contentLanguageMode || "default-language";
   // 评论总开关（默认关闭）。关闭时页面完全没有评论痕迹;
   // 开启与否由客户端组件再向接口核验一次,接口才是权威。
@@ -153,6 +159,7 @@ export default async function PostDetailPage({ params }: { params: Promise<{ slu
     ? await prisma.post.findMany({
         where: {
           status: "PUBLISHED",
+          publicationBlockedReason: null,
           id: { not: post.id },
           topics: { some: { id: { in: topicIds } } }
         },
@@ -258,9 +265,7 @@ export default async function PostDetailPage({ params }: { params: Promise<{ slu
             />
           </article>
         </div>
-        <aside className="article-toc-rail">
-          <ArticleToc />
-        </aside>
+        <ArticleToc variant="rail" />
       </div>
 
       <AiAssistant

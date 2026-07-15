@@ -1,0 +1,113 @@
+map $http_upgrade $connection_upgrade {
+  default upgrade;
+  '' close;
+}
+
+# Per-client admission controls for the two intentionally large admin request
+# bodies. These zones are cheap and apply before the request is proxied.
+limit_conn_zone $binary_remote_addr zone=admin_upload_connections:10m;
+limit_req_zone $binary_remote_addr zone=admin_upload_requests:10m rate=30r/m;
+
+# Re-resolve the app service inside Docker. App updates replace the container
+# and may change its address; the proxy must not retain a dead startup-time IP.
+resolver 127.0.0.11 valid=10s ipv6=off;
+upstream shibei_app {
+  zone shibei_app 64k;
+  server app:3000 resolve;
+}
+
+server {
+  listen 80 default_server;
+  listen [::]:80 default_server;
+  server_name ${PUBLIC_HOST};
+  server_tokens off;
+
+  location ^~ /.well-known/acme-challenge/ {
+    root /var/www/certbot;
+    default_type text/plain;
+    try_files $uri =404;
+  }
+
+  location / {
+    return 308 https://${PUBLIC_HOST}$request_uri;
+  }
+}
+
+server {
+  listen 443 ssl default_server;
+  listen [::]:443 ssl default_server;
+  http2 on;
+  server_name ${PUBLIC_HOST};
+  server_tokens off;
+
+  ssl_certificate /etc/letsencrypt/live/${PUBLIC_HOST}/fullchain.pem;
+  ssl_certificate_key /etc/letsencrypt/live/${PUBLIC_HOST}/privkey.pem;
+  ssl_protocols TLSv1.2 TLSv1.3;
+  ssl_session_cache shared:TLS:10m;
+  ssl_session_timeout 1d;
+  ssl_session_tickets off;
+
+  # Keep ordinary public/admin requests small. Only the authenticated upload
+  # endpoints receive limits aligned with their application-side validators.
+  client_max_body_size 32m;
+
+  add_header Strict-Transport-Security "max-age=31536000" always;
+
+  location ~ /\.(?!well-known(?:/|$)) {
+    access_log off;
+    return 404;
+  }
+
+  # Authentication-only subrequest. It never forwards the original body, so an
+  # anonymous client cannot make nginx buffer hundreds of MB before Next.js gets
+  # a chance to reject the session.
+  location = /_shibei_admin_upload_auth {
+    internal;
+    proxy_pass http://shibei_app/api/internal/admin-upload-auth;
+    proxy_method GET;
+    proxy_pass_request_body off;
+    proxy_set_header Content-Length "";
+    proxy_set_header Cookie $http_cookie;
+    proxy_set_header Host $host;
+    proxy_set_header X-Forwarded-For $remote_addr;
+    proxy_set_header X-Forwarded-Host $host;
+    proxy_set_header X-Forwarded-Proto https;
+    proxy_connect_timeout 10s;
+    proxy_send_timeout 15s;
+    proxy_read_timeout 15s;
+  }
+
+  location = /api/admin/videos {
+    client_max_body_size 310m;
+    auth_request /_shibei_admin_upload_auth;
+    limit_conn admin_upload_connections 2;
+    limit_req zone=admin_upload_requests burst=10 nodelay;
+    client_body_timeout 60s;
+    proxy_request_buffering off;
+    proxy_connect_timeout 30s;
+    proxy_send_timeout 3600s;
+    proxy_read_timeout 3600s;
+    include /etc/nginx/proxy-common.inc;
+  }
+
+  location = /api/admin/sync/import {
+    client_max_body_size 520m;
+    auth_request /_shibei_admin_upload_auth;
+    limit_conn admin_upload_connections 2;
+    limit_req zone=admin_upload_requests burst=10 nodelay;
+    client_body_timeout 60s;
+    proxy_request_buffering off;
+    proxy_connect_timeout 30s;
+    proxy_send_timeout 3600s;
+    proxy_read_timeout 3600s;
+    include /etc/nginx/proxy-common.inc;
+  }
+
+  location / {
+    proxy_request_buffering on;
+    proxy_connect_timeout 30s;
+    proxy_send_timeout 3600s;
+    proxy_read_timeout 3600s;
+    include /etc/nginx/proxy-common.inc;
+  }
+}

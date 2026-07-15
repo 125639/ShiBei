@@ -1,12 +1,20 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
+import { markdownToHtml } from "@/lib/markdown";
 import { I18nText } from "./I18nText";
 
 type RevisionResult = {
   title?: string;
   summary?: string;
   content: string;
+};
+
+type RevisionSnapshot = {
+  title: string;
+  summary: string;
+  content: string;
+  scope: Scope;
 };
 
 type Scope = "content" | "full";
@@ -40,7 +48,9 @@ export function PostEditAssist() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [result, setResult] = useState<RevisionResult | null>(null);
+  const [snapshot, setSnapshot] = useState<RevisionSnapshot | null>(null);
   const [applied, setApplied] = useState(false);
+  const resultPreviewHtml = useMemo(() => result ? markdownToHtml(result.content) : "", [result]);
 
   async function run(instr: string, sc: Scope) {
     const text = instr.trim();
@@ -48,15 +58,22 @@ export function PostEditAssist() {
     setLoading(true);
     setError("");
     setResult(null);
+    setSnapshot(null);
     setApplied(false);
+    const currentSnapshot: RevisionSnapshot = {
+      title: readField("title"),
+      summary: readField("summary"),
+      content: readField("content"),
+      scope: sc
+    };
     try {
       const response = await fetch("/api/admin/posts/assist", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          title: readField("title"),
-          summary: readField("summary"),
-          content: readField("content"),
+          title: currentSnapshot.title,
+          summary: currentSnapshot.summary,
+          content: currentSnapshot.content,
           instruction: text,
           scope: sc
         })
@@ -65,6 +82,7 @@ export function PostEditAssist() {
       if (!response.ok) throw new Error(data.error || `请求失败 (HTTP ${response.status})`);
       if (!data.content) throw new Error("模型没有返回内容");
       setResult(data);
+      setSnapshot(currentSnapshot);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
@@ -73,7 +91,14 @@ export function PostEditAssist() {
   }
 
   function apply() {
-    if (!result) return;
+    if (!result || !snapshot) return;
+    const contentChanged = readField("content") !== snapshot.content;
+    const metadataChanged = snapshot.scope === "full"
+      && (readField("title") !== snapshot.title || readField("summary") !== snapshot.summary);
+    if (contentChanged || metadataChanged) {
+      setError("生成期间编辑器内容已经变化。为避免旧结果覆盖你的新修改，本次应用已阻止；请保留当前内容并重新生成修订稿。");
+      return;
+    }
     writeField("content", result.content);
     if (result.title) writeField("title", result.title);
     if (result.summary) writeField("summary", result.summary);
@@ -149,17 +174,25 @@ export function PostEditAssist() {
           {result.summary ? (
             <p className="muted" style={{ margin: 0 }}><strong><I18nText zh="新摘要：" en="New summary: " /></strong>{result.summary}</p>
           ) : null}
-          <div className="field">
-            <label htmlFor="post-assist-preview">
-              <I18nText zh={`修订稿预览（${result.content.length} 字符）`} en={`Revision preview (${result.content.length} chars)`} />
-            </label>
-            <textarea id="post-assist-preview" readOnly value={result.content} style={{ minHeight: 220 }} />
+          <div className="admin-assist-preview-wrap">
+            <div className="admin-markdown-panel-label">
+              <strong><I18nText zh={`排版后预览（${result.content.length} 字符）`} en={`Rendered preview (${result.content.length} chars)`} /></strong>
+              <span className="admin-preview-live"><span aria-hidden="true" /> <I18nText zh="尚未应用" en="Not applied" /></span>
+            </div>
+            <div
+              className="admin-assist-preview prose"
+              dangerouslySetInnerHTML={{ __html: resultPreviewHtml }}
+            />
+            <details className="admin-assist-source">
+              <summary><I18nText zh="查看模型返回的 Markdown 源码" en="View returned Markdown source" /></summary>
+              <textarea id="post-assist-preview" readOnly value={result.content} rows={12} />
+            </details>
           </div>
           <div className="row-actions">
             <button type="button" className="button" onClick={apply} disabled={applied}>
               {applied ? <I18nText zh="✓ 已应用，请在上方保存草稿" en="✓ Applied — save the draft above" /> : <I18nText zh="应用到编辑器" en="Apply to Editor" />}
             </button>
-            <button type="button" className="button secondary" onClick={() => { setResult(null); setApplied(false); }}>
+            <button type="button" className="button secondary" onClick={() => { setResult(null); setSnapshot(null); setApplied(false); }}>
               <I18nText zh="丢弃此稿" en="Discard" />
             </button>
           </div>

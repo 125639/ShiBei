@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { parseInterview } from "@/lib/creation";
+import { ownerExportScoreLabel, parseInterview } from "@/lib/creation";
 import { actorOwnsWork, getCreationActor } from "@/lib/creation-server";
 
 export const dynamic = "force-dynamic";
@@ -14,11 +14,12 @@ export async function GET(_request: Request, { params }: { params: Promise<{ id:
   }
 
   const interview = parseInterview(work.interview);
+  const scoreLabel = ownerExportScoreLabel(work);
   const lines = [
     `# ${work.title || work.topic}`,
     "",
     `> 题材：${work.genre.name} ｜ 创建：${work.createdAt.toISOString().slice(0, 10)}` +
-      (work.score !== null ? ` ｜ AI 评分：${work.score}/${work.genre.threshold}（公开门槛）` : ""),
+      (scoreLabel ? ` ｜ ${scoreLabel}` : ""),
     ""
   ];
   if (work.summary) lines.push(work.summary, "");

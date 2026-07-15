@@ -1,21 +1,46 @@
+import Link from "next/link";
 import { notFound } from "next/navigation";
+import { AdminMarkdownWorkspace } from "@/components/AdminMarkdownWorkspace";
 import { AdminShell } from "@/components/AdminShell";
+import { ConfirmButton } from "@/components/ConfirmButton";
 import { DirtyAwareForm } from "@/components/DirtyAwareForm";
 import { I18nText } from "@/components/I18nText";
 import { ImageUploadField } from "@/components/ImageUploadField";
 import { PostEditAssist } from "@/components/PostEditAssist";
 import { SubmitButton } from "@/components/SubmitButton";
+import { hasLocalWorker } from "@/lib/app-mode";
 import { requireAdmin } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 
-export default async function AdminPostEditPage({ params }: { params: Promise<{ id: string }> }) {
+export const dynamic = "force-dynamic";
+import { generationPublicationBlockReason } from "@/lib/publication-policy";
+import { parsePendingPostRevision } from "@/lib/post-revision";
+
+export default async function AdminPostEditPage({
+  params,
+  searchParams
+}: {
+  params: Promise<{ id: string }>;
+  searchParams: Promise<{
+    publishError?: string;
+    publishReason?: string;
+    draftSaved?: string;
+    revisionSaved?: string;
+    revisionMediaBlocked?: string;
+    editConflict?: string;
+    editIntentError?: string;
+  }>;
+}) {
   await requireAdmin();
+  const workerEnabled = hasLocalWorker();
   const { id } = await params;
+  const query = await searchParams;
   const [post, allVideos] = await Promise.all([
     prisma.post.findUnique({
       where: { id },
       select: {
         id: true,
+        slug: true,
         title: true,
         titleEn: true,
         summary: true,
@@ -25,10 +50,26 @@ export default async function AdminPostEditPage({ params }: { params: Promise<{ 
         sourceUrl: true,
         sortOrder: true,
         status: true,
+        updatedAt: true,
+        publicationBlockedReason: true,
+        pendingRevision: true,
         tags: { select: { id: true, name: true } },
         videos: {
           orderBy: [{ sortOrder: "asc" }, { createdAt: "desc" }],
-          select: { id: true, title: true, type: true, displayMode: true, localPath: true, downloadStatus: true }
+          select: {
+            id: true,
+            title: true,
+            type: true,
+            url: true,
+            displayMode: true,
+            summary: true,
+            sourcePageUrl: true,
+            sourcePlatform: true,
+            attribution: true,
+            durationSec: true,
+            localPath: true,
+            downloadStatus: true
+          }
         }
       }
     }),
@@ -38,69 +79,247 @@ export default async function AdminPostEditPage({ params }: { params: Promise<{ 
     }),
   ]);
   if (!post) notFound();
+  const pendingRevision = parsePendingPostRevision(post.pendingRevision);
+  const hasPendingRevision = post.pendingRevision !== null;
+  const draft = pendingRevision || {
+    title: post.title,
+    titleEn: post.titleEn,
+    summary: post.summary,
+    summaryEn: post.summaryEn,
+    content: post.content,
+    contentEn: post.contentEn,
+    sourceUrl: post.sourceUrl,
+    sortOrder: post.sortOrder,
+    tags: post.tags.map((tag) => tag.name)
+  };
+  const publicationBlock = generationPublicationBlockReason({
+    publicationBlockedReason: post.publicationBlockedReason,
+    summary: draft.summary,
+    content: draft.content
+  });
 
   return (
     <AdminShell>
-      <p className="eyebrow">Review</p>
-      <h1><I18nText zh="审核草稿" en="Review Draft" /></h1>
-      <DirtyAwareForm className="form-card form-stack" action={`/api/admin/posts/${post.id}`}>
-        <div className="field">
-          <label htmlFor="title"><I18nText zh="标题" en="Title" /><span aria-hidden="true" className="req">*</span></label>
-          <input id="title" name="title" defaultValue={post.title} required />
+      <header className="admin-page-header admin-post-edit-header">
+        <div>
+          <p className="eyebrow">Editorial workspace</p>
+          <h1><I18nText zh="文章编辑工作台" en="Post Editor" /></h1>
+          <p className="muted"><I18nText zh="在同一屏完成写作、成稿核对和发布设置。" en="Write, review the final rendering, and manage publication from one screen." /></p>
         </div>
-        <div className="field">
-          <label htmlFor="titleEn"><I18nText zh="英文标题（可选，AI 翻译会自动缓存）" en="English title (optional; AI translation is cached)" /></label>
-          <input id="titleEn" name="titleEn" defaultValue={post.titleEn || ""} />
+        <div className="admin-page-actions">
+          <Link className="button secondary" href="/admin/posts"><I18nText zh="返回文章列表" en="Back to posts" /></Link>
+          {post.status === "PUBLISHED" ? (
+            <Link className="button secondary" href={`/posts/${post.slug}`} target="_blank" rel="noopener"><I18nText zh="查看已发布文章 ↗" en="View published post ↗" /></Link>
+          ) : null}
+          <SubmitButton
+            form="admin-post-edit-form"
+            name="_intent"
+            value={post.status === "PUBLISHED" ? "save_pending" : "save"}
+            pendingLabel={<I18nText zh="保存中…" en="Saving…" />}
+          >
+            {post.status === "PUBLISHED"
+              ? <I18nText zh="保存待审修改" en="Save pending revision" />
+              : <I18nText zh="保存更改" en="Save changes" />}
+          </SubmitButton>
         </div>
-        <div className="field">
-          <label htmlFor="summary"><I18nText zh="摘要" en="Summary" /><span aria-hidden="true" className="req">*</span></label>
-          <textarea id="summary" name="summary" defaultValue={post.summary} required />
+      </header>
+      {query.revisionSaved === "1" ? (
+        <div className="form-notice" role="status">
+          <I18nText zh="待审修改已保存，线上文章没有变化。" en="The pending revision was saved; the live article is unchanged." />
         </div>
-        <div className="field">
-          <label htmlFor="summaryEn"><I18nText zh="英文摘要（可选）" en="English summary (optional)" /></label>
-          <textarea id="summaryEn" name="summaryEn" defaultValue={post.summaryEn || ""} />
+      ) : null}
+      {query.revisionMediaBlocked === "1" ? (
+        <div className="form-error" role="alert">
+          <I18nText zh="媒体操作已取消：这篇文章有待审修改。请先发布或放弃待审版本，避免媒体被写入错误的线上版本。" en="The media action was cancelled because this post has a pending revision. Publish or discard it first." />
         </div>
-        <div className="field">
-          <label htmlFor="content"><I18nText zh="正文 Markdown" en="Body (Markdown)" /><span aria-hidden="true" className="req">*</span></label>
-          <textarea id="content" name="content" defaultValue={post.content} style={{ minHeight: 420 }} required />
-          <p className="hint" style={{ marginTop: 6 }}>
+      ) : null}
+      {query.editConflict === "1" ? (
+        <div className="form-error" role="alert">
+          <I18nText zh="保存已取消：这篇文章在你编辑期间已被其他操作更新。页面已加载最新版本，请核对后再保存。" en="Save cancelled because the post changed while you were editing. Review the latest version and try again." />
+        </div>
+      ) : null}
+      {query.editIntentError === "1" ? (
+        <div className="form-error" role="alert">
+          <I18nText zh="操作已取消：已发布文章只能“保存待审修改”或“检查并更新线上”。" en="Action cancelled. A published post must be saved as a pending revision or explicitly checked and published." />
+        </div>
+      ) : null}
+      {query.publishError === "blocked" ? (
+        <div className="form-error" role="alert">
+          {query.publishReason || (query.draftSaved === "pending"
+            ? "这次修改仍未通过发布检查；线上原版本未变，修改已保存为待审核版本。"
+            : query.draftSaved === "1"
+              ? "这篇内容仍未通过发布检查；你的修改已保存为草稿。"
+              : "这篇内容仍未通过发布检查，已保持为草稿。")}
+        </div>
+      ) : null}
+      {hasPendingRevision ? (
+        <div className="form-notice" role="status">
+          {pendingRevision ? (
             <I18nText
-              zh={<>可以在正文任意位置插入 <code>[[video:VIDEO_ID]]</code> 短代码，会被替换为对应视频播放器；未被引用的视频会自动展示在文章末尾「相关视频」区。</>}
-              en={<>Insert <code>[[video:VIDEO_ID]]</code> shortcodes anywhere in the body to render players in place; unreferenced videos appear in the trailing “Related videos” section.</>}
+              zh={`当前编辑器加载的是待审核修改；网站仍展示上一次已发布的版本。当前检查提示：${pendingRevision.gateReason}`}
+              en={`The editor is showing a pending revision while readers still see the previous version. Current review note: ${pendingRevision.gateReason}`}
             />
-          </p>
+          ) : (
+            <I18nText
+              zh="检测到一份旧版或损坏的待审数据，系统未把它覆盖到编辑器，也已继续锁定媒体操作。请放弃这份无效待审数据后再编辑。"
+              en="An unreadable legacy pending revision was found. It was not loaded into the editor and media remains locked. Discard it before editing."
+            />
+          )}
+          <form action={`/api/admin/posts/${post.id}/pending-revision`} method="post" style={{ marginTop: 10 }}>
+            <input type="hidden" name="expectedUpdatedAt" value={post.updatedAt.toISOString()} />
+            <ConfirmButton className="button ghost" message="确定放弃这份待审修改吗？线上版本不会受影响，但待审正文无法恢复。">
+              <I18nText zh="放弃待审修改" en="Discard pending revision" />
+            </ConfirmButton>
+          </form>
         </div>
-        <div className="field">
-          <label htmlFor="contentEn"><I18nText zh="英文正文 Markdown（可选）" en="English body Markdown (optional)" /></label>
-          <textarea id="contentEn" name="contentEn" defaultValue={post.contentEn || ""} style={{ minHeight: 320 }} />
+      ) : null}
+      {publicationBlock ? (
+        <div className="form-error" role="alert">
+          <I18nText
+            zh={`不可直接发布：${publicationBlock}。请先依据原始资料改写正文和摘要；保存为“已发布”时系统会重新检查引用与来源。`}
+            en={`Publication blocked: ${publicationBlock}. Rewrite from the source material; the publish action will re-check citations and sources.`}
+          />
         </div>
-        <div className="field-row">
-          <div className="field">
-            <label htmlFor="tags"><I18nText zh="标签（逗号分隔）" en="Tags (comma separated)" /></label>
-            <input id="tags" name="tags" defaultValue={post.tags.map((tag) => tag.name).join(", ")} />
-          </div>
-          <div className="field">
-            <label htmlFor="sourceUrl"><I18nText zh="来源链接" en="Source URL" /></label>
-            <input id="sourceUrl" name="sourceUrl" defaultValue={post.sourceUrl || ""} />
-          </div>
+      ) : null}
+      <DirtyAwareForm id="admin-post-edit-form" className="admin-post-edit-form" action={`/api/admin/posts/${post.id}`}>
+        <input type="hidden" name="expectedUpdatedAt" value={post.updatedAt.toISOString()} />
+        <div className="admin-post-edit-main">
+          <section className="form-card form-stack admin-post-identity-card">
+            <div className="field">
+              <label htmlFor="title"><I18nText zh="文章标题" en="Post title" /><span aria-hidden="true" className="req">*</span></label>
+              <input className="admin-post-title-input" id="title" name="title" defaultValue={draft.title} required />
+            </div>
+            <div className="field">
+              <label htmlFor="summary"><I18nText zh="摘要" en="Summary" /><span aria-hidden="true" className="req">*</span></label>
+              <textarea id="summary" name="summary" defaultValue={draft.summary} required rows={4} />
+              <p className="hint"><I18nText zh="摘要会出现在文章列表和搜索结果中，建议直接说明核心结论。" en="This appears in lists and search results; state the central takeaway directly." /></p>
+            </div>
+          </section>
+
+          <section className="form-card admin-post-editor-card">
+            <AdminMarkdownWorkspace
+              id="content"
+              name="content"
+              initialValue={draft.content}
+              required
+              previewVideos={post.videos}
+              label={<><I18nText zh="中文正文" en="Chinese body" /><span aria-hidden="true" className="req">*</span></>}
+            />
+            <p className="hint admin-post-shortcode-hint">
+              <I18nText
+                zh={<>视频可用 <code>[[video:VIDEO_ID]]</code> 放到指定段落；未引用的视频会自动展示在文末「相关视频」。</>}
+                en={<>Use <code>[[video:VIDEO_ID]]</code> to place a video in a specific paragraph; unattached shortcodes appear in Related Videos.</>}
+              />
+            </p>
+          </section>
+
+          <details className="form-card form-stack admin-post-translation-card" open={Boolean(draft.titleEn || draft.summaryEn || draft.contentEn)}>
+            <summary><I18nText zh="英文版本（可选）" en="English version (optional)" /></summary>
+            <div className="field-row">
+              <div className="field">
+                <label htmlFor="titleEn"><I18nText zh="英文标题" en="English title" /></label>
+                <input id="titleEn" name="titleEn" defaultValue={draft.titleEn || ""} />
+              </div>
+              <div className="field">
+                <label htmlFor="summaryEn"><I18nText zh="英文摘要" en="English summary" /></label>
+                <textarea id="summaryEn" name="summaryEn" defaultValue={draft.summaryEn || ""} rows={3} />
+              </div>
+            </div>
+            <AdminMarkdownWorkspace
+              id="contentEn"
+              name="contentEn"
+              initialValue={draft.contentEn || ""}
+              compact
+              previewVideos={post.videos}
+              label={<I18nText zh="英文正文" en="English body" />}
+            />
+          </details>
         </div>
-        <div className="field">
-          <label htmlFor="sortOrder"><I18nText zh="排序（小的在前）" en="Sort order (asc)" /></label>
-          <input id="sortOrder" name="sortOrder" type="number" defaultValue={post.sortOrder} />
-        </div>
-        <div className="field">
-          <label htmlFor="status"><I18nText zh="状态" en="Status" /></label>
-          <select id="status" name="status" defaultValue={post.status}>
-            <option value="DRAFT">草稿 / Draft</option>
-            <option value="PUBLISHED">已发布 / Published</option>
-            <option value="ARCHIVED">已归档 / Archived</option>
-          </select>
-        </div>
-        <SubmitButton pendingLabel={<I18nText zh="保存中…" en="Saving…" />}><I18nText zh="保存草稿" en="Save Draft" /></SubmitButton>
+
+        <aside className="admin-post-edit-sidebar">
+          <section className="form-card form-stack admin-post-publish-card">
+            <div className="admin-post-publish-head">
+              <div>
+                <span className="muted"><I18nText zh="当前状态" en="Current status" /></span>
+                <strong>{post.status === "PUBLISHED" ? <I18nText zh="已发布" en="Published" /> : post.status === "ARCHIVED" ? <I18nText zh="已归档" en="Archived" /> : <I18nText zh="草稿" en="Draft" />}</strong>
+              </div>
+              <span className={`tag status-${post.status.toLowerCase()}`}>{post.status}</span>
+            </div>
+            {publicationBlock ? (
+              <div className="admin-post-block-note" role="note">
+                <strong><I18nText zh="发布检查未通过" en="Publication blocked" /></strong>
+                <span>{publicationBlock}</span>
+              </div>
+            ) : null}
+            {post.status === "PUBLISHED" ? (
+              <>
+                <input type="hidden" name="status" value="PUBLISHED" />
+                <p className="hint"><I18nText zh="保存待审修改不会影响线上版本；只有“检查并更新线上”通过引用与来源门禁后才会替换正文。" en="Saving a pending revision does not affect the live version. Only a successful publication check replaces it." /></p>
+                <div className="model-config-actions">
+                  <SubmitButton className="button secondary" name="_intent" value="save_pending" pendingLabel={<I18nText zh="正在保存…" en="Saving…" />}>
+                    <I18nText zh="保存待审修改" en="Save pending revision" />
+                  </SubmitButton>
+                  <SubmitButton name="_intent" value="publish_revision" pendingLabel={<I18nText zh="正在检查并发布…" en="Checking and publishing…" />}>
+                    <I18nText zh="检查并更新线上" en="Check & update live" />
+                  </SubmitButton>
+                </div>
+              </>
+            ) : (
+              <>
+                <div className="field">
+                  <label htmlFor="status"><I18nText zh="保存后的状态" en="Status after saving" /></label>
+                  <select id="status" name="status" defaultValue={post.status}>
+                    <option value="DRAFT">保留为草稿 / Keep draft</option>
+                    <option value="PUBLISHED">发布到网站 / Publish</option>
+                    <option value="ARCHIVED">移入归档 / Archive</option>
+                  </select>
+                  <p className="hint"><I18nText zh="选择“发布”后仍会先执行引用和来源检查。" en="Publishing still runs citation and source checks first." /></p>
+                </div>
+                <SubmitButton name="_intent" value="save" pendingLabel={<I18nText zh="正在保存并检查…" en="Saving and checking…" />}><I18nText zh="保存全部更改" en="Save all changes" /></SubmitButton>
+              </>
+            )}
+          </section>
+
+          <section className="form-card form-stack admin-post-settings-card">
+            <h2><I18nText zh="文章设置" en="Post settings" /></h2>
+            <div className="field">
+              <label htmlFor="tags"><I18nText zh="标签" en="Tags" /></label>
+              <input id="tags" name="tags" defaultValue={draft.tags.join(", ")} placeholder="AI, 财经, 观察" />
+              <p className="hint"><I18nText zh="用逗号分隔，最多 12 个。" en="Comma separated, up to 12." /></p>
+            </div>
+            <div className="field">
+              <label htmlFor="sourceUrl"><I18nText zh="管理员核验的主来源" en="Editor-approved primary source" /></label>
+              <input id="sourceUrl" name="sourceUrl" type="url" defaultValue={draft.sourceUrl || ""} placeholder="https://..." />
+              <p className="hint">
+                <I18nText
+                  zh="发布受阻草稿时，这里填写的 HTTP(S) 链接会加入来源白名单；正文仍须在相关事实旁引用，并在文末参考来源中列出。"
+                  en="For a blocked draft, this HTTP(S) URL joins the approved allowlist; cite it beside the supported claims and in the final references."
+                />
+              </p>
+            </div>
+            <div className="field">
+              <label htmlFor="sortOrder"><I18nText zh="显示顺序" en="Display order" /></label>
+              <input id="sortOrder" name="sortOrder" type="number" defaultValue={draft.sortOrder} />
+              <p className="hint"><I18nText zh="数值越小越靠前。" en="Lower numbers appear first." /></p>
+            </div>
+          </section>
+        </aside>
       </DirtyAwareForm>
 
-      <PostEditAssist />
+      {workerEnabled ? <PostEditAssist /> : null}
 
+      {hasPendingRevision ? (
+        <section className="form-card form-stack" style={{ marginTop: 24 }}>
+          <h2 style={{ marginTop: 0 }}><I18nText zh="媒体工具暂时锁定" en="Media tools are temporarily locked" /></h2>
+          <p className="muted-block">
+            <I18nText
+              zh="为避免图片或视频被写进仍在线的旧版本、随后又被待审稿覆盖，请先保存并发布待审修改，或在上方放弃它。正文中的现有媒体短代码不会丢失。"
+              en="To keep media from changing the old live version or being overwritten by the pending revision, publish or discard the pending revision first. Existing media shortcodes remain intact."
+            />
+          </p>
+        </section>
+      ) : (
+        <>
       <section className="form-card form-stack" style={{ marginTop: 24 }}>
         <h2 style={{ marginTop: 0 }}><I18nText zh="上传图片并插入正文" en="Upload Image into Body" /></h2>
         <form action={`/api/admin/posts/${post.id}/images`} method="post" encType="multipart/form-data" className="form-stack">
@@ -158,7 +377,7 @@ export default async function AdminPostEditPage({ params }: { params: Promise<{ 
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <strong>{video.title}</strong>
                   <div style={{ fontSize: 12, opacity: 0.7 }}>
-                    {video.type} · <I18nText zh="展示：" en="Display: " />{video.displayMode === "link" ? <I18nText zh="链接" en="link" /> : <I18nText zh="嵌入" en="embed" />} · ID: <code>{video.id}</code>
+                    {video.type} · <I18nText zh="展示：" en="Display: " />{video.displayMode === "link" ? <I18nText zh="链接" en="link" /> : <I18nText zh="嵌入" en="embed" />}
                   </div>
                 </div>
                 <code style={{ fontSize: 12, marginRight: 12 }}>[[video:{video.id}]]</code>
@@ -332,6 +551,8 @@ export default async function AdminPostEditPage({ params }: { params: Promise<{ 
           />
         </p>
       </section>
+        </>
+      )}
     </AdminShell>
   );
 }

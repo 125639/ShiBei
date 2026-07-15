@@ -1,3 +1,9 @@
+x-shibei-logging: &shibei-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "5"
+
 services:
   postgres:
     image: postgres:16-alpine
@@ -14,19 +20,30 @@ services:
       timeout: 5s
       retries: 5
     mem_limit: 512m
+    pids_limit: 200
+    security_opt:
+      - no-new-privileges:true
+    logging: *shibei-logging
     restart: unless-stopped
 
   redis:
     image: redis:7-alpine
-    command: ["redis-server", "--save", "", "--appendonly", "no", "--maxmemory", "192mb", "--maxmemory-policy", "noeviction"]
+    # BullMQ is authoritative queue state: persist every accepted write to AOF
+    # within one second and never evict arbitrary queue keys under pressure.
+    command: ["redis-server", "--save", "", "--appendonly", "yes", "--appendfsync", "everysec", "--auto-aof-rewrite-percentage", "100", "--auto-aof-rewrite-min-size", "64mb", "--maxmemory", "192mb", "--maxmemory-policy", "noeviction"]
     volumes:
       - redis-data:/data
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
+      test: ["CMD-SHELL", "redis-cli ping | grep -q '^PONG$' && test \"$$(redis-cli --raw CONFIG GET appendonly | tail -n 1)\" = yes && test \"$$(redis-cli --raw CONFIG GET appendfsync | tail -n 1)\" = everysec && test \"$$(redis-cli --raw CONFIG GET maxmemory-policy | tail -n 1)\" = noeviction"]
       interval: 10s
       timeout: 5s
       retries: 5
     mem_limit: 256m
+    pids_limit: 100
+    security_opt:
+      - no-new-privileges:true
+    logging: *shibei-logging
+    stop_grace_period: 30s
     restart: unless-stopped
 
   app:
@@ -37,6 +54,7 @@ services:
       args:
         GIT_COMMIT: ${GIT_COMMIT:-unknown}
         BUILD_TIME: ${BUILD_TIME:-unknown}
+        NEXT_PUBLIC_SITE_URL: ${NEXT_PUBLIC_SITE_URL:-http://localhost:3000}
     depends_on:
       postgres:
         condition: service_healthy
@@ -46,12 +64,16 @@ services:
       - .env
     environment:
       APP_MODE: full
+      # The only non-loopback ingress is the single nginx service below.
+      # One trusted hop lets quotas use the real client IP without trusting
+      # forwarding headers from arbitrary internet clients.
+      TRUST_PROXY_HOPS: ${TRUST_PROXY_HOPS:-0}
       NODE_OPTIONS: --max-old-space-size=1024
       # 统计按日/按小时分桶用的是进程本地时区；不设 TZ 容器默认 UTC，
       # 「当天」会对中文站长偏 8 小时。Node 自带 ICU 时区数据，alpine 无需 tzdata。
       TZ: ${TZ:-Asia/Shanghai}
     ports:
-      - "3000:3000"
+      - "${APP_BIND_IP:-0.0.0.0}:3000:3000"
     command: ["sh", "scripts/start-app.sh"]
     volumes:
       - app-uploads:/app/public/uploads
@@ -63,6 +85,42 @@ services:
       start_period: 90s
       retries: 5
     mem_limit: 1024m
+    # The app can invoke Chromium for creation research, so no-new-privileges /
+    # cap_drop are intentionally not forced here without a browser sandbox E2E.
+    pids_limit: 768
+    logging: *shibei-logging
+    restart: unless-stopped
+
+  proxy:
+    image: nginx:1.28-alpine
+    profiles: ["https"]
+    depends_on:
+      app:
+        condition: service_healthy
+    environment:
+      PUBLIC_HOST: ${PUBLIC_HOST:-localhost}
+      # Only expand our deployment variable; preserve nginx variables such as
+      # $host and $proxy_add_x_forwarded_for in the template.
+      NGINX_ENVSUBST_FILTER: PUBLIC_HOST
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./ops/nginx/default.conf.template:/etc/nginx/templates/default.conf.template:ro
+      - ./ops/nginx/proxy-common.inc:/etc/nginx/proxy-common.inc:ro
+      - ${TLS_STATE_DIR:-/var/lib/shibei-tls}/letsencrypt:/etc/letsencrypt:ro
+      - ${TLS_STATE_DIR:-/var/lib/shibei-tls}/www:/var/www/certbot:ro
+    healthcheck:
+      test: ["CMD-SHELL", "wget --no-check-certificate -qO- --header='Host: '$$PUBLIC_HOST https://127.0.0.1/api/health | grep -q '\"ok\":true'"]
+      interval: 30s
+      timeout: 10s
+      start_period: 20s
+      retries: 5
+    mem_limit: 128m
+    pids_limit: 100
+    security_opt:
+      - no-new-privileges:true
+    logging: *shibei-logging
     restart: unless-stopped
 
   worker:
@@ -73,6 +131,7 @@ services:
       args:
         GIT_COMMIT: ${GIT_COMMIT:-unknown}
         BUILD_TIME: ${BUILD_TIME:-unknown}
+        NEXT_PUBLIC_SITE_URL: ${NEXT_PUBLIC_SITE_URL:-http://localhost:3000}
     depends_on:
       postgres:
         condition: service_healthy
@@ -84,6 +143,9 @@ services:
       APP_MODE: full
       NODE_OPTIONS: --max-old-space-size=1024
       TZ: ${TZ:-Asia/Shanghai}
+      # 发布提交后由 worker 直接通知 Next 进程失效公共缓存；请求使用
+      # .env 中同一个 AUTH_SECRET 做短时 HMAC，不会在网络上传输原密钥。
+      SHIBEI_INTERNAL_APP_URL: ${SHIBEI_INTERNAL_APP_URL:-http://app:3000}
       FETCH_WORKER_CONCURRENCY: 1
       RESEARCH_WORKER_CONCURRENCY: 1
       AUDIENCE_WORKER_CONCURRENCY: 1
@@ -99,10 +161,14 @@ services:
       retries: 3
     stop_grace_period: 17m
     mem_limit: 1536m
+    # Chromium and yt-dlp can create many short-lived processes. Bound fork
+    # bombs while retaining enough headroom for a legitimate scrape/download.
+    pids_limit: 1024
+    logging: *shibei-logging
     restart: unless-stopped
 
   # 网页端一键更新伴车：管理后台「系统更新」页 / 左上角新版本弹窗靠它执行
-  # git fetch/reset + docker compose build/up。只在 compose 内网监听（不映射端口），
+  # git fetch/ff-only + docker compose build/up。只在 compose 内网监听（不映射端口），
   # 鉴权用 UPDATER_TOKEN（缺省复用 .env 里的 AUTH_SECRET）。
   # 注意：挂载 docker.sock 等价于宿主 root 权限，绝不能把 9080 暴露到公网。
   updater:
@@ -117,6 +183,7 @@ services:
       # app 与 worker 共用 safg/shibei:full 镜像：只构建 app，up 时 worker 自动换新镜像
       UPDATE_BUILD_SERVICES: app
       UPDATE_SERVICES: app worker
+      UPDATE_RECREATE_SERVICES: ${UPDATE_RECREATE_SERVICES:-}
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - .:/repo
@@ -126,6 +193,10 @@ services:
       timeout: 5s
       retries: 3
     mem_limit: 128m
+    pids_limit: 128
+    security_opt:
+      - no-new-privileges:true
+    logging: *shibei-logging
     restart: unless-stopped
 
 volumes:

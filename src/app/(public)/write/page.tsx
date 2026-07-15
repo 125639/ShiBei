@@ -5,7 +5,7 @@ export const dynamic = "force-dynamic";
 
 export const metadata: Metadata = {
   title: "写作台",
-  description: "Notion 式写作台：块编辑、斜杠命令、AI 润色与续写。内容自动保存，不计入博客文章。",
+  description: "可完全纯手写的 Notion 式写作台：块编辑、自动保存与 Markdown 导出；AI 辅助仅在用户主动开启和选择时调用。",
   alternates: { canonical: "/write" }
 };
 

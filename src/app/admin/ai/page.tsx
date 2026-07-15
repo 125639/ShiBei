@@ -3,7 +3,10 @@ import { AdminAiManager, type AdminAiBatchView } from "@/components/AdminAiManag
 import { I18nText } from "@/components/I18nText";
 import { requireAdmin } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+
+export const dynamic = "force-dynamic";
 import { parseKeywordResearchUrl } from "@/lib/research";
+import { decodePostRepairResult, parsePostRepairUrl } from "@/lib/post-repair";
 
 export default async function AdminAiPage() {
   await requireAdmin();
@@ -19,7 +22,7 @@ export default async function AdminAiPage() {
       include: {
         jobs: {
           orderBy: { createdAt: "asc" },
-          select: { id: true, status: true, sourceUrl: true, error: true }
+          select: { id: true, status: true, sourceUrl: true, error: true, updatedAt: true }
         }
       }
     })
@@ -39,12 +42,19 @@ export default async function AdminAiPage() {
       summary: batch.summary,
       createdAt: batch.createdAt.toISOString(),
       recurring,
-      jobs: batch.jobs.map((job) => ({
-        id: job.id,
-        status: job.status,
-        keyword: parseKeywordResearchUrl(job.sourceUrl)?.keyword || job.sourceUrl.slice(0, 80),
-        error: job.error ? job.error.slice(0, 200) : null
-      }))
+      jobs: batch.jobs.map((job) => {
+        const repair = parsePostRepairUrl(job.sourceUrl);
+        const repairResult = decodePostRepairResult(job.error);
+        return {
+          id: job.id,
+          status: job.status,
+          keyword: parseKeywordResearchUrl(job.sourceUrl)?.keyword || (repair ? `文章返修：${repairResult?.title || repair.postId}` : job.sourceUrl.slice(0, 80)),
+          error: repairResult
+            ? [repairResult.message, repairResult.reason].filter(Boolean).join("；").slice(0, 200)
+            : job.error ? job.error.slice(0, 200) : null,
+          updatedAt: job.updatedAt.toISOString()
+        };
+      })
     };
   });
 

@@ -3811,9 +3811,11 @@ p {
     border-radius: 20px;
   }
 
-  :root[data-theme][data-ui] .page-intro:not(.prose)::after {
-    right: 8px;
-    font-size: 112px;
+  /* 手机上巨型“拾”水印占据半张卡片、视觉突兀，直接隐藏 */
+  :root[data-theme][data-ui] .page-intro:not(.prose)::after,
+  .home-brief-card::after,
+  .login-brand-panel::after {
+    content: none;
   }
 
   :root[data-theme][data-ui] .page-intro:not(.prose) .page-title {
@@ -4047,6 +4049,157 @@ p {
   .article-related-stack .form-card > h3
 ) {
   margin-top: 0;
+}
+
+/* Mobile hardening: keep the smallest supported viewport usable across
+   public chrome and the denser administration workspaces. */
+.admin-status-grid {
+  display: grid;
+  grid-template-columns: minmax(7rem, 1fr) minmax(0, 2fr);
+  gap: 8px 16px;
+}
+
+.admin-status-grid > * {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.admin-status-grid code {
+  white-space: normal;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+:root[data-theme][data-ui] .admin-ai-task-list {
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 292px), 1fr));
+}
+
+@media (max-width: 960px) {
+  .update-toast {
+    top: calc(64px + max(10px, env(safe-area-inset-top)));
+  }
+
+  .update-toast-close,
+  .update-toast-actions .button {
+    min-height: 44px;
+  }
+
+  .update-toast-close {
+    min-width: 44px;
+  }
+}
+
+@media (max-width: 820px) {
+  .admin-markdown-source-panel textarea {
+    font-size: 16px;
+  }
+
+  .admin-markdown-workspace.focus-mode .admin-markdown-source-panel textarea,
+  .admin-markdown-workspace.focus-mode .admin-markdown-preview {
+    height: calc(100vh - 224px);
+    height: calc(100dvh - 224px - env(safe-area-inset-top) - env(safe-area-inset-bottom));
+  }
+
+  .auto-topic-dialog-backdrop {
+    padding:
+      max(12px, env(safe-area-inset-top))
+      max(12px, env(safe-area-inset-right))
+      max(12px, env(safe-area-inset-bottom))
+      max(12px, env(safe-area-inset-left));
+  }
+
+  .auto-topic-dialog {
+    max-height: calc(100vh - 24px);
+    max-height: calc(100dvh - 24px - env(safe-area-inset-top) - env(safe-area-inset-bottom));
+  }
+}
+
+@media (max-width: 680px) {
+  :root[data-theme][data-ui] .nav {
+    justify-content: flex-start;
+    overflow-x: auto;
+    overflow-y: hidden;
+    overscroll-behavior-x: contain;
+    scrollbar-width: none;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  :root[data-theme][data-ui] .nav::-webkit-scrollbar {
+    display: none;
+  }
+
+  :root[data-theme][data-ui] .nav > a,
+  .nav-more > summary {
+    flex: 0 0 auto;
+    min-height: 44px;
+    padding-inline: 12px;
+  }
+
+  .header-account-link,
+  :root[data-theme][data-ui] .theme-switcher-trigger {
+    min-height: 44px;
+  }
+
+  .home-signal-row > div,
+  .home-signal-row > div:first-child {
+    min-width: 0;
+  }
+
+  .table-item:not(.selectable-row) {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .table-item:not(.selectable-row) > * {
+    min-width: 0;
+  }
+
+  .table-item:not(.selectable-row) > .row-actions {
+    width: 100%;
+    justify-content: flex-start;
+  }
+
+  .admin-status-grid {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 4px;
+  }
+
+  .admin-status-grid > :nth-child(2n + 1):not(:first-child) {
+    margin-top: 8px;
+  }
+}
+
+@media (max-width: 560px) {
+  .admin-markdown-workspace.focus-mode {
+    padding:
+      max(12px, env(safe-area-inset-top))
+      max(12px, env(safe-area-inset-right))
+      max(12px, env(safe-area-inset-bottom))
+      max(12px, env(safe-area-inset-left));
+  }
+
+  .admin-markdown-workspace.focus-mode .admin-markdown-source-panel textarea,
+  .admin-markdown-workspace.focus-mode .admin-markdown-preview {
+    height: calc(100vh - 260px);
+    height: calc(100dvh - 260px - env(safe-area-inset-top) - env(safe-area-inset-bottom));
+  }
+}
+
+@media (max-width: 430px) {
+  .header-account-link {
+    width: 44px;
+    min-width: 44px;
+    justify-content: center;
+    padding-inline: 0;
+  }
+
+  .header-account-link :is(.i18n-zh, .i18n-en) {
+    display: none;
+  }
+
+  .home-signal-row > div,
+  .home-signal-row > div:first-child {
+    padding-inline: 6px;
+  }
 }
 
 @media (forced-colors: active) {

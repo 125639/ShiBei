@@ -5,6 +5,17 @@ export async function parseJsonBody<TSchema extends z.ZodTypeAny>(
   request: Request,
   schema: TSchema
 ): Promise<{ ok: true; data: z.output<TSchema> } | { ok: false; response: NextResponse }> {
+  const mediaType = request.headers.get("content-type")?.split(";", 1)[0]?.trim().toLowerCase();
+  if (mediaType !== "application/json") {
+    return {
+      ok: false,
+      response: NextResponse.json(
+        { error: "请求必须使用 application/json" },
+        { status: 415 }
+      )
+    };
+  }
+
   let raw: unknown;
   try {
     raw = await request.json();

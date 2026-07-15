@@ -5,6 +5,8 @@ import Link from "next/link";
 import type { JobStatus } from "@prisma/client";
 import { I18nText } from "./I18nText";
 import { StatusPill } from "./StatusPill";
+import { TaskProgress } from "./TaskProgress";
+import { getBatchProgress } from "@/lib/task-progress";
 
 type ContentStyleOption = {
   id: string;
@@ -68,7 +70,7 @@ export type AdminAiBatchView = {
   summary: string;
   createdAt: string;
   recurring: RecurringResult[];
-  jobs: Array<{ id: string; status: JobStatus; keyword: string; error: string | null }>;
+  jobs: Array<{ id: string; status: JobStatus; keyword: string; error: string | null; updatedAt: string }>;
 };
 
 const EXAMPLE =
@@ -158,8 +160,8 @@ export function AdminAiManager({
     return data;
   }
 
-  const refreshBatches = useCallback(async () => {
-    setRefreshing(true);
+  const refreshBatches = useCallback(async (silent = false) => {
+    if (!silent) setRefreshing(true);
     try {
       const response = await fetch("/api/admin/ai-admin", { method: "GET" });
       if (!response.ok) return;
@@ -168,21 +170,27 @@ export function AdminAiManager({
     } catch {
       // 轮询失败静默,下一轮再试
     } finally {
-      setRefreshing(false);
+      if (!silent) setRefreshing(false);
     }
   }, []);
 
-  // 有排队/运行中的任务时轻量轮询,批次全部完成后自动停。
+  // 有排队/运行中的任务时轻量轮询,批次全部完成后自动停。页面隐藏时暂停，
+  // 回到页面立即刷新，既能及时看到进度，也不在后台标签页空耗请求。
   const hasActiveJobs = batches.some((batch) =>
     batch.jobs.some((job) => job.status === "QUEUED" || job.status === "RUNNING")
   );
-  const refreshRef = useRef(refreshBatches);
-  refreshRef.current = refreshBatches;
   useEffect(() => {
     if (!hasActiveJobs) return;
-    const timer = setInterval(() => { void refreshRef.current(); }, 20_000);
-    return () => clearInterval(timer);
-  }, [hasActiveJobs]);
+    const refreshWhenVisible = () => {
+      if (document.visibilityState === "visible") void refreshBatches(true);
+    };
+    const timer = window.setInterval(refreshWhenVisible, 5_000);
+    document.addEventListener("visibilitychange", refreshWhenVisible);
+    return () => {
+      window.clearInterval(timer);
+      document.removeEventListener("visibilitychange", refreshWhenVisible);
+    };
+  }, [hasActiveJobs, refreshBatches]);
 
   async function generatePlan() {
     setPlanning(true);
@@ -310,8 +318,11 @@ export function AdminAiManager({
           ) : null}
           <div className="admin-ai-batch-strip">
             {batches.map((batch) => {
+              const progress = getBatchProgress(batch.jobs.map((job) => job.status));
               const done = batch.jobs.filter((job) => job.status === "COMPLETED").length;
               const failed = batch.jobs.filter((job) => job.status === "FAILED").length;
+              const running = batch.jobs.filter((job) => job.status === "RUNNING").length;
+              const queued = batch.jobs.filter((job) => job.status === "QUEUED").length;
               const active = batch.jobs.some((job) => job.status === "QUEUED" || job.status === "RUNNING");
               const batchStatus: JobStatus = active ? "RUNNING" : failed ? "FAILED" : "COMPLETED";
               const expanded = expandedBatchId === batch.id;
@@ -325,12 +336,18 @@ export function AdminAiManager({
                 >
                   <span className="admin-ai-batch-summary">{batch.summary}</span>
                   <span className="muted admin-ai-batch-meta">{new Date(batch.createdAt).toLocaleString()}</span>
+                  <TaskProgress
+                    compact
+                    label={`批次进度 ${progress.settled}/${progress.total}`}
+                    value={progress.settled}
+                    max={Math.max(progress.total, 1)}
+                  />
                   <span className="meta-row">
                     <StatusPill status={batchStatus} />
                     <span className="muted">
                       <I18nText
-                        zh={`完成 ${done}/${batch.jobs.length}${failed ? `，失败 ${failed}` : ""}`}
-                        en={`${done}/${batch.jobs.length} done${failed ? `, ${failed} failed` : ""}`}
+                        zh={`完成 ${done}/${batch.jobs.length}${running ? `，运行 ${running}` : ""}${queued ? `，排队 ${queued}` : ""}${failed ? `，失败 ${failed}` : ""}`}
+                        en={`${done}/${batch.jobs.length} done${running ? `, ${running} running` : ""}${queued ? `, ${queued} queued` : ""}${failed ? `, ${failed} failed` : ""}`}
                       />
                     </span>
                   </span>
@@ -340,12 +357,45 @@ export function AdminAiManager({
           </div>
           {expandedBatch ? (
             <div className="admin-ai-batch-detail">
+              {(() => {
+                const progress = getBatchProgress(expandedBatch.jobs.map((job) => job.status));
+                return (
+                  <TaskProgress
+                    label={`批次进度：已结束 ${progress.settled}/${progress.total} 个任务`}
+                    stage={expandedBatch.jobs.some((job) => job.status === "RUNNING")
+                      ? "正在采集资料并生成文章"
+                      : expandedBatch.jobs.some((job) => job.status === "QUEUED")
+                        ? "等待任务开始"
+                        : "批次已结束"}
+                    value={progress.settled}
+                    max={Math.max(progress.total, 1)}
+                  />
+                );
+              })()}
               <p className="muted admin-ai-batch-request">{expandedBatch.request}</p>
+              {expandedBatch.jobs.some((job) => job.status === "QUEUED" || job.status === "RUNNING") ? (
+                <p className="muted admin-ai-batch-request">
+                  <I18nText
+                    zh="研究任务按安全并发逐项执行；复杂网页抓取和模型推理可能持续数分钟。仍显示“运行中”或“排队中”即未停止。"
+                    en="Research tasks run at a safe concurrency. Complex page collection and model reasoning can take several minutes; Running or Queued means the batch has not stopped."
+                  />
+                </p>
+              ) : null}
               <ul className="admin-ai-batch-jobs">
-                {expandedBatch.jobs.map((job) => (
+                {expandedBatch.jobs.map((job, index) => (
                   <li key={job.id}>
                     <StatusPill status={job.status} />
                     <a className="text-link" href={`/admin/jobs/${job.id}`}>{job.keyword}</a>
+                    {job.status === "RUNNING" ? (
+                      <span className="muted">
+                        <I18nText
+                          zh={`第 ${index + 1}/${expandedBatch.jobs.length} 项 · ${job.keyword.startsWith("文章返修：") ? "正在按审核意见返修并复检" : "正在采集、成稿并执行最多 3 轮自动返修"} · 最近活动 ${new Date(job.updatedAt).toLocaleTimeString()}`}
+                          en={`Item ${index + 1}/${expandedBatch.jobs.length} · ${job.keyword.startsWith("文章返修：") ? "Repairing against publication feedback" : "Collecting, drafting, and running up to 3 repair rounds"} · Last active ${new Date(job.updatedAt).toLocaleTimeString()}`}
+                        />
+                      </span>
+                    ) : job.status === "QUEUED" ? (
+                      <span className="muted"><I18nText zh="等待前序任务" en="Waiting for earlier tasks" /></span>
+                    ) : null}
                     {job.status === "FAILED" ? (
                       <button
                         className="text-link"
@@ -447,6 +497,13 @@ export function AdminAiManager({
           </div>
 
           {error ? <p className="form-error" role="alert">{error}</p> : null}
+          {planning ? (
+            <TaskProgress
+              label="正在生成任务计划"
+              stage="AI 正在理解需求并拆分可执行任务"
+              active
+            />
+          ) : null}
 
           <button
             className="button admin-ai-submit"
@@ -530,6 +587,13 @@ export function AdminAiManager({
                 placeholder="例：日本那篇改成讲日元贬值；AI 进步的减到 2 篇。"
               />
             </div>
+            {revising || executing ? (
+              <TaskProgress
+                label={revising ? "正在修订任务计划" : "正在创建并派发任务"}
+                stage={revising ? "AI 正在按你的意见重新拆解" : "正在保存批次并加入执行队列"}
+                active
+              />
+            ) : null}
             <div className="row-actions">
               <button
                 className="button secondary"

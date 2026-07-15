@@ -4,7 +4,9 @@ import assert from "node:assert/strict";
 import {
   buildModelConfigInput,
   shouldSeedAiModel,
-  buildAdminUpsertArgs
+  adminUsernameFromEnv,
+  buildAdminCreateData,
+  buildAdminPasswordRotationData
 } from "../prisma/seed-helpers.mjs";
 
 describe("buildModelConfigInput", () => {
@@ -114,42 +116,32 @@ describe("shouldSeedAiModel", () => {
   });
 });
 
-describe("buildAdminUpsertArgs", () => {
+describe("admin seed helpers", () => {
   const HASH = "bcrypt$fakehash$payload";
 
   test("uses env.ADMIN_USERNAME when set", () => {
-    const args = buildAdminUpsertArgs({ ADMIN_USERNAME: "rooty" }, HASH);
-    assert.equal(args.where.username, "rooty");
-    assert.equal(args.create.username, "rooty");
+    assert.equal(adminUsernameFromEnv({ ADMIN_USERNAME: "rooty" }), "rooty");
   });
 
   test("falls back to 'admin' when ADMIN_USERNAME unset", () => {
-    const args = buildAdminUpsertArgs({}, HASH);
-    assert.equal(args.where.username, "admin");
+    assert.equal(adminUsernameFromEnv({}), "admin");
   });
 
   test("trims whitespace from ADMIN_USERNAME", () => {
-    const args = buildAdminUpsertArgs({ ADMIN_USERNAME: "  ops  " }, HASH);
-    assert.equal(args.where.username, "ops");
+    assert.equal(adminUsernameFromEnv({ ADMIN_USERNAME: "  ops  " }), "ops");
   });
 
-  test("create branch carries passwordHash", () => {
-    const args = buildAdminUpsertArgs({}, HASH);
-    assert.equal(args.create.passwordHash, HASH);
+  test("first-install create data carries username and hash but leaves tokenVersion at DB default", () => {
+    assert.deepEqual(buildAdminCreateData({ ADMIN_USERNAME: "ops" }, HASH), {
+      username: "ops",
+      passwordHash: HASH
+    });
   });
 
-  test("update branch carries passwordHash — this is the key fix for "
-       + "the bug where re-running init.sh would silently keep the old DB password", () => {
-    // BEFORE FIX: update was {} which made env.ADMIN_PASSWORD only effective
-    // on the FIRST seed against an empty DB. After fix, every seed reconciles
-    // the DB password to whatever .env says, so re-running the wizard to
-    // change credentials actually takes effect on next container restart.
-    const args = buildAdminUpsertArgs({}, HASH);
-    assert.deepEqual(args.update, { passwordHash: HASH });
-  });
-
-  test("create and update share the same hash (no drift)", () => {
-    const args = buildAdminUpsertArgs({ ADMIN_USERNAME: "x" }, HASH);
-    assert.equal(args.create.passwordHash, args.update.passwordHash);
+  test("actual password rotation updates hash and increments tokenVersion", () => {
+    assert.deepEqual(buildAdminPasswordRotationData(HASH), {
+      passwordHash: HASH,
+      tokenVersion: { increment: 1 }
+    });
   });
 });

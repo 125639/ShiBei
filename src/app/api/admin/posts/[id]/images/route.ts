@@ -4,11 +4,13 @@ import {
   buildArticleImageFigureHtml,
   insertArticleImageFiguresIntoPost,
   normalizeArticleImagePlacement,
+  PostMediaConflictError,
   saveUploadedArticleImage
 } from "@/lib/article-images";
 import { prisma } from "@/lib/prisma";
 import { revalidatePublicContent } from "@/lib/revalidate-public";
 import { redirectTo } from "@/lib/redirect";
+import { revisionMediaBlockedRedirect } from "@/lib/post-revision";
 import { ensureUploadDirs } from "@/lib/storage";
 
 export async function POST(request: Request, { params }: { params: Promise<{ id: string }> }) {
@@ -19,6 +21,14 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   const file = form.get("file");
   // redirect 只允许站内路径，避免上传接口被用作开放重定向。
   const redirect = safeRedirectPath(String(form.get("redirect") || `/admin/posts/${id}`));
+  const currentPost = await prisma.post.findUnique({
+    where: { id },
+    select: { pendingRevision: true }
+  });
+  if (!currentPost) return NextResponse.json({ error: "post not found" }, { status: 404 });
+  if (currentPost.pendingRevision !== null) {
+    return redirectTo(revisionMediaBlockedRedirect(redirect), request);
+  }
 
   if (!(file instanceof File) || file.size <= 0) {
     return NextResponse.json({ error: "请上传图片文件" }, { status: 400 });
@@ -39,10 +49,17 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   });
 
   // 图片作为 figure 直接插入 Markdown 正文，不额外建表，前台渲染路径和自动配图一致。
-  await insertArticleImageFiguresIntoPost(id, [figure], {
-    placement: normalizeArticleImagePlacement(form.get("insertPlacement") || "after-intro"),
-    mirrorToEnglish: form.get("mirrorToEnglish") === "true"
-  });
+  try {
+    await insertArticleImageFiguresIntoPost(id, [figure], {
+      placement: normalizeArticleImagePlacement(form.get("insertPlacement") || "after-intro"),
+      mirrorToEnglish: form.get("mirrorToEnglish") === "true"
+    });
+  } catch (error) {
+    if (error instanceof PostMediaConflictError) {
+      return redirectTo(revisionMediaBlockedRedirect(redirect), request);
+    }
+    throw error;
+  }
 
   const post = await prisma.post.findUnique({ where: { id }, select: { slug: true } });
   revalidatePublicContent([post ? `/posts/${post.slug}` : null]);

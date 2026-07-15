@@ -1,24 +1,63 @@
 import { NextResponse } from "next/server";
-import { ensureAnonId, getMemberSession } from "@/lib/member-auth";
+import {
+  AnonymousBootstrapRequiredError,
+  ensureAnonIdForCreationRequest,
+  getMemberSession
+} from "@/lib/member-auth";
 import { prisma } from "@/lib/prisma";
 import { checkRateLimit } from "@/lib/rate-limit";
-import { docOwnershipWhere, getWritingIdentity } from "@/lib/writing-docs";
+import {
+  ListPaginationError,
+  descendingUpdatedAtCursorWhere,
+  finishDescendingUpdatedAtPage,
+  identityBoundListScope,
+  parseListPageRequest
+} from "@/lib/list-pagination";
+import { docOwnershipWhere, getWritingIdentity, serializeWritingDoc } from "@/lib/writing-docs";
 
 export const dynamic = "force-dynamic";
 
-export async function GET() {
+export async function GET(request: Request) {
   const identity = await getWritingIdentity();
-  if (!identity.memberId && !identity.anonId) {
-    return NextResponse.json({ docs: [] });
+  const cursorScope = identityBoundListScope("writing-docs", identity);
+  let pagination;
+  try {
+    pagination = parseListPageRequest(request.url, {
+      scope: cursorScope,
+      defaultPageSize: 100,
+      maxPageSize: 100
+    });
+  } catch (error) {
+    if (error instanceof ListPaginationError) {
+      return NextResponse.json({ error: error.message }, { status: 400 });
+    }
+    throw error;
   }
-  const docs = await prisma.writingDoc.findMany({
-    where: docOwnershipWhere(identity),
-    orderBy: { updatedAt: "desc" },
-    take: 100,
-    select: { id: true, title: true, updatedAt: true }
+
+  if (!identity.memberId && !identity.anonId) {
+    return NextResponse.json({ docs: [], nextCursor: null, hasMore: false });
+  }
+  const docRows = await prisma.writingDoc.findMany({
+    where: {
+      ...docOwnershipWhere(identity),
+      ...descendingUpdatedAtCursorWhere(pagination.cursor)
+    },
+    orderBy: [{ updatedAt: "desc" }, { id: "desc" }],
+    take: pagination.pageSize + 1,
+    select: {
+      id: true,
+      title: true,
+      completedAt: true,
+      creativeWorkId: true,
+      publicationBlockedAt: true,
+      updatedAt: true
+    }
   });
+  const page = finishDescendingUpdatedAtPage(cursorScope, docRows, pagination.pageSize);
   return NextResponse.json({
-    docs: docs.map((doc) => ({ id: doc.id, title: doc.title, updatedAt: doc.updatedAt.toISOString() }))
+    docs: page.items.map(serializeWritingDoc),
+    nextCursor: page.nextCursor,
+    hasMore: page.hasMore
   });
 }
 
@@ -38,12 +77,20 @@ export async function POST(request: Request) {
 
   const session = await getMemberSession();
   // 匿名写作跟随浏览器 cookie(与共创工作室同一套身份)
-  const anonId = session ? null : await ensureAnonId();
+  let anonId: string | null = null;
+  try {
+    anonId = session ? null : await ensureAnonIdForCreationRequest(request);
+  } catch (error) {
+    if (error instanceof AnonymousBootstrapRequiredError) {
+      return NextResponse.json({ error: error.message }, { status: error.status });
+    }
+    throw error;
+  }
 
   const doc = await prisma.writingDoc.create({
     data: { ownerId: session?.memberId || null, anonId }
   });
   return NextResponse.json({
-    doc: { id: doc.id, title: doc.title, content: doc.content, updatedAt: doc.updatedAt.toISOString() }
+    doc: serializeWritingDoc(doc)
   });
 }

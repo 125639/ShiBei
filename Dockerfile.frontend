@@ -21,6 +21,8 @@ ENV PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1
 RUN npm ci
 
 FROM deps AS builder
+ARG NEXT_PUBLIC_SITE_URL=http://localhost:3000
+ENV NEXT_PUBLIC_SITE_URL=$NEXT_PUBLIC_SITE_URL
 COPY . .
 RUN npx prisma generate
 RUN npm run build
@@ -33,7 +35,9 @@ ENV APP_MODE=frontend
 ENV BUILD_COMMIT=$GIT_COMMIT
 ENV BUILD_TIME=$BUILD_TIME
 ENV PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1
-ENV NODE_OPTIONS="--max-old-space-size=256"
+ENV NODE_OPTIONS="--max-old-space-size=192"
+ENV UV_THREADPOOL_SIZE=2
+ENV MALLOC_ARENA_MAX=2
 # 仅装 ca-certificates(HTTPS 拉 backend 用) + fonts-noto-cjk(中文字体)
 RUN apt-get update && apt-get install -y --no-install-recommends \
       ca-certificates \

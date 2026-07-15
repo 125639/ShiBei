@@ -1,6 +1,14 @@
 "use client";
 
-import { useEffect, useRef, useState, type FormEvent, type KeyboardEvent, type ReactNode } from "react";
+import {
+  useEffect,
+  useRef,
+  useState,
+  useSyncExternalStore,
+  type FormEvent,
+  type KeyboardEvent,
+  type ReactNode
+} from "react";
 import { createPortal } from "react-dom";
 import { useUserPrefs } from "./useUserPrefs";
 import { I18nText } from "./I18nText";
@@ -93,6 +101,10 @@ const DEFAULT_SUGGESTION_GROUPS: AssistantSuggestionGroup[] = [
   }
 ];
 
+const subscribeToHydration = () => () => {};
+const getClientReady = () => true;
+const getServerReady = () => false;
+
 export function AiAssistant({
   context,
   contextLabel = <I18nText zh="当前页面" en="Current Page" />,
@@ -108,7 +120,7 @@ export function AiAssistant({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [open, setOpen] = useState(false);
-  const [ready, setReady] = useState(false);
+  const ready = useSyncExternalStore(subscribeToHydration, getClientReady, getServerReady);
   const logRef = useRef<HTMLDivElement | null>(null);
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
   const mountedRef = useRef(true);
@@ -117,7 +129,6 @@ export function AiAssistant({
     // StrictMode 下 effect 会跑「挂载→清理→再挂载」，这里必须重新置 true，
     // 否则 mountedRef 停留在 false，所有 AI 回复都会被当作「已卸载」丢弃。
     mountedRef.current = true;
-    setReady(true);
     return () => {
       mountedRef.current = false;
     };

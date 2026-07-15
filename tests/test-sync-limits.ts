@@ -10,8 +10,8 @@ const MB = 1024 * 1024;
 describe("sync zip byte limits", () => {
   test("frontend defaults stay far below the 448MB container", () => {
     const limits = resolveSyncZipLimits({ mode: "frontend", env: {} });
-    assert.equal(limits.zipBytes, 128 * MB);
-    assert.equal(limits.singleFileBytes, 96 * MB);
+    assert.equal(limits.zipBytes, 64 * MB);
+    assert.equal(limits.singleFileBytes, 48 * MB);
   });
 
   test("full/backend keep the original generous defaults", () => {
@@ -25,7 +25,7 @@ describe("sync zip byte limits", () => {
       env: { SYNC_MAX_ZIP_MB: "64", SYNC_MAX_FILE_MB: "not-a-number" }
     });
     assert.equal(limits.zipBytes, 64 * MB);
-    assert.equal(limits.singleFileBytes, 96 * MB);
+    assert.equal(limits.singleFileBytes, 48 * MB);
   });
 });
 
@@ -46,4 +46,3 @@ describe("sync import limits", () => {
     assert.throws(() => parseSyncZip(zip.toBuffer()), /posts 数量超过上限/);
   });
 });
-

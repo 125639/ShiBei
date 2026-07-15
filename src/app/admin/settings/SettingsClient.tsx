@@ -6,9 +6,10 @@ import { ConfirmButton } from "@/components/ConfirmButton";
 import { I18nText } from "@/components/I18nText";
 import { MetricCard } from "@/components/MetricCard";
 import { SubmitButton } from "@/components/SubmitButton";
+import { ModelConfigManager } from "@/components/admin/ModelConfigManager";
+import { StorageCleanupControls } from "@/components/admin/StorageCleanupControls";
 import { CONTENT_MODE_OPTIONS, DEFAULT_BLOG_STYLE, contentModeLabel } from "@/lib/content-style";
 import { LANGUAGE_OPTIONS, CONTENT_LANGUAGE_MODE_OPTIONS } from "@/lib/language";
-import { MODEL_PROVIDER_PRESETS, providerLabel } from "@/lib/model-providers";
 import { FONTS, THEMES, UI_STYLES } from "@/lib/themes";
 
 const SETTINGS_TABS = [
@@ -85,7 +86,8 @@ const TAB_ICONS: Record<(typeof SETTINGS_TABS)[number]["key"], React.ReactNode> 
 
 type SettingsTab = typeof SETTINGS_TABS[number]["key"];
 
-const SITE_FORM_TABS = new Set<SettingsTab>(["site", "content", "models", "media", "storage", "external"]);
+const SITE_FORM_TABS = new Set<SettingsTab>(["site", "content", "media", "storage", "external"]);
+const FRONTEND_SETTINGS_TABS = new Set<SettingsTab>(["site", "media", "storage", "account"]);
 
 type SettingsSite = Partial<Pick<
   SiteSettings,
@@ -112,12 +114,11 @@ type SettingsSite = Partial<Pick<
   | "cleanupAfterDays"
   | "cleanupCustomEnabled"
   | "exaEnabled"
-  | "exaApiKeyEnc"
->>;
+>> & { exaConfigured?: boolean };
 
 type ModelConfigItem = Pick<
   ModelConfig,
-  "id" | "provider" | "name" | "baseUrl" | "model" | "temperature" | "maxTokens" | "stream" | "isDefault"
+  "id" | "provider" | "name" | "baseUrl" | "model" | "temperature" | "maxTokens" | "isEnabled" | "isDefault"
 >;
 
 type ContentStyleItem = Pick<
@@ -140,6 +141,17 @@ type StorageSummary = {
   cleanupAfterDays: number;
 } | null;
 
+type CleanupResult =
+  | {
+      status: "success";
+      fetchJobsDeleted: number;
+      rawItemsDeleted: number;
+      archivedPosts: number;
+      videoFilesDeleted: number;
+      bytesFreed: string;
+    }
+  | { status: "error" };
+
 function isSettingsTab(value: string): value is SettingsTab {
   return SETTINGS_TABS.some((tab) => tab.key === value);
 }
@@ -151,7 +163,12 @@ export function SettingsClient({
   admin,
   storage,
   initialTab = "site",
-  savedFlag = false
+  savedFlag = false,
+  modelStatus,
+  modelError,
+  accountError,
+  cleanupResult,
+  workerEnabled = true
 }: {
   site: SettingsSite | null;
   modelConfigs: ModelConfigItem[];
@@ -160,8 +177,18 @@ export function SettingsClient({
   storage: StorageSummary;
   initialTab?: string;
   savedFlag?: boolean;
+  modelStatus?: string;
+  modelError?: string;
+  accountError?: string;
+  cleanupResult?: CleanupResult;
+  workerEnabled?: boolean;
 }) {
-  const [activeTab, setActiveTab] = useState<SettingsTab>(isSettingsTab(initialTab) ? initialTab : "site");
+  const visibleTabs = workerEnabled
+    ? SETTINGS_TABS
+    : SETTINGS_TABS.filter((tab) => FRONTEND_SETTINGS_TABS.has(tab.key));
+  const initialTabAvailable = isSettingsTab(initialTab)
+    && visibleTabs.some((tab) => tab.key === initialTab);
+  const [activeTab, setActiveTab] = useState<SettingsTab>(initialTabAvailable ? initialTab : "site");
   const [savedVisible, setSavedVisible] = useState<boolean>(savedFlag);
 
   // 切换标签时同步到 ?tab=，这样刷新 / 分享链接不会丢当前所在的设置页。
@@ -201,7 +228,7 @@ export function SettingsClient({
         role="tablist"
         aria-orientation="vertical"
         onKeyDown={(event) => {
-          const order: SettingsTab[] = SETTINGS_TABS.map((t) => t.key);
+          const order: SettingsTab[] = visibleTabs.map((t) => t.key);
           const idx = order.indexOf(activeTab);
           if (event.key === "ArrowDown" || event.key === "ArrowRight") {
             event.preventDefault();
@@ -221,7 +248,7 @@ export function SettingsClient({
         <div className="settings-side-nav-header">
           <I18nText zh="导航" en="Sections" />
         </div>
-        {SETTINGS_TABS.map((tab) => {
+        {visibleTabs.map((tab) => {
           const isActive = activeTab === tab.key;
           return (
             <button
@@ -339,18 +366,6 @@ export function SettingsClient({
             </div>
           </section>
 
-          <section role="group" aria-label="模型基础配置" hidden={activeTab !== "models"}>
-            <SectionTitle title={<I18nText zh="各任务使用的模型" en="Task Models" />} />
-            <div className="field-row">
-              <ModelSelect id="contentModelConfigId" label={<I18nText zh="内容生成模型" en="Content Model" />} value={String(s?.contentModelConfigId ?? "")} configs={modelConfigs} />
-              <ModelSelect id="assistantModelConfigId" label={<I18nText zh="前台助手模型" en="Assistant Model" />} value={String(s?.assistantModelConfigId ?? "")} configs={modelConfigs} />
-            </div>
-            <div className="field-row">
-              <ModelSelect id="writingModelConfigId" label={<I18nText zh="用户写作模型" en="Writing Model" />} value={String(s?.writingModelConfigId ?? "")} configs={modelConfigs} />
-              <ModelSelect id="translationModelConfigId" label={<I18nText zh="英文翻译模型" en="Translation Model" />} value={String(s?.translationModelConfigId ?? "")} configs={modelConfigs} />
-            </div>
-          </section>
-
           <section id="settings-panel-media" role="tabpanel" aria-labelledby="settings-tab-media" hidden={activeTab !== "media"}>
             <SectionTitle title={<I18nText zh="媒体与视频策略" en="Media & Video" />} />
             <div className="settings-check-list">
@@ -392,14 +407,17 @@ export function SettingsClient({
                 <input id="maxStorageMb" name="maxStorageMb" type="number" min={64} max={102400} defaultValue={Number(s?.maxStorageMb ?? 2048)} />
               </div>
               <div className="field">
-                <label htmlFor="cleanupAfterDays"><I18nText zh="清理几天前的任务数据" en="Cleanup Jobs Older Than Days" /></label>
+                <label htmlFor="cleanupAfterDays"><I18nText zh="独立已完成任务 / 孤儿素材保留天数" en="Standalone Completed Job / Orphan Retention Days" /></label>
                 <input id="cleanupAfterDays" name="cleanupAfterDays" type="number" min={1} max={3650} defaultValue={Number(s?.cleanupAfterDays ?? 30)} />
               </div>
             </div>
             <label>
               <input type="checkbox" name="cleanupCustomEnabled" value="true" defaultChecked={Boolean(s?.cleanupCustomEnabled)} />{" "}
-              <I18nText zh="空间超限时自动归档旧文章并回收本地视频" en="Archive old posts and reclaim local videos when space is exceeded" />
+              <I18nText zh="启用后台自动清理（每 6 小时按保留天数清理已完成的非批次任务和孤儿素材；仅在空间超限时归档旧文章并回收其本地视频）" en="Enable background cleanup (every 6 hours, remove old standalone completed jobs and orphaned material; archive old posts and reclaim their local videos only when over quota)" />
             </label>
+            <small className="muted">
+              <I18nText zh="关闭后，定时任务不会写库或删除文件。失败任务、运行中任务以及 AI 管理员批次历史不会被自动清理。" en="When disabled, scheduled cleanup does not write to the database or delete files. Failed/in-flight jobs and AI admin batch history are never removed automatically." />
+            </small>
           </section>
 
           <section id="settings-panel-external" role="tabpanel" aria-labelledby="settings-tab-external" hidden={activeTab !== "external"}>
@@ -410,7 +428,7 @@ export function SettingsClient({
             </label>
             <div className="field">
               <label htmlFor="exaApiKey"><I18nText zh="Exa API Key（留空不修改）" en="Exa API Key (leave blank to keep)" /></label>
-              <input id="exaApiKey" name="exaApiKey" type="password" placeholder={s?.exaApiKeyEnc ? "已配置（输入新值覆盖）" : ""} />
+              <input id="exaApiKey" name="exaApiKey" type="password" placeholder={s?.exaConfigured ? "已配置（输入新值覆盖）" : ""} />
             </div>
           </section>
 
@@ -421,100 +439,18 @@ export function SettingsClient({
       ) : null}
 
       {activeTab === "models" ? (
-        <div className="settings-two-column" id="settings-panel-models" role="tabpanel" aria-labelledby="settings-tab-models">
-          <form className="form-card form-stack" action="/api/admin/model-configs" method="post">
-            <h2 style={{ marginTop: 0 }}><I18nText zh="新增模型配置" en="New Model Config" /></h2>
-            <div className="field">
-              <label htmlFor="provider"><I18nText zh="模型服务商预设" en="Model Provider Preset" /></label>
-              <select id="provider" name="provider" defaultValue="custom">
-                {MODEL_PROVIDER_PRESETS.map((preset) => (
-                  <option key={preset.key} value={preset.key}>{preset.model ? `${preset.label} · ${preset.model}` : preset.label}</option>
-                ))}
-              </select>
-            </div>
-            <div className="field">
-              <label htmlFor="modelName"><I18nText zh="配置名称" en="Config Name" /></label>
-              <input id="modelName" name="name" required placeholder="例如：我的模型" />
-            </div>
-            <div className="field">
-              <label htmlFor="baseUrl">Base URL</label>
-              <input id="baseUrl" name="baseUrl" required placeholder="https://api.example.com/v1" />
-            </div>
-            <div className="field">
-              <label htmlFor="model">Model</label>
-              <input id="model" name="model" required placeholder="模型名，例如 gpt-4o-mini" />
-            </div>
-            <div className="field">
-              <label htmlFor="apiKey">API Key</label>
-              <input id="apiKey" name="apiKey" type="password" required />
-            </div>
-            <div className="field-row">
-              <div className="field">
-                <label htmlFor="temperature">Temperature</label>
-                <input id="temperature" name="temperature" type="number" step="0.1" min="0" max="2" defaultValue="0.3" />
-              </div>
-              <div className="field">
-                <label htmlFor="maxTokens">Max Tokens</label>
-                <input id="maxTokens" name="maxTokens" type="number" defaultValue="8000" />
-              </div>
-            </div>
-            <label><input type="checkbox" name="stream" value="true" /> <I18nText zh="启用流式生成" en="Enable Streaming" /></label>
-            <label><input type="checkbox" name="isDefault" value="true" defaultChecked /> <I18nText zh="设为默认模型" en="Set as Default Model" /></label>
-            <SubmitButton pendingLabel={<I18nText zh="保存中…" en="Saving…" />}><I18nText zh="保存模型配置" en="Save Model Config" /></SubmitButton>
-          </form>
-
-          <section className="admin-panel">
-            <h2 style={{ marginTop: 0 }}><I18nText zh="已有模型配置" en="Existing Models" /></h2>
-            <div className="table-list">
-              {modelConfigs.map((config) => (
-                <div className="table-item model-config-row" key={config.id}>
-                  <form className="model-config-form" action={`/api/admin/model-configs/${config.id}`} method="post">
-                    <div className="meta-row" style={{ alignItems: "center", justifyContent: "space-between" }}>
-                      <div>
-                        <strong>{config.name}</strong>
-                        <div className="muted">{providerLabel(config.provider)} · {config.baseUrl} · {config.model}</div>
-                      </div>
-                      <span className="tag">{config.isDefault ? <I18nText zh="默认" en="Default" /> : <I18nText zh="备用" en="Backup" />}</span>
-                    </div>
-                    <div className="field-row">
-                      <div className="field">
-                        <label htmlFor={`model-name-${config.id}`}><I18nText zh="名称" en="Name" /></label>
-                        <input id={`model-name-${config.id}`} name="name" defaultValue={config.name} required />
-                      </div>
-                      <div className="field">
-                        <label htmlFor={`model-id-${config.id}`}>Model</label>
-                        <input id={`model-id-${config.id}`} name="model" defaultValue={config.model} required />
-                      </div>
-                    </div>
-                    <div className="field">
-                      <label htmlFor={`base-url-${config.id}`}>Base URL</label>
-                      <input id={`base-url-${config.id}`} name="baseUrl" defaultValue={config.baseUrl} required />
-                    </div>
-                    <div className="field-row">
-                      <div className="field">
-                        <label htmlFor={`temperature-${config.id}`}>Temperature</label>
-                        <input id={`temperature-${config.id}`} name="temperature" type="number" step="0.1" min="0" max="2" defaultValue={config.temperature} />
-                      </div>
-                      <div className="field">
-                        <label htmlFor={`max-tokens-${config.id}`}>Max Tokens</label>
-                        <input id={`max-tokens-${config.id}`} name="maxTokens" type="number" min="1" defaultValue={config.maxTokens} />
-                      </div>
-                    </div>
-                    <div className="field">
-                      <label htmlFor={`api-key-${config.id}`}><I18nText zh="替换 API Key" en="Replace API Key" /></label>
-                      <input id={`api-key-${config.id}`} name="apiKey" type="password" placeholder="留空则不修改；解密失败时在这里重新填写" />
-                    </div>
-                    <div className="meta-row" style={{ alignItems: "center" }}>
-                      <label><input type="checkbox" name="stream" value="true" defaultChecked={config.stream} /> <I18nText zh="流式" en="Streaming" /></label>
-                      <label><input type="checkbox" name="isDefault" value="true" defaultChecked={config.isDefault} /> <I18nText zh="设为默认" en="Default" /></label>
-                      <SubmitButton className="button secondary" pendingLabel={<I18nText zh="更新中…" en="Updating…" />}><I18nText zh="更新此模型" en="Update Model" /></SubmitButton>
-                    </div>
-                  </form>
-                </div>
-              ))}
-              {modelConfigs.length === 0 ? <p className="muted"><I18nText zh="暂无配置。" en="No configs." /></p> : null}
-            </div>
-          </section>
+        <div id="settings-panel-models" role="tabpanel" aria-labelledby="settings-tab-models">
+          <ModelConfigManager
+            configs={modelConfigs}
+            assignments={{
+              contentModelConfigId: String(s?.contentModelConfigId ?? ""),
+              assistantModelConfigId: String(s?.assistantModelConfigId ?? ""),
+              writingModelConfigId: String(s?.writingModelConfigId ?? ""),
+              translationModelConfigId: String(s?.translationModelConfigId ?? "")
+            }}
+            status={modelStatus}
+            error={modelError}
+          />
         </div>
       ) : null}
 
@@ -655,6 +591,21 @@ export function SettingsClient({
       {activeTab === "storage" && storage ? (
         <section className="admin-panel" id="settings-panel-storage" role="tabpanel" aria-labelledby="settings-tab-storage" style={{ marginTop: 24 }}>
           <h2 style={{ marginTop: 0 }}><I18nText zh="当前存储占用" en="Current Storage Usage" /></h2>
+          {cleanupResult?.status === "success" ? (
+            <p className="muted-block" role="status">
+              <I18nText
+                zh={`清理完成：删除 ${cleanupResult.fetchJobsDeleted} 个已完成任务和 ${cleanupResult.rawItemsDeleted} 条孤儿素材，归档 ${cleanupResult.archivedPosts} 篇旧文章，删除 ${cleanupResult.videoFilesDeleted} 个本地视频文件，释放约 ${cleanupResult.bytesFreed}。`}
+                en={`Cleanup completed: removed ${cleanupResult.fetchJobsDeleted} completed jobs and ${cleanupResult.rawItemsDeleted} orphan items, archived ${cleanupResult.archivedPosts} old posts, deleted ${cleanupResult.videoFilesDeleted} local video files, and freed about ${cleanupResult.bytesFreed}.`}
+              />
+            </p>
+          ) : cleanupResult?.status === "error" ? (
+            <p className="form-error" role="alert">
+              <I18nText
+                zh="清理未完整执行。系统已停止后续步骤并记录错误；请查看服务日志，解决后再重试。"
+                en="Cleanup did not complete. Later steps were stopped and the error was logged; inspect service logs before retrying."
+              />
+            </p>
+          ) : null}
           <div className="admin-grid-3" style={{ marginTop: 16 }}>
             <MetricCard label={<I18nText zh="上传目录总和" en="Uploads Total" />} value={String(storage.uploadsBytes)} />
             <MetricCard label={<I18nText zh="图片缓存" en="Image Cache" />} value={String(storage.imageBytes)} />
@@ -665,24 +616,63 @@ export function SettingsClient({
             <MetricCard label={<I18nText zh="任务数量" en="Fetch Jobs" />} value={String(storage.fetchJobCount)} />
             <MetricCard label={<I18nText zh="DB 估算" en="DB Estimate" />} value={String(storage.approxDbBytesEstimate)} />
             <MetricCard label={<I18nText zh="空间上限" en="Space Limit" />} value={`${storage.maxStorageMb} MB`} />
-            <MetricCard label={<I18nText zh="清理阈值" en="Cleanup Threshold" />} value={`> ${storage.cleanupAfterDays} days`} />
+            <MetricCard label={<I18nText zh="保留期限" en="Retention Period" />} value={`${storage.cleanupAfterDays} days`} />
           </div>
-          <form action="/api/admin/storage/cleanup" method="post" style={{ marginTop: 16 }}>
-            <SubmitButton className="button secondary" pendingLabel={<I18nText zh="清理中…" en="Cleaning…" />}><I18nText zh="立即按当前规则清理" en="Clean Up Now" /></SubmitButton>
-          </form>
+          <StorageCleanupControls retentionDays={storage.cleanupAfterDays} />
         </section>
       ) : null}
 
       {activeTab === "account" ? (
         <form className="form-card form-stack" id="settings-panel-account" role="tabpanel" aria-labelledby="settings-tab-account" action="/api/admin/settings/admin" method="post" style={{ maxWidth: 720 }}>
           <h2 style={{ marginTop: 0 }}><I18nText zh="管理员账号" en="Admin Account" /></h2>
+          {accountError ? (
+            <p className="form-error" role="alert">
+              <I18nText zh={accountErrorMessage(accountError).zh} en={accountErrorMessage(accountError).en} />
+            </p>
+          ) : null}
+          <p className="muted-block" id="admin-account-security-note">
+            <I18nText
+              zh={<>
+                设置新密码会立即吊销所有设备（包括当前页面）的管理员会话，保存后需要重新登录。部署环境中的 <code>ADMIN_USERNAME</code> / <code>ADMIN_PASSWORD</code> 是启动 seed 的权威配置；若与数据库不同，重启或再次 seed 可能恢复密码或另建环境变量指定的管理员。要永久修改，请同步更新部署环境变量。
+              </>}
+              en={<>
+                Setting a new password immediately revokes every admin session, including this one, and requires a fresh sign-in. <code>ADMIN_USERNAME</code> / <code>ADMIN_PASSWORD</code> remain authoritative during deployment seeding; a restart or seed may restore that password or recreate the environment-defined administrator. Update the deployment variables as well for a persistent change.
+              </>}
+            />
+          </p>
           <div className="field">
             <label htmlFor="username"><I18nText zh="用户名" en="Username" /></label>
-            <input id="username" name="username" defaultValue={admin?.username} required />
+            <input
+              id="username"
+              name="username"
+              defaultValue={admin?.username}
+              required
+              minLength={3}
+              maxLength={80}
+              autoComplete="username"
+              autoCapitalize="none"
+              spellCheck={false}
+              aria-describedby="admin-account-security-note"
+            />
           </div>
           <div className="field">
             <label htmlFor="password"><I18nText zh="新密码" en="New Password" /></label>
-            <input id="password" name="password" type="password" placeholder="留空则不修改" />
+            <input
+              id="password"
+              name="password"
+              type="password"
+              minLength={12}
+              maxLength={100}
+              autoComplete="new-password"
+              aria-describedby="admin-account-security-note admin-password-requirements"
+              placeholder="留空则不修改"
+            />
+            <small className="muted" id="admin-password-requirements">
+              <I18nText
+                zh="至少 12 位，并包含大写字母、小写字母、数字、符号中的至少三类；不能包含账号名。"
+                en="At least 12 characters and three of uppercase, lowercase, digits, and symbols; must not contain the username."
+              />
+            </small>
           </div>
           <SubmitButton pendingLabel={<I18nText zh="保存中…" en="Saving…" />}><I18nText zh="保存账号" en="Save Account" /></SubmitButton>
         </form>
@@ -696,16 +686,31 @@ function SectionTitle({ title }: { title: React.ReactNode }) {
   return <h2 style={{ marginTop: 0 }}>{title}</h2>;
 }
 
-function ModelSelect({ id, label, value, configs }: { id: string; label: React.ReactNode; value: string; configs: ModelConfigItem[] }) {
-  return (
-    <div className="field">
-      <label htmlFor={id}>{label}</label>
-      <select id={id} name={id} defaultValue={value}>
-        <option value="">使用默认模型</option>
-        {configs.map((config) => (
-          <option key={config.id} value={config.id}>{config.name} · {config.model}</option>
-        ))}
-      </select>
-    </div>
-  );
+function accountErrorMessage(code: string) {
+  const messages: Record<string, { zh: string; en: string }> = {
+    invalid_username: {
+      zh: "用户名需为 3–80 个字符，且不能包含控制字符。",
+      en: "The username must be 3–80 characters and contain no control characters."
+    },
+    weak_password: {
+      zh: "新密码不符合下方强度要求，账号未修改。",
+      en: "The new password does not meet the requirements below; the account was not changed."
+    },
+    same_password: {
+      zh: "新密码不能与当前密码相同。",
+      en: "The new password must differ from the current password."
+    },
+    username_taken: {
+      zh: "该用户名已被其他管理员使用。",
+      en: "That username is already used by another administrator."
+    },
+    session_changed: {
+      zh: "当前管理员会话已失效或账号刚被修改，请重新登录。",
+      en: "This admin session is no longer current; sign in again."
+    }
+  };
+  return messages[code] || {
+    zh: "账号设置未保存，请检查输入后重试。",
+    en: "The account settings were not saved. Check the input and try again."
+  };
 }

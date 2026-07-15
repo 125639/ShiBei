@@ -1,4 +1,5 @@
 import IORedis from "ioredis";
+import { trustedClientIp } from "./client-ip";
 
 type RateLimitInput = {
   namespace: string;
@@ -91,13 +92,7 @@ async function incrementLimitKey(key: string, limit: number, windowSec: number):
 }
 
 function clientIdentity(request: Request) {
-  // A reverse proxy normally appends the real client address. Taking the first
-  // entry lets a direct client prepend arbitrary values; the last entry is the
-  // least attacker-controlled value in that deployment model.
-  const forwarded = request.headers.get("x-forwarded-for")?.split(",").at(-1)?.trim();
-  const realIp = request.headers.get("x-real-ip")?.trim();
-  const raw = realIp || forwarded || "unknown";
-  return sanitizeKeyPart(raw);
+  return sanitizeKeyPart(trustedClientIp(request));
 }
 
 function sanitizeKeyPart(raw: string) {

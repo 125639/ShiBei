@@ -5,11 +5,18 @@ import { isInviteCodeFormat, normalizeInviteCodeInput } from "@/lib/invite-codes
 import { prisma } from "@/lib/prisma";
 import { checkRateLimit, checkSubjectRateLimit } from "@/lib/rate-limit";
 import { parseJsonBody } from "@/lib/request-validation";
-import { claimAnonWorks, createMemberSession, setMemberSessionCookie } from "@/lib/member-auth";
+import {
+  clearMemberCredentialUpgradeCookie,
+  clearMemberSessionCookie,
+  createMemberCredentialUpgradeToken,
+  createMemberSession,
+  setMemberCredentialUpgradeCookie,
+  setMemberSessionCookie
+} from "@/lib/member-auth";
 
 export const dynamic = "force-dynamic";
 
-// 统一登录:邮箱会员用 邮箱+密码,邀请码会员用 用户名+邀请码。
+// 统一登录:邮箱会员与邀请码会员都只用自己设置的密码。
 // account/secret 是新字段;email/password 保留兼容旧客户端。
 const BodySchema = z
   .object({
@@ -61,21 +68,35 @@ export async function POST(request: Request) {
     : await prisma.memberUser.findUnique({ where: { username: account } });
 
   let ok = member ? await bcrypt.compare(secret, member.passwordHash) : false;
-  // 邀请码大小写/连字符宽容:按规范格式再试一次
-  if (!ok && member) {
+  // 仅存量邀请码账号允许规范化旧邀请码，且成功后只能进入受限的改密流程。
+  if (!ok && member?.credentialState === "LEGACY_INVITE_UPGRADE_REQUIRED") {
     const normalized = normalizeInviteCodeInput(secret);
     if (normalized !== secret && isInviteCodeFormat(normalized)) {
       ok = await bcrypt.compare(normalized, member.passwordHash);
     }
   }
   if (!member || !ok) {
-    return NextResponse.json({ error: "账号或密码（邀请码）错误" }, { status: 401 });
+    return NextResponse.json({ error: "账号或密码错误" }, { status: 401 });
   }
 
-  const claimed = await claimAnonWorks(member.id);
-  await setMemberSessionCookie(await createMemberSession(member.id));
+  if (member.credentialState === "LEGACY_INVITE_UPGRADE_REQUIRED") {
+    // 旧邀请码绝不签发会员 session；只签发十分钟、路径受限且带 purpose 的升级凭据。
+    await clearMemberSessionCookie();
+    await setMemberCredentialUpgradeCookie(
+      await createMemberCredentialUpgradeToken(member.id, member.tokenVersion)
+    );
+    return NextResponse.json(
+      {
+        error: "为保护账号，请先设置你自己的强密码",
+        requiresCredentialUpgrade: true
+      },
+      { status: 428 }
+    );
+  }
+
+  await clearMemberCredentialUpgradeCookie();
+  await setMemberSessionCookie(await createMemberSession(member.id, member.tokenVersion));
   return NextResponse.json({
-    member: { id: member.id, email: member.email, username: member.username, displayName: member.displayName },
-    claimedWorks: claimed
+    member: { id: member.id, email: member.email, username: member.username, displayName: member.displayName }
   });
 }

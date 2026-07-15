@@ -57,9 +57,9 @@
 
 ### 数据访问层
 
-- **存储管理**：`SiteSettings` 内置 `maxStorageMb` / `cleanupAfterDays`（3 天 / 7 天 / 1 月 / 3 月 / 自定义）/ `cleanupCustomEnabled` / `textOnlyMode` / `videoMaxDurationSec` / `videoDownloadDomestic`。
+- **存储管理**：`SiteSettings` 内置 `maxStorageMb` / `cleanupAfterDays` / `cleanupCustomEnabled`。`cleanupCustomEnabled` 是后台自动清理的总开关；关闭时定时任务不写库、不删文件。手动强制清理不受该开关影响，但必须在后台阅读影响范围并二次确认。
 - **纯文本模式**：开启后抓取不附加视频文件；自动图片搜索仍可在后台设置中单独关闭，进一步省空间。
-- **定期清理**：worker 每 6 小时执行一次：超期 FetchJob 删除、孤儿 RawItem 删除、超额时旧文章自动归档（不删内容），归档文章本地视频文件回收。也可在 `/admin/storage/cleanup` 手动一键执行。
+- **定期清理**：开启自动清理后，worker 每 6 小时按 `cleanupAfterDays` 删除超期的“已完成、非 AI 批次” FetchJob 与孤儿 RawItem；失败/运行中/排队中任务和 AI 管理员批次审计链保留。空间超限时旧文章自动归档（不删正文），并回收超过保留期的已归档文章本地视频。管理员也可二次确认后手动强制执行；手动模式即使空间未超限也会归档超过保留期的已发布文章并删除对应本地视频文件。
 
 ### 性能
 
@@ -116,11 +116,12 @@ curl -fsSL https://raw.githubusercontent.com/125639/ShiBei/main/scripts/bootstra
 
 向导会自动：
 
-- 检测本机 IP，给 `NEXT_PUBLIC_SITE_URL` 一个合理默认值
+- 检测公网 IP，默认使用 HTTPS；完整版可为域名或公网 IPv4 自动签发证书
 - 用 `openssl rand -hex 32` 生成 `AUTH_SECRET` / `ENCRYPTION_KEY` / `SYNC_TOKEN`
 - 留空管理员密码时自动生成 16 位强密码
 - 让你选 `full` / `backend` / `frontend` 三种部署形态
 - 可选地预设 AI 模型（CanopyWave / OpenAI / DeepSeek / Moonshot / Qwen / SiliconFlow / OpenRouter / 自定义），首次 `db:seed` 落库
+- 完整版自动启用 Nginx、Let’s Encrypt 与 systemd 续期 timer；应用端口只绑定回环地址
 
 向导结束会打印对应模式的 `docker compose ... up -d` 命令、健康检查 URL 和登录账号。
 
@@ -140,6 +141,7 @@ git clone https://github.com/125639/ShiBei.git
 cd ShiBei
 cp .env.example .env
 # 编辑 .env：AUTH_SECRET / ENCRYPTION_KEY / ADMIN_PASSWORD / NEXT_PUBLIC_SITE_URL
+# 公网生产环境必须使用 HTTPS；full 模式还要填写 PUBLIC_HOST
 # 两个密钥建议各自 `openssl rand -hex 32`
 ```
 
@@ -147,7 +149,7 @@ cp .env.example .env
 
 | 形态 | 启动命令 |
 | --- | --- |
-| 完整版 | `docker compose up -d` |
+| 完整版 | `docker compose up -d && sudo scripts/bootstrap-ip-tls.sh` |
 | 后端 | `docker compose -f docker-compose.backend.yml up -d` |
 | 前端 | `docker compose -f docker-compose.frontend.yml up -d` |
 
@@ -159,12 +161,12 @@ cp .env.example .env
 ### 访问
 
 ```text
-http://服务器IP:3000        # 公开站（前端/完整版）
-http://服务器IP:3000/admin  # 管理后台（默认 admin / 你在向导里设的密码）
-http://服务器IP:3000/api/health  # 健康检查（compose 已用它做 healthcheck）
+https://服务器IP或域名/            # 公开站（完整版）
+https://服务器IP或域名/admin       # 管理后台（admin / 向导设置的密码）
+https://服务器IP或域名/api/health  # 公开健康检查
 ```
 
-> 容器内监听 3000；默认只暴露宿主机 3000，避免和已有 Nginx/Caddy/系统服务抢 80 端口。需要 80/443 时，建议用 Nginx/Caddy 反代到 `127.0.0.1:3000`。
+> 生产身份使用浏览器强制的 `__Host-` + `Secure` Cookie，公网 HTTP 无法安全登录。完整版的向导会自动签发证书、把 HTTP 308 到 HTTPS，并把应用 3000 端口限制在 `127.0.0.1`。证书状态保存在 `/var/lib/shibei-tls`，每天检查两次并在到期前 48 小时 fail loud。
 >
 > 后端 compose **只暴露 3000**——拆分部署时建议给它套一层 Caddy/Nginx 做 HTTPS。
 
@@ -175,7 +177,7 @@ http://服务器IP:3000/api/health  # 健康检查（compose 已用它做 health
 docker compose ps
 
 # 健康检查（应返回 {"ok":true,...}）
-curl http://localhost:3000/api/health
+curl https://你的域名或公网IP/api/health
 
 # 实时日志
 docker compose logs -f app worker
@@ -242,7 +244,7 @@ docker compose logs -f app worker
 
    **关键步骤**：把 A 服务器向导生成的 `SYNC_TOKEN` 复制到 B 服务器的 `.env`（直接编辑覆盖即可），或登录 `https://shibei.example.com/admin/sync` 网页端填入并保存。两端 token 必须完全一致。
 
-3. **HTTPS 与反向代理（强烈建议）**
+3. **HTTPS 与反向代理（公网部署必需）**
 
    两台服务器都建议套 [Caddy](https://caddyserver.com) 或 Nginx 反代 + Let's Encrypt 自动证书：
 
@@ -258,7 +260,7 @@ docker compose logs -f app worker
    }
    ```
 
-   默认 compose 只暴露宿主机 3000；让 Caddy 监听 80/443，并反代到 `127.0.0.1:3000`。
+   让 Caddy 监听 80/443，并反代到 `127.0.0.1:3000`；同时把宿主端口绑定为回环地址，不能让公网绕过代理直连。
 
 ### 安全注意
 
@@ -498,11 +500,11 @@ docker compose down
 docker compose down -v
 
 # 检查 frontend / backend 配置
-curl http://服务器IP:3000/api/health
+curl https://服务器域名/api/health
 docker compose exec app sh -c 'echo $APP_MODE'
 
 # backend 立即生成 ZIP（用 SYNC_TOKEN 鉴权）
-curl -O -J http://backend.example.com:3000/api/admin/sync/export \
+curl -O -J https://backend.example.com/api/admin/sync/export \
      -H "Authorization: Bearer $SYNC_TOKEN"
 ```
 
@@ -514,17 +516,17 @@ curl -O -J http://backend.example.com:3000/api/admin/sync/export \
 
 按下面顺序排：
 
-1. **端口映射写错或端口被占用**：镜像内监听 3000，默认映射到宿主机 3000；如要让容器直接占用 80，应使用 `80:3000`，不是 `80:80`。
+1. **HTTPS 入口没启动**：完整版运行 `sudo scripts/bootstrap-ip-tls.sh`，再看 `docker compose --profile https ps proxy` 与 `systemctl status shibei-tls-renew.timer`。
 2. **容器其实退了**：`docker compose ps` 看 `app` 是不是 `Exited`；`docker compose logs app` 看错误。
    - 最常见报错：`Validation Error Count: 1 [Context: getConfig]` → `.env` 漏填 `DATABASE_URL` / `AUTH_SECRET` / `ENCRYPTION_KEY`。重跑 `bash scripts/init.sh` 即可一次性补齐。
-3. **防火墙 / 安全组**：阿里云、腾讯云、DigitalOcean 控制台放行 3000 入站；如果前置了 Nginx/Caddy，再放行 80/443。
+3. **防火墙 / 安全组**：公网只放行 80/443；不要放行 3000，避免绕过 TLS 与可信代理边界。
 4. **前端的 backend 入口写成了 localhost**：跨服务器时必须填 backend 的公网 IP / 域名，frontend 容器内的 localhost 是它自己。
 
 ### ❷ 前端没有文章
 
 1. `/admin/sync` 看「上次同步」、「上次错误」字段。
 2. backend 上必须有 `status=PUBLISHED` 的文章；DRAFT 不会导出。
-3. backend 入口可达性：`curl -I http://api.example.com:3000/api/health`。
+3. backend 入口可达性：`curl -I https://api.example.com/api/health`。
 4. `SYNC_TOKEN` 两端对得上吗？前端日志里的 401/403 一般就是它。
 
 ### ❸ 401 "未授权：本路由仅允许已配置共享密钥的前端代理调用"
@@ -567,7 +569,7 @@ curl -O -J http://backend.example.com:3000/api/admin/sync/export \
 
 ### ❾ 想用 80/443 访问
 
-默认 compose 不抢 80 端口。前置 Caddy/Nginx，把外部 80/443 反代到 `127.0.0.1:3000` 即可；如果你确实要容器直接占用 80，再手动给对应 compose 增加 `"80:3000"`。
+完整版填写 `NEXT_PUBLIC_SITE_URL=https://域名或公网IP` 与 `PUBLIC_HOST` 后运行 `sudo scripts/bootstrap-ip-tls.sh`。脚本会签发证书、启动 80/443 代理并安装续期 timer；3000 保持只在本机可达。已有 Caddy/Nginx 的拆分部署也必须遵守同一原则。
 
 ### ❿ 想换密钥 / 换部署形态
 
@@ -589,6 +591,7 @@ bash scripts/init.sh
 - **SYNC_TOKEN**：跨服务器场景务必 HTTPS，定期轮换；轮换时先在两端同步保存新值再删旧值。
 - **公开 backend**：`backend` 模式下 `/api/public/*` 已要求 SYNC_TOKEN；但建议再加一层 Caddy/Nginx 限速，避开未授权扫描的恶意请求。
 - **AI 接口限流**：助手、翻译、写作辅助默认按客户端 IP 限流；配置 `REDIS_URL` 时跨进程共享计数，否则使用进程内兜底计数。
+- **代理 IP 边界**：生产启动器会覆盖内部客户端 IP，默认忽略外部传入的 `X-Real-IP` / `X-Forwarded-For`，避免轮换伪造头绕过匿名额度和限流。只有应用端口已被防火墙限制为仅可信反代可访问时，才把 `TRUST_PROXY_HOPS` 设为真实固定代理层数（单层为 `1`）；端口可直连时保持 `0`。
 - **抓取目标安全**：网页 / RSS / 图片下载会拒绝 file、localhost、私网 IP、链路本地与云 metadata；真实请求前还会解析 DNS，避免域名解析到内网地址。
 - **API Key**：所有外部 API Key（OpenAI / DeepSeek / Exa）都用 `ENCRYPTION_KEY` 加密入库；备份数据库等同备份这些密钥，注意 ACL。
 - **上传体积限制**：图片 8 MB、音乐 30 MB、视频 300 MB、ZIP 同步 512 MB，按需在源码改大但记得给反代也加 `client_max_body_size`。

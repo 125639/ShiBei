@@ -81,7 +81,7 @@ export default async function SyncAdminPage({
       {/* 状态卡片 */}
       <section className="form-card form-stack" style={{ maxWidth: 720 }}>
         <h2 style={{ marginTop: 0 }}><I18nText zh="当前状态" en="Current Status" /></h2>
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 2fr", gap: "8px 16px" }}>
+        <div className="admin-status-grid">
           <div><I18nText zh="当前模式" en="App mode" /></div>
           <div>
             <code>{mode}</code>

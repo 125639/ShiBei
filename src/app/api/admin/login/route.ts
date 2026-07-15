@@ -5,7 +5,23 @@ import { checkRateLimit, checkSubjectRateLimit } from "@/lib/rate-limit";
 import { redirectTo } from "@/lib/redirect";
 
 export async function POST(request: Request) {
-  const form = await request.formData();
+  const mediaType = request.headers.get("content-type")?.split(";", 1)[0]?.trim().toLowerCase();
+  if (mediaType !== "application/x-www-form-urlencoded" && mediaType !== "multipart/form-data") {
+    return Response.json(
+      { error: "管理员登录必须使用表单提交" },
+      { status: 415, headers: { "Cache-Control": "no-store" } }
+    );
+  }
+
+  let form: FormData;
+  try {
+    form = await request.formData();
+  } catch {
+    return Response.json(
+      { error: "登录表单格式无效" },
+      { status: 400, headers: { "Cache-Control": "no-store" } }
+    );
+  }
   const username = String(form.get("username") || "").trim();
   const password = String(form.get("password") || "");
   const limited = await checkRateLimit({

@@ -6,7 +6,7 @@
 //   GET  /health   存活探针（不鉴权，无敏感信息）
 //   GET  /current  当前仓库 HEAD / 分支 / origin 地址
 //   POST /check    git fetch 后对比本地与 origin/<branch>，返回落后的提交列表
-//   POST /update   异步执行：git reset --hard origin/<branch> → compose build → up -d
+//   POST /update   异步执行：校验干净工作区并仅快进到 origin/<branch> → build → up -d
 //   GET  /status   更新任务状态 + 日志（app 重启期间/之后都可以来拉）
 //
 // 安全模型：
@@ -36,6 +36,19 @@ const UPDATE_SERVICES = (process.env.UPDATE_SERVICES || "app worker")
 // 只需要构建的服务（full/backend 下 app 与 worker 共用同一镜像 tag，
 // 构建一次 app 即可，up 时 worker 自动用新镜像——与 scripts/deploy.sh 一致，省一半构建时间）。
 const BUILD_SERVICES = (process.env.UPDATE_BUILD_SERVICES || process.env.UPDATE_SERVICES || "app")
+  .split(/\s+/)
+  .filter(Boolean);
+// Services such as a TLS proxy need a restart after the app changes: nginx's
+// envsubst templates are rendered only when the container starts (upstream DNS
+// staleness is separately handled by `resolver ... valid=10s` in the config).
+// IMPORTANT: this must be `docker compose restart`, never `up --force-recreate`.
+// The updater runs Compose inside its own container where the repo lives at
+// /repo, so a recreate would re-resolve the proxy's relative bind mounts
+// (./ops/nginx/...) against /repo — a path that does not exist on the host —
+// and dockerd would mount empty directories over the nginx templates, taking
+// HTTPS down. `restart` keeps the original host-created container definition.
+// Leave empty for installs that do not enable the optional HTTPS profile.
+const RECREATE_SERVICES = (process.env.UPDATE_RECREATE_SERVICES || "")
   .split(/\s+/)
   .filter(Boolean);
 // 留空 = 跟随仓库当前分支。
@@ -223,15 +236,38 @@ async function doUpdate() {
     const composeArgs = ["compose", "-p", project, "-f", `${REPO_DIR}/${COMPOSE_FILE_NAME}`];
 
     state.phase = "fetching";
-    logLine(`开始更新：分支 ${branch}，compose 文件 ${COMPOSE_FILE_NAME}，project ${project}，构建 ${BUILD_SERVICES.join(" ")}，重启 ${UPDATE_SERVICES.join(" ")}`);
-    const dirty = await git(["status", "--porcelain"]);
+    logLine(`开始更新：分支 ${branch}，compose 文件 ${COMPOSE_FILE_NAME}，project ${project}，构建 ${BUILD_SERVICES.join(" ")}，重启 ${UPDATE_SERVICES.join(" ")}${RECREATE_SERVICES.length ? `，强制重建 ${RECREATE_SERVICES.join(" ")}` : ""}`);
+    const [dirty, currentBranch, oldHead] = await Promise.all([
+      git(["status", "--porcelain"]),
+      git(["rev-parse", "--abbrev-ref", "HEAD"]),
+      git(["rev-parse", "HEAD"])
+    ]);
+    if (dirty.code !== 0) throw new Error("无法检查仓库工作区状态，已拒绝更新");
     if (dirty.out) {
-      logLine(`注意：仓库有未提交改动，将被 reset --hard 丢弃：\n${dirty.out}`);
+      throw new Error(
+        `仓库存在未提交或未跟踪文件，已拒绝更新以防数据丢失。请先由管理员备份并处理这些改动：\n${dirty.out.slice(0, 1200)}`
+      );
+    }
+    if (currentBranch.code !== 0 || currentBranch.out !== branch) {
+      throw new Error(
+        `当前分支为 ${currentBranch.out || "未知"}，目标分支为 ${branch}；为避免更新错误分支，已拒绝自动切换。`
+      );
     }
     let r = await run("git", ["-C", REPO_DIR, "fetch", "origin", "--prune"], { timeoutMs: 180_000 });
     if (r.code !== 0) throw new Error(`git fetch 失败（exit ${r.code}）`);
-    r = await run("git", ["-C", REPO_DIR, "reset", "--hard", `origin/${branch}`], { timeoutMs: 60_000 });
-    if (r.code !== 0) throw new Error(`git reset 失败（exit ${r.code}）`);
+    const divergence = await git(["rev-list", "--left-right", "--count", `HEAD...origin/${branch}`]);
+    if (divergence.code !== 0) throw new Error(`无法比较本地与 origin/${branch}，已拒绝更新`);
+    const [aheadRaw, behindRaw] = divergence.out.split(/\s+/);
+    const ahead = Number(aheadRaw);
+    const behind = Number(behindRaw);
+    if (!Number.isSafeInteger(ahead) || !Number.isSafeInteger(behind)) {
+      throw new Error(`无法解析仓库差异“${divergence.out}”，已拒绝更新`);
+    }
+    if (ahead > 0) {
+      throw new Error(`本地分支比 origin/${branch} 多 ${ahead} 个提交；自动更新不会覆盖本地提交，请人工合并。`);
+    }
+    r = await run("git", ["-C", REPO_DIR, "merge", "--ff-only", `origin/${branch}`], { timeoutMs: 60_000 });
+    if (r.code !== 0) throw new Error(`git 快进失败（exit ${r.code}），仓库未被强制覆盖`);
 
     const info = await repoInfo();
     const gitCommit = info.shortCommit || "unknown";
@@ -239,7 +275,9 @@ async function doUpdate() {
     logLine(`仓库已更新到 ${gitCommit}，开始构建镜像（可能需要几分钟）…`);
 
     // updater 自身的文件变了要提醒手动重建一次（它不自更新）。
-    const selfChanged = await git(["diff", "--name-only", "HEAD@{1}", "HEAD", "--", "scripts/updater", "Dockerfile.updater"]);
+    const selfChanged = oldHead.code === 0
+      ? await git(["diff", "--name-only", oldHead.out, "HEAD", "--", "scripts/updater", "Dockerfile.updater"])
+      : { code: 1, out: "" };
     if (selfChanged.code === 0 && selfChanged.out) {
       logLine("提示：本次更新修改了 updater 自身，稍后请在服务器上执行一次 `docker compose up -d --build updater` 使其生效。");
     }
@@ -260,6 +298,20 @@ async function doUpdate() {
       timeoutMs: 10 * 60_000
     });
     if (r.code !== 0) throw new Error(`docker compose up 失败（exit ${r.code}）`);
+
+    if (RECREATE_SERVICES.length) {
+      logLine(`刷新入口服务：${RECREATE_SERVICES.join(" ")}…`);
+      // restart（而不是 up --force-recreate）：重启会重跑 nginx entrypoint
+      // 重新渲染模板并加载续期后的证书，同时保留宿主机创建容器时的正确
+      // bind mount。在 updater 容器内 recreate 会把 ./ops/... 解析成宿主机
+      // 不存在的 /repo/...，直接打挂 HTTPS 入口。
+      r = await run(
+        "docker",
+        [...composeArgs, "restart", ...RECREATE_SERVICES],
+        { env: buildEnv, timeoutMs: 10 * 60_000 }
+      );
+      if (r.code !== 0) throw new Error(`入口服务重启失败（exit ${r.code}）`);
+    }
 
     state.phase = "done";
     state.ok = true;
@@ -361,7 +413,7 @@ const server = http.createServer(async (req, res) => {
 // 宿主仓库挂载进来后属主与容器内 root 不一致，git 会拒绝操作（dubious ownership）。
 run("git", ["config", "--global", "--add", "safe.directory", REPO_DIR], { quiet: true }).then(() => {
   server.listen(PORT, "0.0.0.0", () => {
-    console.log(`[updater] listening on :${PORT}, repo=${REPO_DIR}, compose=${COMPOSE_FILE_NAME}, build=${BUILD_SERVICES.join(",")}, up=${UPDATE_SERVICES.join(",")}`);
+    console.log(`[updater] listening on :${PORT}, repo=${REPO_DIR}, compose=${COMPOSE_FILE_NAME}, build=${BUILD_SERVICES.join(",")}, up=${UPDATE_SERVICES.join(",")}, recreate=${RECREATE_SERVICES.join(",") || "none"}`);
     if (!TOKEN) {
       console.warn("[updater] 警告：UPDATER_TOKEN / AUTH_SECRET 均未设置，所有请求将被拒绝。");
     }

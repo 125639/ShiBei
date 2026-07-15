@@ -15,6 +15,23 @@ export function createRedisConnection() {
   return redis;
 }
 
+// Worker 的阻塞连接必须按 BullMQ 要求无限等待（maxRetriesPerRequest=null），
+// 但 HTTP 请求里的 Queue producer 不能复用这项策略：Redis 中途断线时，
+// queue.add 会永远 pending，执行接口就会看起来恰好“跑到第 N 项停止”。
+// producer 在有限次重连后明确失败，由批次派发层把该项写成 FAILED 并继续。
+function createProducerRedisConnection() {
+  const redis = new IORedis(process.env.REDIS_URL || "redis://localhost:6379", {
+    maxRetriesPerRequest: 1,
+    connectTimeout: 5_000,
+    commandTimeout: 10_000,
+    retryStrategy(times) {
+      return times <= 3 ? Math.min(times * 250, 1_000) : null;
+    }
+  });
+  redis.on("error", () => undefined);
+  return redis;
+}
+
 type QueueRegistry = {
   connection?: IORedis;
 };
@@ -23,10 +40,15 @@ const queueRegistry = globalThis as typeof globalThis & { shibeiQueues?: QueueRe
 
 function getSharedQueue(name: string, defaultJobOptions: typeof JOB_HYGIENE | typeof NETWORK_JOB_OPTIONS) {
   const registry = queueRegistry.shibeiQueues ||= {};
-  registry.connection ||= createRedisConnection();
+  if (!registry.connection || registry.connection.status === "end") {
+    // 已终结的连接不会再被 IORedis 复用；显式断开释放其内部句柄后再换新。
+    registry.connection?.disconnect();
+    registry.connection = createProducerRedisConnection();
+  }
   // Callers intentionally close their short-lived Queue facade in finally.
   // BullMQ does not close an externally supplied IORedis connection, so sharing
-  // only the socket removes the leak without returning a previously closed Queue.
+  // only the producer socket removes the leak without returning a previously
+  // closed Queue. Worker connections still come from createRedisConnection().
   return new Queue(name, { connection: registry.connection, defaultJobOptions });
 }
 

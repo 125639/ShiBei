@@ -17,7 +17,7 @@ export type FireflyWidgetData = {
   };
 };
 
-const PUBLISHED_POSTS = { status: "PUBLISHED" as const };
+const PUBLISHED_POSTS = { status: "PUBLISHED" as const, publicationBlockedReason: null };
 
 /**
  * Firefly 侧栏小组件的数据（分类/标签/站点统计）。
@@ -54,7 +54,9 @@ export const getCachedFireflyWidgetData = unstable_cache(
       prisma.post.count({ where: PUBLISHED_POSTS }),
       prisma.tag.count(),
       prisma.$queryRaw<Array<{ total: bigint | number | null }>>`
-        SELECT COALESCE(SUM(LENGTH(content)), 0) AS total FROM "Post" WHERE status = 'PUBLISHED'
+        SELECT COALESCE(SUM(LENGTH(content)), 0) AS total
+        FROM "Post"
+        WHERE status = 'PUBLISHED' AND "publicationBlockedReason" IS NULL
       `,
       prisma.post.findFirst({
         where: { ...PUBLISHED_POSTS, publishedAt: { not: null } },

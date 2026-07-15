@@ -10,6 +10,7 @@ type Props = {
   value?: string;
   formAction?: string;
   formMethod?: "post" | "get";
+  formNoValidate?: boolean;
 };
 
 export function ConfirmButton({
@@ -19,7 +20,8 @@ export function ConfirmButton({
   name,
   value,
   formAction,
-  formMethod
+  formMethod,
+  formNoValidate
 }: Props) {
   return (
     <button
@@ -29,6 +31,7 @@ export function ConfirmButton({
       value={value}
       formAction={formAction}
       formMethod={formMethod}
+      formNoValidate={formNoValidate}
       onClick={(event) => {
         if (!window.confirm(message)) event.preventDefault();
       }}

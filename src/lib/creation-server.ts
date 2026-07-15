@@ -2,12 +2,17 @@ import { NextResponse } from "next/server";
 import type { CreationGenre, CreativeWork } from "@prisma/client";
 import { prisma } from "./prisma";
 import { checkGlobalRateLimit, checkRateLimit } from "./rate-limit";
-import { ensureAnonId, getAnonId, getMemberSession } from "./member-auth";
+import { ensureAnonIdForCreationRequest, getAnonId, getMemberSession } from "./member-auth";
+import { trustedClientIp } from "./client-ip";
 import {
   ANON_WORK_LIMIT,
   CREATION_DEPTHS,
+  isScoredRubricCurrent,
+  legacyWorkScoreFingerprint,
+  ownerScorePresentation,
   parseGenreDimensions,
   parseInterview,
+  workScoreFingerprint,
   type ScoreDetail
 } from "./creation";
 
@@ -18,37 +23,37 @@ export type CreationActor = { memberId: string | null; anonId: string | null };
 /** 读取当前请求者身份（不创建匿名 cookie）。 */
 export async function getCreationActor(): Promise<CreationActor> {
   const session = await getMemberSession();
+  // 账号身份与匿名身份互斥。即使请求同时携带两种 cookie，登录态也绝不能
+  // 回退到 anonId，否则共享浏览器上的后一个登录用户可操作前一个匿名用户的作品。
+  if (session) return { memberId: session.memberId, anonId: null };
   return {
-    memberId: session?.memberId ?? null,
+    memberId: null,
     anonId: await getAnonId()
   };
 }
 
 /** 开始创作时使用：未登录则签发匿名身份 cookie。 */
-export async function getOrCreateCreationActor(): Promise<CreationActor> {
+export async function getOrCreateCreationActor(request: Request): Promise<CreationActor> {
   const session = await getMemberSession();
-  if (session) return { memberId: session.memberId, anonId: await getAnonId() };
-  return { memberId: null, anonId: await ensureAnonId() };
+  if (session) return { memberId: session.memberId, anonId: null };
+  return { memberId: null, anonId: await ensureAnonIdForCreationRequest(request) };
 }
 
 /**
- * 所有权：归属账号的作品只认账号；未归属账号的匿名作品认匿名 cookie。
- * 匿名作品被注册用户认领（claimAnonWorks）后即只认账号。
+ * 所有权：身份严格二选一。登录请求只认 memberId，绝不同时使用 anonId；
+ * 未登录请求才可凭匿名 cookie 访问匿名作品。
  */
 export function actorOwnsWork(
   work: Pick<CreativeWork, "ownerId" | "anonId">,
   actor: CreationActor
 ): boolean {
-  if (work.ownerId) return actor.memberId === work.ownerId;
-  return Boolean(work.anonId && actor.anonId && work.anonId === actor.anonId);
+  if (actor.memberId) return work.ownerId === actor.memberId;
+  if (actor.anonId) return work.ownerId === null && work.anonId === actor.anonId;
+  return false;
 }
 
 export function getClientIp(request: Request): string {
-  return (
-    request.headers.get("x-real-ip")?.trim() ||
-    request.headers.get("x-forwarded-for")?.split(",").at(-1)?.trim() ||
-    "unknown"
-  );
+  return trustedClientIp(request);
 }
 
 /**
@@ -56,9 +61,8 @@ export function getClientIp(request: Request): string {
  * 用数据库持久计数而不是限流器——重启和时间窗都不该重置这个配额。
  */
 export async function countAnonGeneratedWorks(clientIp: string) {
-  return prisma.creativeWork.count({
-    where: { ownerId: null, clientIp, draftGeneratedAt: { not: null } }
-  });
+  // 用不可随作品删除的生成事件计数。否则“成稿→复制→删草稿”会无限恢复额度。
+  return prisma.anonymousComposeUsage.count({ where: { clientIp } });
 }
 
 export async function anonQuotaRemaining(clientIp: string) {
@@ -115,11 +119,44 @@ export function serializeGenre(genre: CreationGenre) {
   };
 }
 
+/**
+ * 只查询当前公开表面是否命中一条历史治理记录。不会读取或返回其他历史原因，
+ * 因而所有者响应既能正确阻止 A→B→A，也不会泄露无关的治理历史。
+ */
+export async function findCurrentModeratedSurface(
+  work: Pick<CreativeWork, "id" | "title" | "summary" | "content">
+) {
+  return prisma.communityModeratedSurface.findFirst({
+    where: {
+      workId: work.id,
+      OR: [
+        {
+          algorithm: "TITLE_SUMMARY_CONTENT_V2",
+          surfaceHash: workScoreFingerprint(work)
+        },
+        {
+          algorithm: "TITLE_CONTENT_V1",
+          surfaceHash: legacyWorkScoreFingerprint(work)
+        }
+      ]
+    },
+    orderBy: { createdAt: "desc" },
+    select: { algorithm: true, surfaceHash: true, reason: true }
+  });
+}
+
 /** 给作品所有者的完整视图（不含 clientIp / anonId 等内部字段）。 */
-export function serializeWorkForOwner(work: CreativeWork & { genre: CreationGenre }) {
+export async function serializeWorkForOwner(
+  work: CreativeWork & { genre: CreationGenre },
+  knownModeratedSurface?: Awaited<ReturnType<typeof findCurrentModeratedSurface>>
+) {
   const config = CREATION_DEPTHS[work.depth];
+  const moderatedSurface = knownModeratedSurface === undefined
+    ? await findCurrentModeratedSurface(work)
+    : knownModeratedSurface;
+  const scorePresentation = ownerScorePresentation(work);
   let scoreDetail: ScoreDetail | null = null;
-  if (work.scoreDetail) {
+  if (scorePresentation.current && work.scoreDetail) {
     try {
       scoreDetail = JSON.parse(work.scoreDetail) as ScoreDetail;
     } catch {
@@ -143,9 +180,14 @@ export function serializeWorkForOwner(work: CreativeWork & { genre: CreationGenr
     genre: serializeGenre(work.genre),
     isAnonymous: !work.ownerId,
     draftGeneratedAt: work.draftGeneratedAt,
-    score: work.score,
+    score: scorePresentation.score,
     scoreDetail,
-    scoredAt: work.scoredAt,
+    scoredAt: scorePresentation.current ? work.scoredAt : null,
+    scoreCurrent: scorePresentation.current,
+    hasHistoricalScore: scorePresentation.hasHistoricalScore,
+    scoreRubricCurrent: isScoredRubricCurrent(work),
+    moderationReason: moderatedSurface?.reason ?? null,
+    moderationBlocked: Boolean(moderatedSurface),
     publishedAt: work.publishedAt,
     createdAt: work.createdAt,
     updatedAt: work.updatedAt

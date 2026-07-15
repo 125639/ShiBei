@@ -9,6 +9,7 @@ import {
 } from "@/lib/article-images";
 import { normalizeSortOrder } from "@/lib/form-number";
 import { prisma } from "@/lib/prisma";
+import { generationPublicationBlockReason } from "@/lib/publication-policy";
 import { revalidatePublicContent } from "@/lib/revalidate-public";
 import { redirectTo } from "@/lib/redirect";
 import { slugify } from "@/lib/slug";
@@ -19,7 +20,11 @@ export async function POST(request: Request) {
   await ensureUploadDirs();
   const form = await request.formData();
   const title = String(form.get("title") || "未命名文章").trim() || "未命名文章";
-  const status = normalizeStatus(String(form.get("status") || "DRAFT"));
+  const requestedStatus = normalizeStatus(String(form.get("status") || "DRAFT"));
+  const summary = String(form.get("summary") || "");
+  const content = String(form.get("content") || "");
+  const publicationBlockedReason = generationPublicationBlockReason({ summary, content });
+  const status = requestedStatus === "PUBLISHED" && publicationBlockedReason ? "DRAFT" : requestedStatus;
   const slugBase = slugify(String(form.get("slug") || title));
   const slug = await uniqueSlug(slugBase);
   const tags = parseTags(String(form.get("tags") || ""));
@@ -37,9 +42,10 @@ export async function POST(request: Request) {
     data: {
       slug,
       title,
-      summary: String(form.get("summary") || ""),
-      content: String(form.get("content") || ""),
+      summary,
+      content,
       status,
+      publicationBlockedReason,
       kind: normalizeKind(String(form.get("kind") || "SINGLE_ARTICLE")),
       sourceUrl: normalizeOptional(String(form.get("sourceUrl") || "")),
       sortOrder: normalizeSortOrder(form.get("sortOrder")),
@@ -63,7 +69,12 @@ export async function POST(request: Request) {
   }
 
   revalidatePublicContent([`/posts/${post.slug}`]);
-  return redirectTo(`/admin/posts/${post.id}`);
+  return redirectTo(
+    requestedStatus === "PUBLISHED" && publicationBlockedReason
+      ? `/admin/posts/${post.id}?publishError=blocked&publishReason=${encodeURIComponent("生成失败后的研究草稿不能直接发布")}`
+      : `/admin/posts/${post.id}`,
+    request
+  );
 }
 
 function parseTags(raw: string) {

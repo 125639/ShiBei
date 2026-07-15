@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, type RefObject } from "react";
+import { useEffect, useEffectEvent, type RefObject } from "react";
 
 /**
  * 弹层的统一关闭行为：pointerdown / 焦点移动落在弹层外即关闭；
@@ -14,25 +14,24 @@ export function useDismissableOverlay(
   onClose: () => void,
   restoreFocusRef?: RefObject<HTMLElement | null>
 ) {
-  // onClose 通常是内联箭头函数；existing 行为是只随 open 挂/卸监听，
-  // 用 ref 透传回调，避免每次渲染都重绑 document 监听器。
-  const onCloseRef = useRef(onClose);
-  onCloseRef.current = onClose;
+  // onClose 通常是内联箭头函数；Effect Event 让 document 监听器保持稳定，
+  // 同时每次触发时仍读取最新的关闭逻辑。
+  const closeOverlay = useEffectEvent(onClose);
 
   useEffect(() => {
     if (!open) return;
 
     function onPointerDown(event: PointerEvent) {
-      if (!rootRef.current?.contains(event.target as Node)) onCloseRef.current();
+      if (!rootRef.current?.contains(event.target as Node)) closeOverlay();
     }
 
     function onFocusIn(event: FocusEvent) {
-      if (!rootRef.current?.contains(event.target as Node)) onCloseRef.current();
+      if (!rootRef.current?.contains(event.target as Node)) closeOverlay();
     }
 
     function onKeyDown(event: KeyboardEvent) {
       if (event.key !== "Escape") return;
-      onCloseRef.current();
+      closeOverlay();
       requestAnimationFrame(() => restoreFocusRef?.current?.focus());
     }
 

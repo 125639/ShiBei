@@ -5,10 +5,9 @@ import { I18nText } from "./I18nText";
 import { RouteDisclosure } from "./RouteDisclosure";
 import { UpdateNotifier } from "./UpdateNotifier";
 import { UpdateNavBadge } from "./UpdateNavBadge";
-import { getAppMode } from "@/lib/app-mode";
+import { appModeSupports, getAppMode, type AppCapability, type AppMode } from "@/lib/app-mode";
 
-type AppMode = "frontend" | "backend" | "full";
-type NavItem = { href: string; zh: string; en: string; modes: AppMode[] };
+type NavItem = { href: string; zh: string; en: string; modes?: AppMode[]; capability?: AppCapability };
 type NavGroup = { zh: string; en: string; items: NavItem[] };
 
 // 后台导航按工作流分组；桌面侧栏与移动菜单复用同一份信息架构。
@@ -19,7 +18,7 @@ const NAV_GROUPS: NavGroup[] = [
     items: [
       { href: "/admin", zh: "仪表盘", en: "Dashboard", modes: ["frontend", "backend", "full"] },
       { href: "/admin/stats", zh: "数据看板", en: "Stats", modes: ["frontend", "backend", "full"] },
-      { href: "/admin/jobs", zh: "任务诊断", en: "Jobs", modes: ["backend", "full"] }
+      { href: "/admin/jobs", zh: "任务诊断", en: "Jobs", capability: "local-worker" }
     ]
   },
   {
@@ -27,8 +26,9 @@ const NAV_GROUPS: NavGroup[] = [
     en: "Content",
     items: [
       { href: "/admin/posts", zh: "文章与草稿", en: "Posts", modes: ["frontend", "backend", "full"] },
-      { href: "/admin/ai", zh: "AI 管理员", en: "AI Admin", modes: ["backend", "full"] },
+      { href: "/admin/ai", zh: "AI 管理员", en: "AI Admin", capability: "local-worker" },
       { href: "/admin/comments", zh: "评论管理", en: "Comments", modes: ["frontend", "full"] },
+      { href: "/admin/community", zh: "社区治理", en: "Community Moderation", modes: ["frontend", "full"] },
       { href: "/admin/invites", zh: "邀请码", en: "Invites", modes: ["frontend", "full"] },
       { href: "/admin/videos", zh: "视频库", en: "Videos", modes: ["frontend", "backend", "full"] },
       { href: "/admin/music", zh: "背景音乐", en: "Music", modes: ["frontend", "backend", "full"] }
@@ -38,9 +38,9 @@ const NAV_GROUPS: NavGroup[] = [
     zh: "信息采集",
     en: "Curation",
     items: [
-      { href: "/admin/sources", zh: "来源库", en: "Sources", modes: ["backend", "full"] },
-      { href: "/admin/modules", zh: "来源模块", en: "Modules", modes: ["backend", "full"] },
-      { href: "/admin/auto-curation", zh: "自动内容", en: "Auto-Curation", modes: ["backend", "full"] }
+      { href: "/admin/sources", zh: "来源库", en: "Sources", capability: "local-worker" },
+      { href: "/admin/modules", zh: "来源模块", en: "Modules", capability: "local-worker" },
+      { href: "/admin/auto-curation", zh: "自动内容", en: "Auto-Curation", capability: "local-worker" }
     ]
   },
   {
@@ -57,7 +57,13 @@ const NAV_GROUPS: NavGroup[] = [
 export function AdminShell({ children }: { children: React.ReactNode }) {
   const mode = getAppMode();
   const visibleGroups = NAV_GROUPS
-    .map((group) => ({ ...group, items: group.items.filter((item) => item.modes.includes(mode)) }))
+    .map((group) => ({
+      ...group,
+      items: group.items.filter((item) =>
+        (!item.modes || item.modes.includes(mode))
+        && (!item.capability || appModeSupports(mode, item.capability))
+      )
+    }))
     .filter((group) => group.items.length > 0);
   const showFrontLink = mode !== "backend";
 

@@ -8,6 +8,12 @@
 #   3) backend 通常监听内网,不直接暴露给最终用户;给前端的 BACKEND_API_URL
 #      可以是 http://<backend-host>:3000(同机内网即可)。
 
+x-shibei-logging: &shibei-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "5"
+
 services:
   postgres:
     image: postgres:16-alpine
@@ -24,19 +30,28 @@ services:
       timeout: 5s
       retries: 5
     mem_limit: 384m
+    pids_limit: 200
+    security_opt:
+      - no-new-privileges:true
+    logging: *shibei-logging
     restart: unless-stopped
 
   redis:
     image: redis:7-alpine
-    command: ["redis-server", "--save", "", "--appendonly", "no", "--maxmemory", "128mb", "--maxmemory-policy", "allkeys-lru"]
+    command: ["redis-server", "--save", "", "--appendonly", "yes", "--appendfsync", "everysec", "--auto-aof-rewrite-percentage", "100", "--auto-aof-rewrite-min-size", "64mb", "--maxmemory", "128mb", "--maxmemory-policy", "noeviction"]
     volumes:
       - redis-data:/data
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
+      test: ["CMD-SHELL", "redis-cli ping | grep -q '^PONG$' && test \"$$(redis-cli --raw CONFIG GET appendonly | tail -n 1)\" = yes && test \"$$(redis-cli --raw CONFIG GET appendfsync | tail -n 1)\" = everysec && test \"$$(redis-cli --raw CONFIG GET maxmemory-policy | tail -n 1)\" = noeviction"]
       interval: 10s
       timeout: 5s
       retries: 5
     mem_limit: 192m
+    pids_limit: 100
+    security_opt:
+      - no-new-privileges:true
+    logging: *shibei-logging
+    stop_grace_period: 30s
     restart: unless-stopped
 
   app:
@@ -71,6 +86,8 @@ services:
       start_period: 90s
       retries: 5
     mem_limit: 768m
+    pids_limit: 768
+    logging: *shibei-logging
     restart: unless-stopped
 
   worker:
@@ -107,6 +124,8 @@ services:
       retries: 3
     stop_grace_period: 17m
     mem_limit: 1024m
+    pids_limit: 1024
+    logging: *shibei-logging
     restart: unless-stopped
 
   # 网页端一键更新伴车（同完整版，compose 文件换成 backend 的）。
@@ -132,6 +151,10 @@ services:
       timeout: 5s
       retries: 3
     mem_limit: 128m
+    pids_limit: 128
+    security_opt:
+      - no-new-privileges:true
+    logging: *shibei-logging
     restart: unless-stopped
 
 volumes:

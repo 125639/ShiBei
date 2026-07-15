@@ -5,7 +5,9 @@ import { Fragment, useState, useEffect } from "react";
 import { useUserPrefs } from "./useUserPrefs";
 import { LANGUAGE_OPTIONS, languageLabel } from "@/lib/language";
 import { useTranslation } from "@/lib/i18n";
-import { CURSOR_STYLES, FONTS, THEMES, DENSITIES, UI_STYLES, DEFAULT_THEME, DEFAULT_FONT, DEFAULT_DENSITY } from "@/lib/themes";
+import { CURSOR_STYLES, FONTS, THEMES, DENSITIES, UI_STYLES, DEFAULT_THEME, DEFAULT_FONT, DEFAULT_DENSITY, DEFAULT_TOC_ACCENT } from "@/lib/themes";
+
+const TOC_ACCENT_PRESETS = ["#6ea8ff", "#59c3ff", "#8b7cff", "#35c79a", "#f29b55", "#ef6f91"];
 
 export function UserSettingsClient({
   siteDefaults,
@@ -60,7 +62,16 @@ export function UserSettingsClient({
 
   return (
     <div className="settings-shell">
-      <section>
+      <nav className="settings-section-nav" aria-label={prefs.language === "en" ? "Settings sections" : "设置分区"}>
+        <a href="#settings-interface">{prefs.language === "en" ? "Interface" : "界面"}</a>
+        <a href="#settings-language">{prefs.language === "en" ? "Language" : "语言"}</a>
+        <a href="#settings-theme">{prefs.language === "en" ? "Theme" : "主题"}</a>
+        <a href="#settings-font">{prefs.language === "en" ? "Font" : "字体"}</a>
+        <a href="#settings-density">{prefs.language === "en" ? "Density" : "密度"}</a>
+        <a href="#settings-audio">{prefs.language === "en" ? "Audio" : "音乐"}</a>
+      </nav>
+
+      <section id="settings-interface">
         <p className="eyebrow">{t("interface")}</p>
         <h2>{t("uiStyle")}</h2>
         <p className="muted-block">
@@ -122,9 +133,46 @@ export function UserSettingsClient({
             </div>
           ) : null}
         </div>
+        <div className="toc-color-setting">
+          <div>
+            <h3>{prefs.language === "en" ? "Article outline color" : "文章目录颜色"}</h3>
+            <p className="muted-block">
+              {prefs.language === "en"
+                ? "Controls the active heading and right-edge markers in the article outline."
+                : "控制文章右侧目录的当前标题与刻度高亮颜色。"}
+            </p>
+          </div>
+          <div className="toc-color-controls" role="group" aria-label={prefs.language === "en" ? "Article outline color" : "文章目录颜色"}>
+            {TOC_ACCENT_PRESETS.map((color) => (
+              <button
+                key={color}
+                type="button"
+                className={`toc-color-swatch${prefs.tocAccent.toLowerCase() === color ? " active" : ""}`}
+                style={{ backgroundColor: color }}
+                aria-label={color}
+                aria-pressed={prefs.tocAccent.toLowerCase() === color}
+                onClick={() => update({ tocAccent: color })}
+              />
+            ))}
+            <label className="toc-custom-color">
+              <span>{prefs.language === "en" ? "Custom" : "自定义"}</span>
+              <input
+                type="color"
+                value={prefs.tocAccent}
+                aria-label={prefs.language === "en" ? "Custom article outline color" : "自定义文章目录颜色"}
+                onChange={(event) => update({ tocAccent: event.target.value })}
+              />
+            </label>
+            {prefs.tocAccent.toLowerCase() !== DEFAULT_TOC_ACCENT ? (
+              <button type="button" className="button ghost toc-color-reset" onClick={() => update({ tocAccent: DEFAULT_TOC_ACCENT })}>
+                {prefs.language === "en" ? "Reset" : "恢复默认"}
+              </button>
+            ) : null}
+          </div>
+        </div>
       </section>
 
-      <section>
+      <section id="settings-language">
         <p className="eyebrow">{t("language")}</p>
         <h2>{t("localeMode")}</h2>
         <p className="muted-block">
@@ -149,7 +197,7 @@ export function UserSettingsClient({
         </div>
       </section>
 
-      <section>
+      <section id="settings-theme">
         <p className="eyebrow">{t("appearance")}</p>
         <h2>{t("colorPalette")}</h2>
         <p className="muted-block">
@@ -179,7 +227,7 @@ export function UserSettingsClient({
         </div>
       </section>
 
-      <section>
+      <section id="settings-font">
         <h2>{t("typography")}</h2>
         <p className="muted-block">
           {t("sysDefault")}：<strong>{FONTS.find((f) => f.key === defaultFont)?.label || defaultFont}</strong>。
@@ -207,7 +255,7 @@ export function UserSettingsClient({
         </div>
       </section>
 
-      <section>
+      <section id="settings-density">
         <p className="eyebrow">{t("layout")}</p>
         <h2>{t("densityConfig")}</h2>
         <p className="muted-block">
@@ -229,7 +277,7 @@ export function UserSettingsClient({
         </div>
       </section>
 
-      <section>
+      <section id="settings-audio">
         <p className="eyebrow">{t("audio")}</p>
         <h2>{t("bgm")}</h2>
         {tracks.length === 0 ? (

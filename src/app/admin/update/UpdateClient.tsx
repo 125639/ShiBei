@@ -68,7 +68,9 @@ export function UpdateClient({ mode, composeFile, runningCommit, builtAt }: Prop
 
   // 更新成功后复查一次：版本卡片翻新为「已是最新」，作为除日志外的第二重确认。
   useEffect(() => {
-    if (runner.phase === "done") void runCheck(true);
+    if (runner.phase !== "done") return;
+    const timer = window.setTimeout(() => void runCheck(true), 0);
+    return () => window.clearTimeout(timer);
   }, [runner.phase]);
 
   // 日志自动滚到底部
@@ -83,7 +85,7 @@ export function UpdateClient({ mode, composeFile, runningCommit, builtAt }: Prop
   const confirmAndStart = () => {
     if (
       !window.confirm(
-        "确定现在更新吗？\n\n服务器将拉取最新代码并重建镜像（约 3-10 分钟），期间站点会短暂中断几十秒。\n服务器仓库里未提交的本地改动会被丢弃（git reset --hard）。"
+        "确定现在更新吗？\n\n服务器将拉取最新代码并重建镜像（约 3-10 分钟），期间站点会短暂中断几十秒。\n若服务器仓库存在未提交文件、本地提交或分支不一致，系统会安全拒绝更新并说明原因，不会强制覆盖。"
       )
     ) {
       return;
@@ -98,7 +100,7 @@ export function UpdateClient({ mode, composeFile, runningCommit, builtAt }: Prop
         <h2 style={{ marginTop: 0 }}>
           <I18nText zh="版本状态" en="Version Status" />
         </h2>
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 2fr", gap: "8px 16px" }}>
+        <div className="admin-status-grid">
           <div>
             <I18nText zh="部署形态" en="App mode" />
           </div>

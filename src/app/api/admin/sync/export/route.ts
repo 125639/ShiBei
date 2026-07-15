@@ -38,9 +38,11 @@ export async function GET(request: Request) {
   try {
     buffer = await exportToZip({ since, includeLocalFiles });
   } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    const status = /超过|上限|增量导出/.test(message) ? 413 : 500;
     return NextResponse.json(
-      { error: `导出失败: ${err instanceof Error ? err.message : String(err)}` },
-      { status: 500 }
+      { error: `导出失败: ${message}` },
+      { status }
     );
   }
 

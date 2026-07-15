@@ -2,9 +2,12 @@ node_modules
 .next
 dist
 coverage
-.env
-.env.local
-.env.production
+.env*
+!.env.example
+!.env.*.example
+.letsencrypt/
+.letsencrypt-staging/
+.certbot-www/
 postgres-data
 redis-data
 playwright-report
@@ -15,3 +18,19 @@ ShiBei-main.zip
 .demo-pg
 # 用户本地参考截图
 picture
+
+# Runtime backup output. Keep migrations (prisma/migrations/**/migration.sql)
+# tracked; only backup-shaped SQL/archive names are ignored here.
+ops/backups/
+backups/
+*.dump
+*.dump.gz
+*.backup
+*.sql.gz
+db-*.sql
+db-*.tar*
+uploads-*.tar*
+
+# 运行期用户上传（生产环境挂 app-uploads 卷；宿主机残留文件不得污染仓库，
+# 否则 web 更新器会因“未提交文件”永久拒绝更新）。
+public/uploads/

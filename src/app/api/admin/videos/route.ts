@@ -1,14 +1,18 @@
 import crypto from "node:crypto";
+import fs from "node:fs/promises";
 import path from "node:path";
 import { NextResponse } from "next/server";
-import { VideoType } from "@prisma/client";
+import { Prisma, VideoType } from "@prisma/client";
 import { requireAdmin } from "@/lib/auth";
 import { normalizeSortOrder } from "@/lib/form-number";
 import { prisma } from "@/lib/prisma";
 import { revalidatePublicContent } from "@/lib/revalidate-public";
 import { redirectTo } from "@/lib/redirect";
+import { rejectCrossOriginMutation } from "@/lib/request-origin";
+import { revisionMediaBlockedRedirect } from "@/lib/post-revision";
 import { VIDEO_DIR, ensureUploadDirs } from "@/lib/storage";
 import { writeUploadedFile } from "@/lib/upload-stream";
+import { uploadedMediaSignatureProblem } from "@/lib/upload-signatures";
 import {
   insertVideoShortcode,
   normalizeEmbedUrl,
@@ -19,7 +23,12 @@ import {
 const ALLOWED_EXT = new Set([".mp4", ".webm", ".mov", ".m4v"]);
 const MAX_BYTES = 300 * 1024 * 1024;
 
+class PendingRevisionMediaError extends Error {}
+class TargetPostNotFoundError extends Error {}
+
 export async function POST(request: Request) {
+  const denied = rejectCrossOriginMutation(request);
+  if (denied) return denied;
   await requireAdmin();
   await ensureUploadDirs();
   const form = await request.formData();
@@ -34,14 +43,18 @@ export async function POST(request: Request) {
   let videoUrl = url;
   let type = normalizeVideoType(String(form.get("type") || "LINK"));
   let fileSizeBytes: number | null = null;
+  let uploadedAbsolutePath: string | null = null;
 
   if (file instanceof File && file.size > 0) {
     if (file.size > MAX_BYTES) return NextResponse.json({ error: "视频文件过大，单文件上限 300MB" }, { status: 400 });
     const ext = path.extname(file.name || "video.mp4").toLowerCase() || ".mp4";
     if (!ALLOWED_EXT.has(ext)) return NextResponse.json({ error: `不支持的视频格式：${ext}` }, { status: 400 });
+    const signatureProblem = await uploadedMediaSignatureProblem(file, ext, "video");
+    if (signatureProblem) return NextResponse.json({ error: signatureProblem }, { status: 400 });
     const id = crypto.randomBytes(8).toString("hex");
     const fileName = `${id}${ext}`;
-    const bytesWritten = await writeUploadedFile(file, path.join(VIDEO_DIR, fileName), MAX_BYTES);
+    uploadedAbsolutePath = path.join(VIDEO_DIR, fileName);
+    const bytesWritten = await writeUploadedFile(file, uploadedAbsolutePath, MAX_BYTES);
     videoUrl = `/uploads/video/${fileName}`;
     type = "LOCAL";
     fileSizeBytes = bytesWritten;
@@ -49,8 +62,7 @@ export async function POST(request: Request) {
 
   if (!videoUrl) return NextResponse.json({ error: "请上传视频文件或填写视频链接" }, { status: 400 });
 
-  const video = await prisma.video.create({
-    data: {
+  const videoData = {
       title,
       type,
       url: type === "EMBED" ? normalizeEmbedUrl(videoUrl) : videoUrl,
@@ -61,35 +73,53 @@ export async function POST(request: Request) {
       localPath: type === "LOCAL" ? videoUrl : null,
       sourcePageUrl: String(form.get("sourcePageUrl") || "").trim() || null,
       sourcePlatform: String(form.get("sourcePlatform") || "").trim() || null,
-      attribution: String(form.get("attribution") || "").trim() || null,
-      ...(postId ? { post: { connect: { id: postId } } } : {})
+      attribution: String(form.get("attribution") || "").trim() || null
+  };
+  let postSlug: string | null = null;
+  try {
+    if (postId) {
+      await prisma.$transaction(async (tx) => {
+        const locked = await tx.$queryRaw<Array<{ id: string }>>(Prisma.sql`
+          SELECT "id" FROM "Post" WHERE "id" = ${postId} FOR UPDATE
+        `);
+        if (!locked.length) throw new TargetPostNotFoundError();
+        const post = await tx.post.findUnique({
+          where: { id: postId },
+          select: { id: true, slug: true, content: true, contentEn: true, pendingRevision: true }
+        });
+        if (!post) throw new TargetPostNotFoundError();
+        if (post.pendingRevision !== null) throw new PendingRevisionMediaError();
+        postSlug = post.slug;
+        const created = await tx.video.create({
+          data: { ...videoData, post: { connect: { id: post.id } } },
+          select: { id: true }
+        });
+        if (insertShortcode) {
+          await tx.post.update({
+            where: { id: post.id },
+            data: {
+              content: insertVideoShortcode(post.content, created.id, insertPlacement),
+              ...(post.contentEn ? { contentEn: insertVideoShortcode(post.contentEn, created.id, insertPlacement) } : {})
+            }
+          });
+        }
+      });
+    } else {
+      await prisma.video.create({ data: videoData, select: { id: true } });
     }
-  });
-
-  if (postId && insertShortcode) {
-    await insertVideoIntoPost(postId, video.id, insertPlacement);
+  } catch (error) {
+    if (uploadedAbsolutePath) await fs.unlink(uploadedAbsolutePath).catch(() => undefined);
+    if (error instanceof PendingRevisionMediaError) {
+      return redirectTo(revisionMediaBlockedRedirect(`/admin/posts/${postId}`), request);
+    }
+    if (error instanceof TargetPostNotFoundError) {
+      return NextResponse.json({ error: "post not found" }, { status: 404 });
+    }
+    throw error;
   }
 
-  const post = postId
-    ? await prisma.post.findUnique({ where: { id: postId }, select: { slug: true } })
-    : null;
-  revalidatePublicContent([post ? `/posts/${post.slug}` : null]);
+  revalidatePublicContent([postSlug ? `/posts/${postSlug}` : null]);
   return redirectTo(postId ? `/admin/posts/${postId}` : "/admin/videos");
-}
-
-async function insertVideoIntoPost(postId: string, videoId: string, placement: ReturnType<typeof normalizeVideoPlacement>) {
-  const post = await prisma.post.findUnique({
-    where: { id: postId },
-    select: { content: true, contentEn: true }
-  });
-  if (!post) return;
-  await prisma.post.update({
-    where: { id: postId },
-    data: {
-      content: insertVideoShortcode(post.content, videoId, placement),
-      ...(post.contentEn ? { contentEn: insertVideoShortcode(post.contentEn, videoId, placement) } : {})
-    }
-  });
 }
 
 function normalizeVideoType(value: string): VideoType {

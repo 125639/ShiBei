@@ -1,16 +1,26 @@
 import Link from "next/link";
 import type { Prisma } from "@prisma/client";
 import { AdminShell } from "@/components/AdminShell";
+import { AutoRefresh } from "@/components/AutoRefresh";
 import { I18nText } from "@/components/I18nText";
 import { MetricCard } from "@/components/MetricCard";
 import { StatusPill } from "@/components/StatusPill";
 import { SubmitButton } from "@/components/SubmitButton";
+import { TaskProgress } from "@/components/TaskProgress";
 import { requireAdmin } from "@/lib/auth";
 import { JOB_STATUS_LABELS, JOB_STATUS_ORDER, isJobStatus } from "@/lib/job-status";
 import { formatDateTime, getJobDuration, getJobKindLabel, getJobTitleLabel } from "@/lib/job-utils";
+import { decodePostRepairResult, parsePostRepairUrl } from "@/lib/post-repair";
 import { prisma } from "@/lib/prisma";
 
 export const dynamic = "force-dynamic";
+
+async function getSevenDayWindowStart() {
+  const [row] = await prisma.$queryRaw<Array<{ since: Date }>>`
+    SELECT CURRENT_TIMESTAMP - INTERVAL '7 days' AS "since"
+  `;
+  return row.since;
+}
 
 export default async function AdminJobsPage({
   searchParams
@@ -26,7 +36,7 @@ export default async function AdminJobsPage({
     ...(status ? { status } : {}),
     ...(sourceId ? { sourceId } : {})
   };
-  const since = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+  const since = await getSevenDayWindowStart();
 
   const [jobs, statusSummary, recentFailed, running, queued, source] = await Promise.all([
     prisma.fetchJob.findMany({
@@ -50,6 +60,7 @@ export default async function AdminJobsPage({
 
   return (
     <AdminShell>
+      <AutoRefresh active={running > 0 || queued > 0} />
       <div className="admin-page-header">
         <div>
           <p className="eyebrow">Jobs</p>
@@ -121,11 +132,27 @@ export default async function AdminJobsPage({
                   <div className="muted">
                     {getJobKindLabel(job)} · <I18nText zh="创建" en="created" /> {formatDateTime(job.createdAt)} · <I18nText zh="耗时" en="took" /> {getJobDuration(job)} · <I18nText zh="原始条目" en="raw items" /> {job._count.rawItems}
                   </div>
-                  {job.error ? <p className="job-error">{job.error.slice(0, 220)}</p> : null}
+                  {job.status === "QUEUED" || job.status === "RUNNING" ? (
+                    <TaskProgress
+                      compact
+                      active
+                      label={job.status === "QUEUED" ? "任务等待中" : "任务运行中"}
+                      stage={job.status === "QUEUED"
+                        ? "等待 worker 接手"
+                        : parsePostRepairUrl(job.sourceUrl)
+                          ? "正在按审核意见返修并复检"
+                          : "正在采集、生成并执行最多 3 轮自动返修"}
+                    />
+                  ) : null}
+                  {job.error ? (
+                    <p className={job.status === "FAILED" ? "job-error" : "muted"}>
+                      {storedJobDetail(job.error).slice(0, 300)}
+                    </p>
+                  ) : null}
                 </div>
                 <div className="row-actions">
                   <Link className="button secondary" href={`/admin/jobs/${job.id}`}><I18nText zh="详情" en="Details" /></Link>
-                  <form action="/api/admin/run" method="post">
+                  {parsePostRepairUrl(job.sourceUrl) ? null : <form action="/api/admin/run" method="post">
                     {job.sourceId ? (
                       <input type="hidden" name="sourceId" value={job.sourceId} />
                     ) : (
@@ -136,7 +163,7 @@ export default async function AdminJobsPage({
                     )}
                     {job.contentStyleId ? <input type="hidden" name="contentStyleId" value={job.contentStyleId} /> : null}
                     <SubmitButton className="button secondary" pendingLabel={<I18nText zh="提交中…" en="Submitting…" />}><I18nText zh="重跑" en="Re-run" /></SubmitButton>
-                  </form>
+                  </form>}
                 </div>
               </div>
             ))}
@@ -145,4 +172,10 @@ export default async function AdminJobsPage({
       </section>
     </AdminShell>
   );
+}
+
+function storedJobDetail(value: string) {
+  const repair = decodePostRepairResult(value);
+  if (!repair) return value;
+  return [repair.message, repair.reason, repair.guidance].filter(Boolean).join("；");
 }

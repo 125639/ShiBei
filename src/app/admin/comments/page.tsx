@@ -1,24 +1,38 @@
 import { AdminShell } from "@/components/AdminShell";
 import { AdminCommentManager, type AdminCommentView } from "@/components/AdminCommentManager";
 import { I18nText } from "@/components/I18nText";
+import { Pagination } from "@/components/Pagination";
 import { requireAdmin } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 
 export const dynamic = "force-dynamic";
 
-export default async function AdminCommentsPage() {
+const PAGE_SIZE = 100;
+
+export default async function AdminCommentsPage({
+  searchParams
+}: {
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
+}) {
   await requireAdmin();
-  const [comments, settings] = await Promise.all([
-    prisma.comment.findMany({
-      orderBy: { createdAt: "desc" },
-      take: 200,
-      include: {
-        member: { select: { displayName: true, username: true, email: true } },
-        post: { select: { title: true, slug: true } }
-      }
-    }),
+  const params = await searchParams;
+  const rawPage = typeof params.page === "string" ? Number(params.page) : 1;
+  const requestedPage = Number.isInteger(rawPage) && rawPage > 0 ? rawPage : 1;
+  const [total, settings] = await Promise.all([
+    prisma.comment.count(),
     prisma.siteSettings.findUnique({ where: { id: "site" }, select: { commentsEnabled: true } })
   ]);
+  const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
+  const page = Math.min(requestedPage, totalPages);
+  const comments = await prisma.comment.findMany({
+    orderBy: { createdAt: "desc" },
+    skip: (page - 1) * PAGE_SIZE,
+    take: PAGE_SIZE,
+    include: {
+      member: { select: { displayName: true, username: true, email: true } },
+      post: { select: { title: true, slug: true } }
+    }
+  });
 
   const initialComments: AdminCommentView[] = comments.map((comment) => ({
     id: comment.id,
@@ -48,6 +62,7 @@ export default async function AdminCommentsPage() {
         </div>
       </div>
       <AdminCommentManager initialComments={initialComments} />
+      <Pagination basePath="/admin/comments" page={page} totalPages={totalPages} />
     </AdminShell>
   );
 }

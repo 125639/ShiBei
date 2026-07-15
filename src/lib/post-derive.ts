@@ -23,7 +23,7 @@ export function extractTitleAndSummary(markdown: string, fallbackTitle: string) 
   const plain = firstProseParagraph(beforeFirstSection) || firstProseParagraph(body);
   return {
     title: title.slice(0, 120),
-    summary: plain.slice(0, 220) || "AI 已生成草稿，请管理员审核。"
+    summary: truncateSummaryAtSentence(plain, 220) || "AI 已生成草稿，请管理员审核。"
   };
 }
 
@@ -32,6 +32,9 @@ function firstProseParagraph(markdown: string) {
     .replace(/```[\s\S]*?```/g, " ")
     .replace(/<figure\b[^>]*>[\s\S]*?<\/figure>/gi, " ")
     .replace(/!\[[^\]]*]\((?:[^()\s]|\([^()\s]*\))+\)/g, " ")
+    // 生成稿通常把来源链接放在完整句号之后。卡片摘要不需要再显示一个
+    // 孤立的“彭博社/路透社”锚文本，但句中承担语义的链接仍保留文字。
+    .replace(/([。！？!?])\s*\[[^\]]+]\((?:[^()\s]|\([^()\s]*\))+\)(?=\s*(?:\n|$))/g, "$1")
     .replace(/\[([^\]]+)]\((?:[^()\s]|\([^()\s]*\))+\)/g, "$1")
     .replace(/\[\[video:[^\]]+]]/gi, " ");
 
@@ -47,6 +50,22 @@ function firstProseParagraph(markdown: string) {
     if (plain) return plain;
   }
   return "";
+}
+
+function truncateSummaryAtSentence(value: string, maxLength: number) {
+  const plain = value.trim();
+  if (plain.length <= maxLength) return plain;
+
+  const window = plain.slice(0, maxLength);
+  let sentenceEnd = -1;
+  for (const match of window.matchAll(/[。！？!?]/g)) {
+    sentenceEnd = (match.index ?? -1) + match[0].length;
+  }
+  // 不为了完整句只留下过短的摘要；没有合适句界时明确用省略号表示截断。
+  if (sentenceEnd >= Math.min(80, Math.floor(maxLength * 0.45))) {
+    return window.slice(0, sentenceEnd).trimEnd();
+  }
+  return `${window.slice(0, Math.max(1, maxLength - 1)).trimEnd()}…`;
 }
 
 /**

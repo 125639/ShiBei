@@ -13,6 +13,7 @@ import {
   type AdminAiPlan
 } from "@/lib/admin-ai";
 import { requireAdmin } from "@/lib/auth";
+import { enqueueBatchContinuing } from "@/lib/batch-queue";
 import { getModelConfigForUse } from "@/lib/model-selection";
 import { prisma } from "@/lib/prisma";
 import { getResearchQueue } from "@/lib/queue";
@@ -27,6 +28,7 @@ import {
 import { parseJsonBody } from "@/lib/request-validation";
 import { slugify } from "@/lib/slug";
 import { syncSchedule } from "@/lib/scheduler";
+import { decodePostRepairResult, parsePostRepairUrl } from "@/lib/post-repair";
 
 export const dynamic = "force-dynamic";
 
@@ -189,20 +191,20 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "指定的生成风格不存在" }, { status: 400 });
   }
 
-  const batch = await prisma.adminAiBatch.create({
-    data: {
-      request: body.request.slice(0, 6000) || "（未提供原始需求）",
-      summary: confirmed.summary,
-      plan: JSON.stringify({ tasks: confirmed.tasks, recurring: confirmed.recurring })
-    }
-  });
-
-  // 一次性任务入队
-  const queue = getResearchQueue();
-  const createdTasks = await withQueue(queue, async () => {
-    const rows = [];
+  // 先用一个数据库事务把整个批次的任务全部建档，再逐项派发到 Redis。
+  // 旧逻辑是 create -> queue.add 交错执行：第 N 项只要入队抖一下，请求就会
+  // 直接抛出，N+1…末项甚至没有 FetchJob 行，表现为“大批次跑到一半停止”。
+  const { batch, jobs } = await prisma.$transaction(async (tx) => {
+    const batch = await tx.adminAiBatch.create({
+      data: {
+        request: body.request.slice(0, 6000) || "（未提供原始需求）",
+        summary: confirmed.summary,
+        plan: JSON.stringify({ tasks: confirmed.tasks, recurring: confirmed.recurring })
+      }
+    });
+    const jobs = [];
     for (const task of confirmed.tasks) {
-      const job = await prisma.fetchJob.create({
+      jobs.push(await tx.fetchJob.create({
         data: {
           sourceUrl: buildKeywordResearchUrl(task.keyword, task.scope, task.articleCount, task.depth),
           sourceType: "WEB",
@@ -211,16 +213,46 @@ export async function POST(request: Request) {
           contentTopicId: task.topicId,
           adminAiBatchId: batch.id
         }
-      });
-      await queue.add("fetch", { fetchJobId: job.id }, { priority: 1 });
-      rows.push({ ...task, jobId: job.id });
+      }));
     }
-    return rows;
+    return { batch, jobs };
+  });
+
+  // 一次性任务入队。单项失败落成 FAILED，后续项照常继续；管理员可在批次
+  // 明细中直接看到并重试，不再留下永远 QUEUED 的幽灵任务。
+  const queue = getResearchQueue();
+  const createdTasks = await withQueue(queue, async () => {
+    const outcomes = await enqueueBatchContinuing(
+      jobs.map((job, index) => ({ jobId: job.id, task: confirmed.tasks[index] })),
+      {
+        enqueue: async (jobId) => {
+          await queue.add("fetch", { fetchJobId: jobId }, { priority: 1 });
+        },
+        markFailed: async (jobId, error) => {
+          // 仅在任务仍处于 QUEUED 时标记失败：queue.add 抛错但 Redis 实际已
+          // 收到任务时，worker 可能已把它置为 RUNNING，不能把活任务改成 FAILED。
+          await prisma.fetchJob.updateMany({
+            where: { id: jobId, status: "QUEUED" },
+            data: { status: "FAILED", error, completedAt: new Date() }
+          });
+        }
+      }
+    );
+    return outcomes.map((outcome) => ({
+      ...outcome.task,
+      jobId: outcome.jobId,
+      status: outcome.status,
+      error: outcome.error
+    }));
   });
 
   // 周期动作:创建主题 + 定时,并即时注册到调度器
   const recurringResults: Array<{ name: string; topicId: string | null; cadence: { zh: string; en: string }; created: boolean }> = [];
   const warnings = [...confirmed.warnings];
+  const enqueueFailures = createdTasks.filter((task) => task.status === "FAILED").length;
+  if (enqueueFailures) {
+    warnings.push(`${enqueueFailures} 个任务入队失败，已明确标记为失败；其余任务已继续执行，可在批次明细中重试失败项。`);
+  }
   for (const item of confirmed.recurring) {
     const existing = await prisma.contentTopic.findUnique({ where: { name: item.name } });
     if (existing) {
@@ -279,7 +311,7 @@ export async function GET() {
     include: {
       jobs: {
         orderBy: { createdAt: "asc" },
-        select: { id: true, status: true, sourceUrl: true, error: true, completedAt: true }
+        select: { id: true, status: true, sourceUrl: true, error: true, completedAt: true, updatedAt: true }
       }
     }
   });
@@ -299,12 +331,19 @@ export async function GET() {
         summary: batch.summary,
         createdAt: batch.createdAt.toISOString(),
         recurring,
-        jobs: batch.jobs.map((job) => ({
-          id: job.id,
-          status: job.status,
-          keyword: parseKeywordResearchUrl(job.sourceUrl)?.keyword || job.sourceUrl.slice(0, 80),
-          error: job.error ? job.error.slice(0, 200) : null
-        }))
+        jobs: batch.jobs.map((job) => {
+          const repair = parsePostRepairUrl(job.sourceUrl);
+          const repairResult = decodePostRepairResult(job.error);
+          return {
+            id: job.id,
+            status: job.status,
+            keyword: parseKeywordResearchUrl(job.sourceUrl)?.keyword || (repair ? `文章返修：${repairResult?.title || repair.postId}` : job.sourceUrl.slice(0, 80)),
+            error: repairResult
+              ? [repairResult.message, repairResult.reason].filter(Boolean).join("；").slice(0, 200)
+              : job.error ? job.error.slice(0, 200) : null,
+            updatedAt: job.updatedAt.toISOString()
+          };
+        })
       };
     })
   });

@@ -1,4 +1,5 @@
 import { parseKeywordResearchUrl, researchScopeLabel } from "@/lib/research";
+import { parsePostRepairUrl } from "@/lib/post-repair";
 
 /**
  * FetchJob 展示层的共享工具。
@@ -35,6 +36,8 @@ export function getJobDuration(job: JobTimeFields) {
 export function getJobTitleLabel(job: JobLabelFields) {
   const keywordResearch = parseKeywordResearchUrl(job.sourceUrl);
   if (keywordResearch) return `关键词生成：${keywordResearch.keyword}`;
+  const postRepair = parsePostRepairUrl(job.sourceUrl);
+  if (postRepair) return `文章自动返修：${postRepair.postId}`;
   return job.contentTopic?.name || job.source?.name || job.sourceUrl;
 }
 
@@ -43,5 +46,6 @@ export function getJobKindLabel(job: JobLabelFields) {
   if (keywordResearch) {
     return `关键词研究 · ${researchScopeLabel(keywordResearch.scope)} · ${keywordResearch.count} 篇 · ${keywordResearch.depth}`;
   }
+  if (parsePostRepairUrl(job.sourceUrl)) return "AI 发布审核 · 最多 3 轮返修";
   return job.sourceType;
 }

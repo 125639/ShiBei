@@ -5,7 +5,13 @@ import { seedDefaultTopics } from "../src/lib/topics";
 import { seedDefaultModules } from "../src/lib/source-modules";
 import { seedDefaultCreationGenres } from "../src/lib/creation";
 import { DEFAULT_BLOG_STYLE, isLegacyBundledStyle } from "../src/lib/content-style";
-import { buildAdminUpsertArgs, shouldSeedAiModel } from "./seed-helpers.mjs";
+import { normalizeModelBaseUrl } from "../src/lib/model-config-input";
+import {
+  adminUsernameFromEnv,
+  buildAdminCreateData,
+  buildAdminPasswordRotationData,
+  shouldSeedAiModel
+} from "./seed-helpers.mjs";
 
 const prisma = new PrismaClient();
 
@@ -24,15 +30,23 @@ async function main() {
     }
   });
 
-  // 关键：buildAdminUpsertArgs 把 passwordHash 写进 update 分支，所以每次
-  // db:seed（即每次容器启动）都会用 .env 的 ADMIN_PASSWORD 覆盖数据库里的
-  // admin 密码。这意味着 .env 是密码的权威来源——重跑向导改密码立刻生效。
-  // 配套语义：UI 上改密码不持久，重启会被 .env 覆盖；如需 UI 持久化，需要
-  // 同步把新密码写回 .env。
-  const passwordHash = await bcrypt.hash(password, 12);
-  await prisma.adminUser.upsert(
-    buildAdminUpsertArgs(process.env as Record<string, string | undefined>, passwordHash)
-  );
+  // .env 仍是管理员密码的权威来源，但普通重启不能因为 bcrypt 每次产生新盐就
+  // 重写 hash 或强制退出。先 compare 现有 hash；只有密码实际变化时才更新，
+  // 并递增 tokenVersion 吊销旧 JWT。首次安装正常创建，版本沿用 DB 默认值 0。
+  const env = process.env as Record<string, string | undefined>;
+  const adminUsername = adminUsernameFromEnv(env);
+  const existingAdmin = await prisma.adminUser.findUnique({ where: { username: adminUsername } });
+  if (!existingAdmin) {
+    const passwordHash = await bcrypt.hash(password, 12);
+    await prisma.adminUser.create({ data: buildAdminCreateData(env, passwordHash) });
+  } else if (!(await bcrypt.compare(password, existingAdmin.passwordHash))) {
+    const passwordHash = await bcrypt.hash(password, 12);
+    await prisma.adminUser.update({
+      where: { id: existingAdmin.id },
+      data: buildAdminPasswordRotationData(passwordHash)
+    });
+    console.log("[seed] ADMIN_PASSWORD 已变化：管理员密码已同步，旧会话已吊销");
+  }
 
   const bundledStyle = await prisma.contentStyle.findUnique({ where: { id: "default-style" } });
   if (!bundledStyle) {
@@ -61,7 +75,7 @@ async function main() {
       data: {
         provider: aiInput.provider,
         name: aiInput.name,
-        baseUrl: aiInput.baseUrl,
+        baseUrl: normalizeModelBaseUrl(aiInput.baseUrl),
         model: aiInput.model,
         apiKeyEnc: encryptSecret(aiInput.apiKey),
         maxTokens: 8000,

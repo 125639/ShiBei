@@ -12,7 +12,9 @@ export const dynamic = "force-dynamic";
 const BodySchema = z.object({
   title: z.string().max(300).default(""),
   summary: z.string().max(4000).default(""),
-  content: z.string().max(60000).default(""),
+  // generateArticleRevision sends the complete body. Refuse oversized input
+  // instead of silently slicing off a tail that could contain references/media.
+  content: z.string().max(40000, "AI 辅助单次最多处理 40000 个字符，请先分段调整").default(""),
   instruction: z.string().min(1).max(4000),
   scope: z.enum(["content", "full"]).default("content")
 });

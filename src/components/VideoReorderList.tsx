@@ -65,6 +65,7 @@ export function VideoReorderList({
   const [videos, setVideos] = useState<VideoRow[]>(initialVideos);
   const [savingId, setSavingId] = useState<string | null>(null);
   const [savedId, setSavedId] = useState<string | null>(null);
+  const [editingId, setEditingId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   // 连续拖拽/改位置时的并发保护：只认最后一次请求的结果，旧响应不回写 UI。
   const saveSeqRef = useRef(0);
@@ -237,6 +238,8 @@ export function VideoReorderList({
                       video={video}
                       posts={posts}
                       formattedSize={formatBytes[video.id]}
+                      editing={editingId === video.id}
+                      onToggleEditing={() => setEditingId((current) => current === video.id ? null : video.id)}
                       onPlacementChange={updatePlacement}
                       onMoveUp={index > 0 ? () => moveBy(postKey, video.id, -1) : null}
                       onMoveDown={index < group.length - 1 ? () => moveBy(postKey, video.id, 1) : null}
@@ -264,6 +267,8 @@ function SortableVideoRow({
   video,
   posts,
   formattedSize,
+  editing,
+  onToggleEditing,
   onPlacementChange,
   onMoveUp,
   onMoveDown,
@@ -272,6 +277,8 @@ function SortableVideoRow({
   video: VideoRow;
   posts: PostOption[];
   formattedSize: string | undefined;
+  editing: boolean;
+  onToggleEditing: () => void;
   onPlacementChange: (id: string, placement: VideoPlacement) => void;
   onMoveUp: (() => void) | null;
   onMoveDown: (() => void) | null;
@@ -350,21 +357,36 @@ function SortableVideoRow({
       ) : null}
 
       <div className="meta-row" style={{ gap: 12, flexWrap: "wrap", alignItems: "center" }}>
-        <form action="/api/admin/videos/attach" method="post" className="meta-row" style={{ gap: 6, alignItems: "center", flexWrap: "wrap" }}>
-          <input type="hidden" name="id" value={video.id} />
-          <input type="hidden" name="redirect" value="/admin/videos" />
-          <select name="postId" defaultValue={video.postId || ""} style={{ maxWidth: 240 }}>
-            <option value="">—— 解除挂载 / Detach ——</option>
-            {posts.map((p) => (
-              <option key={p.id} value={p.id}>{p.title}</option>
-            ))}
-          </select>
-          <select name="displayMode" defaultValue={displayMode}>
-            <option value="embed">嵌入 / Embed</option>
-            <option value="link">链接 / Link</option>
-          </select>
-          <button className="button secondary" type="submit"><I18nText zh="更新挂载" en="Update" /></button>
-        </form>
+        {editing ? (
+          <form action="/api/admin/videos/attach" method="post" className="meta-row" style={{ gap: 6, alignItems: "center", flexWrap: "wrap" }}>
+            <input type="hidden" name="id" value={video.id} />
+            <input type="hidden" name="redirect" value="/admin/videos" />
+            <select name="postId" defaultValue={video.postId || ""} style={{ maxWidth: 240 }} aria-label="挂载文章">
+              <option value="">—— 解除挂载 / Detach ——</option>
+              {posts.map((p) => (
+                <option key={p.id} value={p.id}>{p.title}</option>
+              ))}
+            </select>
+            <select name="displayMode" defaultValue={displayMode} aria-label="文章展示方式">
+              <option value="embed">嵌入 / Embed</option>
+              <option value="link">链接 / Link</option>
+            </select>
+            <button className="button secondary" type="submit"><I18nText zh="保存挂载" en="Save" /></button>
+            <button className="text-link" type="button" onClick={onToggleEditing}><I18nText zh="取消" en="Cancel" /></button>
+          </form>
+        ) : (
+          <div className="meta-row" style={{ gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+            <span className="tag" title={video.postTitle || undefined}>
+              {video.postTitle || <I18nText zh="未挂载" en="Unattached" />}
+            </span>
+            <span className="muted" style={{ fontSize: 12 }}>
+              {displayMode === "link" ? <I18nText zh="链接展示" en="Link" /> : <I18nText zh="嵌入展示" en="Embed" />}
+            </span>
+            <button className="text-link" type="button" onClick={onToggleEditing}>
+              <I18nText zh="更改挂载" en="Change attachment" />
+            </button>
+          </div>
+        )}
 
         <DownloadControl video={video} />
 

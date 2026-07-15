@@ -17,6 +17,11 @@ const nextConfig: NextConfig = {
   poweredByHeader: false,
   reactStrictMode: true,
   compress: true,
+  // Metadata streaming 会在 DOMContentLoaded 后用 $RC/$RV 脚本搬动 body 中的
+  // Suspense 标记；慢客户端水合与这次 DOM surgery 竞争时会偶发 React #418。
+  // 本站 metadata 与根布局读取同一份缓存设置，本来就会等待它，因此统一改为
+  // 阻塞式 metadata 不会新增实际数据依赖，却能保证交给 React 的 DOM 不再变形。
+  htmlLimitedBots: /.*/,
   experimental: {
     optimizePackageImports: ["marked", "isomorphic-dompurify"],
     // 客户端路由缓存：30s 内往返导航（返回列表/再进文章）不重新请求，
@@ -41,10 +46,6 @@ const nextConfig: NextConfig = {
           // 用户/抓取来源的文件一律当附件域处理：即便混入可执行内容也不在站点源下解释
           { key: "Content-Security-Policy", value: "default-src 'none'; img-src 'self'; media-src 'self'; style-src 'unsafe-inline'; sandbox" }
         ]
-      },
-      {
-        source: "/_next/static/:path*",
-        headers: [{ key: "Cache-Control", value: "public, max-age=31536000, immutable" }]
       }
     ];
   }

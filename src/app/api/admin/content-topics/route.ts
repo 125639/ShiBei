@@ -11,27 +11,36 @@ export async function POST(request: Request) {
     return redirectTo("/admin/auto-curation");
   }
 
-  const topic = await prisma.contentTopic.create({
-    data: {
-      name: parsed.name,
-      slug: parsed.slug,
-      scope: parsed.scope,
-      keywords: parsed.keywords,
-      compileKind: parsed.compileKind,
-      depth: parsed.depth,
-      articleCount: parsed.articleCount,
-      styleId: parsed.styleId,
-      isEnabled: parsed.isEnabled,
-      useExa: parsed.useExa
-    }
-  });
+  const modules = parsed.moduleIds.length
+    ? await prisma.sourceModule.findMany({
+        where: { id: { in: parsed.moduleIds } },
+        select: { id: true }
+      })
+    : [];
 
-  const schedule = await prisma.autoSchedule.create({
-    data: {
-      topicId: topic.id,
-      cron: parsed.cron,
-      isEnabled: parsed.isEnabled
-    }
+  const schedule = await prisma.$transaction(async (tx) => {
+    const topic = await tx.contentTopic.create({
+      data: {
+        name: parsed.name,
+        slug: parsed.slug,
+        scope: parsed.scope,
+        keywords: parsed.keywords,
+        compileKind: parsed.compileKind,
+        depth: parsed.depth,
+        articleCount: parsed.articleCount,
+        styleId: parsed.styleId,
+        isEnabled: parsed.isEnabled,
+        useExa: parsed.useExa,
+        modules: { connect: modules.map(({ id }) => ({ id })) }
+      }
+    });
+    return tx.autoSchedule.create({
+      data: {
+        topicId: topic.id,
+        cron: parsed.cron,
+        isEnabled: parsed.isEnabled
+      }
+    });
   });
 
   await syncSchedule(schedule.id);

@@ -30,6 +30,27 @@ test("summary keeps Markdown link anchor text", () => {
   assert.equal(result.summary, "据官方公告，产品将在七月发布。");
 });
 
+test("summary removes a standalone citation link after a complete lead sentence", () => {
+  const result = extractTitleAndSummary(
+    "# 标题\n\n外资流出与本地融资买入同时发生。 [彭博社](https://example.com/source)\n\n## 细节\n\n正文。",
+    "fallback"
+  );
+
+  assert.equal(result.summary, "外资流出与本地融资买入同时发生。");
+});
+
+test("long summaries stop at a complete sentence instead of cutting through source text", () => {
+  const firstSentence = `这是完整的第一句，${"用于说明市场分化。".repeat(10)}`;
+  const result = extractTitleAndSummary(
+    `# 标题\n\n${firstSentence}第二句会超过摘要长度并且不应被截成半句话。 [来源](https://example.com/source)`,
+    "fallback"
+  );
+
+  assert.ok(result.summary.length <= 220);
+  assert.match(result.summary, /。$/);
+  assert.doesNotMatch(result.summary, /来源$/);
+});
+
 test("articles that start at H2 fall back to its first prose paragraph", () => {
   const result = extractTitleAndSummary("# 标题\n\n## 事实\n\n第一段正文。\n\n## 后续\n\n第二段。", "fallback");
   assert.equal(result.summary, "第一段正文。");

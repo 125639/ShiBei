@@ -5,7 +5,7 @@ const MB = 1024 * 1024;
 // ZIP 会被完整缓冲进内存（adm-zip 不支持流式解包），单个文件 entry.getData()
 // 同样整体材料化。上限必须显著小于容器内存，否则是「先被 OOM 杀、后限流」：
 // frontend 形态容器 448MB 由 Next + sync-worker 两个进程共享，512MB/350MB
-// 的默认上限在那里形同虚设。frontend 默认收紧为 128MB 包 / 96MB 单文件
+// 的默认上限在那里形同虚设。frontend 默认收紧为 64MB 包 / 48MB 单文件
 //（超限文件跳过不中断，走 filesSkipped + errors 提示）；
 // 其他形态维持原值。SYNC_MAX_ZIP_MB / SYNC_MAX_FILE_MB 可按部署覆盖。
 export function resolveSyncZipLimits(input: {
@@ -18,8 +18,8 @@ export function resolveSyncZipLimits(input: {
   };
   const frontend = input.mode === "frontend";
   return {
-    zipBytes: envMb("SYNC_MAX_ZIP_MB") ?? (frontend ? 128 * MB : 512 * MB),
-    singleFileBytes: envMb("SYNC_MAX_FILE_MB") ?? (frontend ? 96 * MB : 350 * MB)
+    zipBytes: envMb("SYNC_MAX_ZIP_MB") ?? (frontend ? 64 * MB : 512 * MB),
+    singleFileBytes: envMb("SYNC_MAX_FILE_MB") ?? (frontend ? 48 * MB : 350 * MB)
   };
 }
 
@@ -56,4 +56,3 @@ export async function readResponseBufferWithLimit(response: Response, maxBytes =
   }
   return Buffer.concat(chunks.map((chunk) => Buffer.from(chunk)));
 }
-

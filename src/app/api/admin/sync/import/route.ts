@@ -5,12 +5,15 @@ import { importFromZip } from "@/lib/sync/import";
 import { MAX_SYNC_ZIP_BYTES } from "@/lib/sync/limits";
 import { redirectTo } from "@/lib/redirect";
 import { readUploadedFileBuffer } from "@/lib/upload-stream";
+import { rejectCrossOriginMutation } from "@/lib/request-origin";
 
 // POST /api/admin/sync/import
 // 表单字段:
 //   file: ZIP 文件(必填)
 //   redirect: 跳回路径(可选,默认 /admin/sync)
 export async function POST(request: Request) {
+  const denied = rejectCrossOriginMutation(request);
+  if (denied) return denied;
   await requireAdmin();
   const form = await request.formData();
   const file = form.get("file");
@@ -20,7 +23,10 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "请选择一个 ZIP 文件" }, { status: 400 });
   }
   if (file.size > MAX_SYNC_ZIP_BYTES) {
-    return NextResponse.json({ error: "ZIP 体积超过 512MB，请拆分同步或改用外链视频" }, { status: 413 });
+    return NextResponse.json(
+      { error: `ZIP 体积超过 ${Math.round(MAX_SYNC_ZIP_BYTES / 1024 / 1024)}MB，请拆分同步或改用外链视频` },
+      { status: 413 }
+    );
   }
 
   let buffer: Buffer;
@@ -47,7 +53,7 @@ export async function POST(request: Request) {
   // 如果调用者要 JSON,直接返回 JSON;否则跳回页面。
   const accept = request.headers.get("accept") || "";
   if (accept.includes("application/json")) {
-    return NextResponse.json({ ok: true, result });
+    return NextResponse.json({ ok: result.errors.length === 0, result }, { status: result.errors.length ? 207 : 200 });
   }
 
   // 用 redirectTo 统一处理(传 request 优先用真实 host,反代友好;
