@@ -54,7 +54,6 @@ services:
       args:
         GIT_COMMIT: ${GIT_COMMIT:-unknown}
         BUILD_TIME: ${BUILD_TIME:-unknown}
-        NEXT_PUBLIC_SITE_URL: ${NEXT_PUBLIC_SITE_URL:-http://localhost:3000}
     depends_on:
       postgres:
         condition: service_healthy
@@ -64,16 +63,17 @@ services:
       - .env
     environment:
       APP_MODE: full
-      # The only non-loopback ingress is the single nginx service below.
-      # One trusted hop lets quotas use the real client IP without trusting
-      # forwarding headers from arbitrary internet clients.
+      # PUBLIC_URL is supplied at runtime by .env. Existing installs may keep
+      # NEXT_PUBLIC_SITE_URL; the application resolves that legacy fallback.
+      # Set this to the exact number of reverse-proxy hops when deploying
+      # behind nginx/Caddy/Traefik. Direct HTTP installs must keep the default.
       TRUST_PROXY_HOPS: ${TRUST_PROXY_HOPS:-0}
       NODE_OPTIONS: --max-old-space-size=1024
       # 统计按日/按小时分桶用的是进程本地时区；不设 TZ 容器默认 UTC，
       # 「当天」会对中文站长偏 8 小时。Node 自带 ICU 时区数据，alpine 无需 tzdata。
       TZ: ${TZ:-Asia/Shanghai}
     ports:
-      - "${APP_BIND_IP:-0.0.0.0}:3000:3000"
+      - "${APP_BIND_IP:-0.0.0.0}:${APP_PORT:-3000}:3000"
     command: ["sh", "scripts/start-app.sh"]
     volumes:
       - app-uploads:/app/public/uploads
@@ -91,6 +91,9 @@ services:
     logging: *shibei-logging
     restart: unless-stopped
 
+  # 存量升级兼容层：新安装、deploy 与 updater 均不会启用或管理它。
+  # 仅让旧版已经运行内置 HTTPS 的实例可以安全完成过渡更新；新部署
+  # 应直接使用 app 的 HTTP 端口，并由用户自己的反向代理终止 TLS。
   proxy:
     image: nginx:1.28-alpine
     profiles: ["https"]
@@ -131,7 +134,6 @@ services:
       args:
         GIT_COMMIT: ${GIT_COMMIT:-unknown}
         BUILD_TIME: ${BUILD_TIME:-unknown}
-        NEXT_PUBLIC_SITE_URL: ${NEXT_PUBLIC_SITE_URL:-http://localhost:3000}
     depends_on:
       postgres:
         condition: service_healthy
@@ -183,7 +185,6 @@ services:
       # app 与 worker 共用 safg/shibei:full 镜像：只构建 app，up 时 worker 自动换新镜像
       UPDATE_BUILD_SERVICES: app
       UPDATE_SERVICES: app worker
-      UPDATE_RECREATE_SERVICES: ${UPDATE_RECREATE_SERVICES:-}
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - .:/repo

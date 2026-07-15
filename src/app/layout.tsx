@@ -8,6 +8,7 @@ import { NavigationProgress } from "@/components/NavigationProgress";
 import { DEFAULT_LANGUAGE } from "@/lib/language";
 import { DEFAULT_DENSITY, DEFAULT_FONT, DEFAULT_THEME } from "@/lib/themes";
 import { getCachedSiteChromeSettings } from "@/lib/site-settings-cache";
+import { siteOrigin } from "@/lib/site-url";
 
 export async function generateMetadata(): Promise<Metadata> {
   const settings = await getCachedSiteChromeSettings().catch(() => null);
@@ -41,11 +42,7 @@ export const viewport: Viewport = {
 };
 
 function safeMetadataBase() {
-  try {
-    return new URL(process.env.NEXT_PUBLIC_SITE_URL || "http://localhost:3000");
-  } catch {
-    return new URL("http://localhost:3000");
-  }
+  return new URL(siteOrigin());
 }
 
 export default async function RootLayout({ children }: { children: React.ReactNode }) {

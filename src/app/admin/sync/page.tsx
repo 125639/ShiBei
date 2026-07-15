@@ -11,7 +11,7 @@ export const dynamic = "force-dynamic";
 export default async function SyncAdminPage({
   searchParams,
 }: {
-  searchParams?: Promise<{ imported?: string; videos?: string; files?: string; errors?: string; pulled?: string }>;
+  searchParams?: Promise<{ imported?: string; videos?: string; files?: string; errors?: string; pulled?: string; configError?: string }>;
 }) {
   await requireAdmin();
   const sp = (await searchParams) || {};
@@ -75,6 +75,17 @@ export default async function SyncAdminPage({
       {sp.pulled ? (
         <div className="form-card" style={{ maxWidth: 720, borderColor: "var(--color-success, #2a8)" }}>
           <strong><I18nText zh="立即同步成功:" en="Sync succeeded: " />{sp.pulled}</strong>
+        </div>
+      ) : null}
+      {sp.configError === "unsafe-backend-url" ? (
+        <div className="form-card" style={{ maxWidth: 720, borderColor: "var(--color-danger, #c44)" }}>
+          <strong><I18nText zh="Backend 入口未保存" en="Backend URL was not saved" /></strong>
+          <p style={{ margin: "6px 0 0" }}>
+            <I18nText
+              zh="公网地址必须使用 HTTPS；HTTP 只允许 localhost、私网 IP 或 Docker/LAN 单标签服务名，且不能带路径、凭据、查询或片段。"
+              en="Public endpoints must use HTTPS. HTTP is limited to localhost, private IPs, or single-label Docker/LAN service names; paths, credentials, queries, and fragments are not allowed."
+            />
+          </p>
         </div>
       ) : null}
 
@@ -180,15 +191,15 @@ export default async function SyncAdminPage({
                 id="syncBackendUrl"
                 name="syncBackendUrl"
                 type="url"
-                placeholder="http://backend.example.com:3000"
+                placeholder="https://api.example.com"
                 defaultValue={settingsConfig?.syncBackendUrl || cfg.backendUrl}
               />
               <small className="muted">
-                <I18nText zh="如果两台服务器在同一内网，优先填内网地址；留空时使用环境变量 BACKEND_API_URL。" en="Prefer the private-network address when both servers share a LAN; falls back to BACKEND_API_URL when empty." />
+                <I18nText zh="公网必须使用 HTTPS；受保护私网可填私网 IP，Docker 网络可填单标签服务名。留空时使用环境变量 BACKEND_API_URL。" en="HTTPS is required over the public internet. A protected LAN may use a private IP, and Docker networks may use a single-label service name. Empty values fall back to BACKEND_API_URL." />
               </small>
             </div>
           ) : (
-            <input type="hidden" name="syncBackendUrl" value={settingsConfig?.syncBackendUrl || ""} />
+            <input type="hidden" name="syncBackendUrl" value={cfg.backendUrl} />
           )}
           <div className="field">
             <label htmlFor="syncToken"><I18nText zh="共享密钥" en="Shared token" /></label>

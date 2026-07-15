@@ -71,6 +71,8 @@ test("valid production same-origin JSON request is accepted", () => {
 });
 
 test("production accepts a matching trusted forwarded host", () => {
+  const previousTrustedProxyHops = process.env.TRUST_PROXY_HOPS;
+  process.env.TRUST_PROXY_HOPS = "1";
   const request = new Request("http://internal:3000/api/public/anon/bootstrap", {
     method: "POST",
     headers: {
@@ -83,7 +85,35 @@ test("production accepts a matching trusted forwarded host", () => {
     },
     body: JSON.stringify({ seed: SEED })
   });
-  assert.equal(anonBootstrapRequestRejection(request, { production: true }), null);
+  try {
+    assert.equal(anonBootstrapRequestRejection(request, { production: true }), null);
+  } finally {
+    if (previousTrustedProxyHops === undefined) delete process.env.TRUST_PROXY_HOPS;
+    else process.env.TRUST_PROXY_HOPS = previousTrustedProxyHops;
+  }
+});
+
+test("production ignores forwarded origins without a trusted proxy", () => {
+  const previousTrustedProxyHops = process.env.TRUST_PROXY_HOPS;
+  process.env.TRUST_PROXY_HOPS = "0";
+  const request = new Request("http://internal:3000/api/public/anon/bootstrap", {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      [ANON_BOOTSTRAP_HEADER]: "1",
+      origin: APP_ORIGIN,
+      "sec-fetch-site": "same-origin",
+      "x-forwarded-host": "app.example.test",
+      "x-forwarded-proto": "https"
+    },
+    body: JSON.stringify({ seed: SEED })
+  });
+  try {
+    assert.equal(anonBootstrapRequestRejection(request, { production: true })?.status, 403);
+  } finally {
+    if (previousTrustedProxyHops === undefined) delete process.env.TRUST_PROXY_HOPS;
+    else process.env.TRUST_PROXY_HOPS = previousTrustedProxyHops;
+  }
 });
 
 test("cross-site requests and mismatched production origins are rejected", () => {

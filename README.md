@@ -15,6 +15,7 @@
 - [项目特点](#项目特点)
 - [三种部署形态](#三种部署形态)
 - [快速上手](#快速上手docker)
+- [绑定域名与 HTTPS](#绑定域名与-https)
 - [跨服务器部署（公网）](#跨服务器部署公网)
 - [AI 模型接入](#ai-模型接入)
 - [图片自动搜索与手动上传](#图片自动搜索与手动上传)
@@ -81,18 +82,22 @@
                  ┌──────────────────────┐
                  │  backend 服务器（重） │
                  │  抓取 / AI / yt-dlp  │
-                 │  /admin/sync/export │ ──ZIP──┐
-                 └──────────────────────┘        │  HTTPS + Bearer SYNC_TOKEN
-                                                 ▼
+                 │  HTTP 应用端口 :3000  │
+                 └──────────────────────┘
+                            ▲
+                            │ 外置 TLS 反代 / 受信私网
+                            │ HTTPS + Bearer SYNC_TOKEN
+                            ▼
                  ┌──────────────────────┐
                  │  frontend 服务器（轻）│
                  │  Next.js 展示 + 同步  │
-                 │  AI 调用透明转发      │
+                 │  HTTP 应用端口 :3000  │
                  └──────────────────────┘
 ```
 
 - **完整版**适合一台 4 GB 服务器自己玩。
 - **拆分**适合"内容用大机抓、展示用小机扛流量"——前端镜像不含 Chromium / yt-dlp，启动快、占用少。
+- 无论选哪种形态，应用层都只监听 HTTP。域名、证书和 80/443 由你现有的 Nginx、Caddy、Traefik、宝塔或云负载均衡器管理。
 
 ---
 
@@ -116,12 +121,11 @@ curl -fsSL https://raw.githubusercontent.com/125639/ShiBei/main/scripts/bootstra
 
 向导会自动：
 
-- 检测公网 IP，默认使用 HTTPS；完整版可为域名或公网 IPv4 自动签发证书
+- 检测可访问 IP，生成默认 HTTP 入口 `http://<服务器 IP>:3000`
 - 用 `openssl rand -hex 32` 生成 `AUTH_SECRET` / `ENCRYPTION_KEY` / `SYNC_TOKEN`
 - 留空管理员密码时自动生成 16 位强密码
 - 让你选 `full` / `backend` / `frontend` 三种部署形态
 - 可选地预设 AI 模型（CanopyWave / OpenAI / DeepSeek / Moonshot / Qwen / SiliconFlow / OpenRouter / 自定义），首次 `db:seed` 落库
-- 完整版自动启用 Nginx、Let’s Encrypt 与 systemd 续期 timer；应用端口只绑定回环地址
 
 向导结束会打印对应模式的 `docker compose ... up -d` 命令、健康检查 URL 和登录账号。
 
@@ -140,8 +144,8 @@ bash scripts/init.sh
 git clone https://github.com/125639/ShiBei.git
 cd ShiBei
 cp .env.example .env
-# 编辑 .env：AUTH_SECRET / ENCRYPTION_KEY / ADMIN_PASSWORD / NEXT_PUBLIC_SITE_URL
-# 公网生产环境必须使用 HTTPS；full 模式还要填写 PUBLIC_HOST
+# 编辑 .env：AUTH_SECRET / ENCRYPTION_KEY / ADMIN_PASSWORD
+# 远程服务器直接 HTTP 访问时，还要将 PUBLIC_URL 改为 http://<服务器IP>:3000
 # 两个密钥建议各自 `openssl rand -hex 32`
 ```
 
@@ -149,7 +153,7 @@ cp .env.example .env
 
 | 形态 | 启动命令 |
 | --- | --- |
-| 完整版 | `docker compose up -d && sudo scripts/bootstrap-ip-tls.sh` |
+| 完整版 | `docker compose up -d` |
 | 后端 | `docker compose -f docker-compose.backend.yml up -d` |
 | 前端 | `docker compose -f docker-compose.frontend.yml up -d` |
 
@@ -161,14 +165,17 @@ cp .env.example .env
 ### 访问
 
 ```text
-https://服务器IP或域名/            # 公开站（完整版）
-https://服务器IP或域名/admin       # 管理后台（admin / 向导设置的密码）
-https://服务器IP或域名/api/health  # 公开健康检查
+http://服务器IP:3000/            # 公开站（完整版）
+http://服务器IP:3000/admin       # 管理后台（admin / 向导设置的密码）
+http://服务器IP:3000/api/health  # 公开健康检查
 ```
 
-> 生产身份使用浏览器强制的 `__Host-` + `Secure` Cookie，公网 HTTP 无法安全登录。完整版的向导会自动签发证书、把 HTTP 308 到 HTTPS，并把应用 3000 端口限制在 `127.0.0.1`。证书状态保存在 `/var/lib/shibei-tls`，每天检查两次并在到期前 48 小时 fail loud。
->
-> 后端 compose **只暴露 3000**——拆分部署时建议给它套一层 Caddy/Nginx 做 HTTPS。
+`PUBLIC_URL` 的协议决定身份 Cookie 的安全模式：
+
+- `http://...`：使用隔离的 `shibei_http_*` host-only Cookie，可以登录，但密码、Cookie 和内容都是明文传输。仅用于本机、受信 LAN 或首次验活。
+- `https://...`：使用浏览器强制的 `Secure` + `__Host-*` Cookie。任何公网部署都应选这一模式，并由外部反代终止 TLS。
+
+从 HTTP 切换到 HTTPS 后需要在新域名重新登录，这是 Cookie 命名空间隔离的预期结果。
 
 ### 验证
 
@@ -177,11 +184,44 @@ https://服务器IP或域名/api/health  # 公开健康检查
 docker compose ps
 
 # 健康检查（应返回 {"ok":true,...}）
-curl https://你的域名或公网IP/api/health
+curl http://127.0.0.1:3000/api/health
 
 # 实时日志
 docker compose logs -f app worker
 ```
+
+---
+
+## 绑定域名与 HTTPS
+
+拾贝不要求域名，也不自动申请或续期证书。这与常见自托管项目的边界一致：应用稳定提供 HTTP 上游，部署者自由选择 TLS 入口。
+
+1. 把域名 A 记录解析到服务器 IPv4；只有服务器确实配置了公网 IPv6 时才添加 AAAA 记录。
+2. 修改 `.env`：
+
+   ```dotenv
+   PUBLIC_URL="https://blog.example.com"
+   APP_BIND_IP="127.0.0.1"
+   APP_PORT="3000"
+   TRUST_PROXY_HOPS="1"
+   ```
+
+3. 重启应用以读取运行时配置，不需要重建镜像：
+
+   ```bash
+   docker compose up -d
+   ```
+
+4. 在你自己的反代中把 `https://blog.example.com` 转发到 `http://127.0.0.1:3000`。可直接使用仓库样例：
+
+   - [Nginx](./ops/reverse-proxy/nginx.conf)
+   - [Caddy](./ops/reverse-proxy/Caddyfile)
+   - [Traefik](./ops/reverse-proxy/traefik-dynamic.yml)
+   - [样例说明与检查清单](./ops/reverse-proxy/README.md)
+
+反代必须保留 `Host`，并传递 `X-Forwarded-Proto` 和 `X-Forwarded-For`。如果 CDN/负载均衡器前还有更多固定代理层，将 `TRUST_PROXY_HOPS` 设为真实层数；不要为了“保险”而填大。
+
+防火墙只对公网放行 80/443。`APP_BIND_IP=127.0.0.1` 可防止用户绕过反代直连 3000，也是启用 `TRUST_PROXY_HOPS=1` 的必要前提。
 
 ---
 
@@ -211,7 +251,7 @@ docker compose logs -f app worker
    #
    # 在向导里：
    #   [1/6] 部署模式 → 2 (backend)
-   #   [2/6] 站点 URL → https://api.example.com（覆盖默认 IP）
+   #   [2/6] 站点 URL → https://api.example.com
    #   [3/6] 管理员密码 → 留空自动生成
    #   [4/6] 安全密钥 → 自动生成（含 SYNC_TOKEN，向导结束会单独打印）
    #   [5/6] AI 模型 → 选一个并填 API Key（也可跳过到 /admin/settings 配）
@@ -220,7 +260,7 @@ docker compose logs -f app worker
    docker compose -f docker-compose.backend.yml up -d
    ```
 
-   随后浏览器访问 `https://api.example.com/admin` 登录：
+   启动后先用 `http://A服务器IP:3000/api/health` 验活，再按上一节将 `api.example.com` 交给外部反代，然后访问 `https://api.example.com/admin`：
 
    - `/admin/sources` 添加 RSS / 网页源
    - `/admin/auto-curation` 设置主题与定时调度
@@ -242,31 +282,22 @@ docker compose logs -f app worker
    docker compose -f docker-compose.frontend.yml up -d
    ```
 
+   同样先验证 `http://B服务器IP:3000/api/health`，再由外部反代提供 `https://shibei.example.com`。
+
    **关键步骤**：把 A 服务器向导生成的 `SYNC_TOKEN` 复制到 B 服务器的 `.env`（直接编辑覆盖即可），或登录 `https://shibei.example.com/admin/sync` 网页端填入并保存。两端 token 必须完全一致。
 
-3. **HTTPS 与反向代理（公网部署必需）**
+3. **通信边界**
 
-   两台服务器都建议套 [Caddy](https://caddyserver.com) 或 Nginx 反代 + Let's Encrypt 自动证书：
+   两台服务器都设置 `APP_BIND_IP=127.0.0.1` 和 `TRUST_PROXY_HOPS=1`，分别使用外置反代发布域名。前端的 `BACKEND_API_URL` 填 `https://api.example.com`。
 
-   ```caddyfile
-   # /etc/caddy/Caddyfile（A 服务器，backend）
-   api.example.com {
-     reverse_proxy 127.0.0.1:3000
-   }
-
-   # /etc/caddy/Caddyfile（B 服务器，frontend）
-   shibei.example.com {
-     reverse_proxy 127.0.0.1:3000
-   }
-   ```
-
-   让 Caddy 监听 80/443，并反代到 `127.0.0.1:3000`；同时把宿主端口绑定为回环地址，不能让公网绕过代理直连。
+   如果两台机器之间通过 WireGuard/Tailscale/专用 VLAN 互通，`BACKEND_API_URL` 可以使用受防火墙保护的私网 HTTP。不得在公网上使用 `http://<backend IP>:3000` 传输 `SYNC_TOKEN`。
 
 ### 安全注意
 
-- **SYNC_TOKEN** 在公网传输，必须用 HTTPS（参考上面 Caddy 配置）。HTTP 等于把密钥裸奔。
+- **SYNC_TOKEN** 在公网传输，必须用 HTTPS（参考上面的反代配置）。HTTP 等于把密钥裸奔。
 - **后端的 `/api/public/*` 在 backend 模式下要求 Bearer SYNC_TOKEN**。本仓库已经把这层校验做进 `src/lib/sync/backend-auth.ts`：没有共享密钥的请求会被 401 拒绝，**避免有人扫到 backend IP 后免费消耗你的 AI Key**。如果你看到日志大量 401，说明确实有人在尝试，但他们打不下来。
 - **管理员后台**只对管理员 session 开放，公网暴露相对安全；改完密码、定期换 SYNC_TOKEN 即可。
+- **更新边界**：拾贝更新器只更新对应形态的应用/worker，不修改外部反代、DNS 或证书。
 
 ---
 
@@ -499,8 +530,8 @@ docker compose down
 # ⚠️ 关停并删除全部命名卷（数据库、上传文件都会丢）
 docker compose down -v
 
-# 检查 frontend / backend 配置
-curl https://服务器域名/api/health
+# 检查本机 HTTP 上游和当前形态
+curl http://127.0.0.1:3000/api/health
 docker compose exec app sh -c 'echo $APP_MODE'
 
 # backend 立即生成 ZIP（用 SYNC_TOKEN 鉴权）
@@ -516,11 +547,11 @@ curl -O -J https://backend.example.com/api/admin/sync/export \
 
 按下面顺序排：
 
-1. **HTTPS 入口没启动**：完整版运行 `sudo scripts/bootstrap-ip-tls.sh`，再看 `docker compose --profile https ps proxy` 与 `systemctl status shibei-tls-renew.timer`。
+1. **先绕过域名检查应用**：在服务器上运行 `curl http://127.0.0.1:3000/api/health`。若这里正常，问题在 DNS/反代/证书，不在拾贝。
 2. **容器其实退了**：`docker compose ps` 看 `app` 是不是 `Exited`；`docker compose logs app` 看错误。
    - 最常见报错：`Validation Error Count: 1 [Context: getConfig]` → `.env` 漏填 `DATABASE_URL` / `AUTH_SECRET` / `ENCRYPTION_KEY`。重跑 `bash scripts/init.sh` 即可一次性补齐。
-3. **防火墙 / 安全组**：公网只放行 80/443；不要放行 3000，避免绕过 TLS 与可信代理边界。
-4. **前端的 backend 入口写成了 localhost**：跨服务器时必须填 backend 的公网 IP / 域名，frontend 容器内的 localhost 是它自己。
+3. **直接 HTTP 模式**：确认 `APP_BIND_IP=0.0.0.0`、安全组临时放行 `APP_PORT`，且 URL 中带端口。切换到公网 HTTPS 后应改为 `APP_BIND_IP=127.0.0.1` 并关闭公网 3000。
+4. **前端的 backend 入口写成了 localhost**：跨服务器时填 backend 的 HTTPS 域名，或受防火墙保护的私网 IP；frontend 容器内的 localhost 是它自己。公网 IP 的明文 HTTP 会被拒绝。
 
 ### ❷ 前端没有文章
 
@@ -569,7 +600,7 @@ curl -O -J https://backend.example.com/api/admin/sync/export \
 
 ### ❾ 想用 80/443 访问
 
-完整版填写 `NEXT_PUBLIC_SITE_URL=https://域名或公网IP` 与 `PUBLIC_HOST` 后运行 `sudo scripts/bootstrap-ip-tls.sh`。脚本会签发证书、启动 80/443 代理并安装续期 timer；3000 保持只在本机可达。已有 Caddy/Nginx 的拆分部署也必须遵守同一原则。
+将 `PUBLIC_URL` 改为 `https://你的域名`，把 `APP_BIND_IP` 改为 `127.0.0.1`，将 `TRUST_PROXY_HOPS` 改为实际代理层数（同机单层为 `1`），然后重启应用。再使用 [外置反代样例](./ops/reverse-proxy/README.md) 配置 80/443 和证书。
 
 ### ❿ 想换密钥 / 换部署形态
 
@@ -588,7 +619,8 @@ bash scripts/init.sh
 
 - **改默认密码**：向导留空时会自动生成 16 位强密码，登录后仍建议到 `/admin/settings/admin` 改成自己记得住的强密码。
 - **AUTH_SECRET / ENCRYPTION_KEY**：每个部署独立，长度 ≥ 32 byte 随机串（向导默认 64 hex）。
-- **SYNC_TOKEN**：跨服务器场景务必 HTTPS，定期轮换；轮换时先在两端同步保存新值再删旧值。
+- **HTTP 边界**：默认 HTTP 是可运行的应用入口，不是公网传输安全方案。不要通过不受信网络提交管理员密码、会员密码、API Key 或 `SYNC_TOKEN`。
+- **SYNC_TOKEN**：跨公网场景务必 HTTPS，定期轮换；轮换时先在两端同步保存新值再删旧值。
 - **公开 backend**：`backend` 模式下 `/api/public/*` 已要求 SYNC_TOKEN；但建议再加一层 Caddy/Nginx 限速，避开未授权扫描的恶意请求。
 - **AI 接口限流**：助手、翻译、写作辅助默认按客户端 IP 限流；配置 `REDIS_URL` 时跨进程共享计数，否则使用进程内兜底计数。
 - **代理 IP 边界**：生产启动器会覆盖内部客户端 IP，默认忽略外部传入的 `X-Real-IP` / `X-Forwarded-For`，避免轮换伪造头绕过匿名额度和限流。只有应用端口已被防火墙限制为仅可信反代可访问时，才把 `TRUST_PROXY_HOPS` 设为真实固定代理层数（单层为 `1`）；端口可直连时保持 `0`。
@@ -608,7 +640,15 @@ docker compose up -d         # 滚动重启；start-app.sh 会自动 migrate dep
 docker compose logs -f app | head -60
 ```
 
-迁移文件全部带 `IF NOT EXISTS`，重复执行安全。如果你修改了本地代码，看 `docker compose build` 提示的 cache 命中率决定是否要 `--no-cache`。
+数据库迁移由 `prisma migrate deploy` 按迁移记录顺序执行；不要手工重复运行已经登记过的 SQL。如果你修改了本地代码，看 `docker compose build` 提示的 cache 命中率决定是否要 `--no-cache`。
+
+更新只处理仓库内的应用与 worker；不会重载或改写你的 Nginx/Caddy/Traefik，不会签发证书，也不会改 DNS。反代配置引用的上游地址保持为 `http://127.0.0.1:${APP_PORT:-3000}` 即可跨版本使用。
+
+### 从旧的内置 HTTPS profile 升级
+
+旧版本的 `proxy` profile、`ops/nginx/` 和 TLS/systemd 脚本仅作为一次过渡升级资产保留：新向导、常规部署脚本和新版更新器都不会启用、重建或重载它。存量实例可先安全更新，再按 [外置反代样例](./ops/reverse-proxy/README.md) 迁移入口；确认新入口正常后，由管理员删除旧代理容器和旧 TLS 续期任务。新安装不应使用这条兼容路径。
+
+存量 `.env` 中的 `NEXT_PUBLIC_SITE_URL` 仍可作为过渡兼容值；请将同一起源写入新的 `PUBLIC_URL`。两者同时存在时以 `PUBLIC_URL` 为准，确认新入口正常后即可删除旧变量。
 
 ---
 

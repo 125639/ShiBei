@@ -174,12 +174,50 @@ escape_dq() { printf '%s' "${1//\"/\\\"}"; }
 
 is_secure_backend_url() {
   local value="${1%/}"
+  local host=""
   [ -z "$value" ] && return 0
-  # Cross-host sync carries SYNC_TOKEN and proxies requests backed by model
-  # credentials. Plain HTTP is only accepted on loopback, where operators can
-  # terminate an SSH/WireGuard tunnel locally.
-  [[ "$value" =~ ^https://[^/]+(/.*)?$ ]] && return 0
-  [[ "$value" =~ ^http://(127\.0\.0\.1|localhost)(:[0-9]+)?$ ]]
+  is_public_url "$value" || return 1
+  [[ "$value" == https://* ]] && return 0
+  [[ "$value" =~ ^http://(\[[0-9A-Fa-f:.]+\]|[A-Za-z0-9.-]+)(:[0-9]+)?$ ]] || return 1
+  host="${BASH_REMATCH[1]}"
+  host="${host#[}"
+  host="${host%]}"
+  is_private_backend_host "$host"
+}
+
+is_private_backend_host() {
+  local host="${1,,}"
+  local a b c d
+  if [ "$host" = "localhost" ] || [[ "$host" == *.localhost ]]; then
+    return 0
+  fi
+  if [[ "$host" =~ ^([0-9]{1,3})\.([0-9]{1,3})\.([0-9]{1,3})\.([0-9]{1,3})$ ]]; then
+    a=$((10#${BASH_REMATCH[1]})); b=$((10#${BASH_REMATCH[2]}))
+    c=$((10#${BASH_REMATCH[3]})); d=$((10#${BASH_REMATCH[4]}))
+    ((a <= 255 && b <= 255 && c <= 255 && d <= 255)) || return 1
+    ((a == 10 || a == 127)) && return 0
+    ((a == 100 && b >= 64 && b <= 127)) && return 0
+    ((a == 172 && b >= 16 && b <= 31)) && return 0
+    ((a == 192 && b == 168)) && return 0
+    return 1
+  fi
+  [ "$host" = "::1" ] && return 0
+  [[ "$host" =~ ^f[cd][0-9a-f]{2}(:|$) ]] && return 0
+  # Docker Compose service names and conventional LAN aliases are single-label.
+  [[ "$host" =~ ^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$ ]]
+}
+
+is_public_url() {
+  local value="${1%/}"
+  local port=""
+  # PUBLIC_URL is an origin, not a route: credentials, paths, queries and
+  # fragments are deliberately rejected. Both HTTP (the default application
+  # endpoint) and HTTPS (when the user supplies an external proxy) are valid.
+  if [[ ! "$value" =~ ^https?://(\[[0-9A-Fa-f:.]+\]|[A-Za-z0-9.-]+)(:([0-9]+))?$ ]]; then
+    return 1
+  fi
+  port="${BASH_REMATCH[3]:-}"
+  [ -z "$port" ] || ((10#$port >= 1 && 10#$port <= 65535))
 }
 
 # ---------- 主流程（包进函数以便单元测试 source 该文件时不触发） --------------
@@ -231,37 +269,31 @@ case "$MODE_CHOICE" in
 esac
 ui_success "APP_MODE = ${BOLD}${APP_MODE}${NC}"
 
-# ---------- [2/6] 站点 URL ---------------------------------------------------
-ui_stage "公开访问地址 (NEXT_PUBLIC_SITE_URL)"
+# ---------- [2/6] HTTP 服务 --------------------------------------------------
+ui_stage "HTTP 服务与公开访问地址"
 DETECTED_IP="$(detect_public_ip)"
-DEFAULT_URL="https://${DETECTED_IP}"
-ui_info "检测到候选公网 IP：${BOLD}${DETECTED_IP}${NC}"
-ui_info "生产登录固定使用 Secure Cookie，公网地址必须是 HTTPS。"
-ui_info "可填 HTTPS 域名；full 模式也可直接为公网 IPv4 自动签发短周期证书。"
-ask_default SITE_URL "站点 URL" "$DEFAULT_URL"
-SITE_URL="${SITE_URL%/}"
-PUBLIC_HOST=""
-BUILTIN_HTTPS=0
-if [[ "$SITE_URL" =~ ^https://([A-Za-z0-9.-]+)$ ]]; then
-  PUBLIC_HOST="${BASH_REMATCH[1]}"
-  if [ "$APP_MODE" = "full" ]; then BUILTIN_HTTPS=1; fi
-elif [[ "$SITE_URL" =~ ^http://(localhost|127\.0\.0\.1)(:[0-9]+)?$ ]]; then
-  PUBLIC_HOST="${BASH_REMATCH[1]}"
-else
-  ui_error "站点 URL 必须是无路径的 HTTPS 域名/公网 IPv4；只有 localhost 可使用 HTTP。"
+APP_BIND_IP="0.0.0.0"
+APP_PORT="3000"
+TRUST_PROXY_HOPS="0"
+DEFAULT_URL="http://${DETECTED_IP}:${APP_PORT}"
+ui_info "应用默认在 ${BOLD}${APP_BIND_IP}:${APP_PORT}${NC} 提供 HTTP，不占用 80/443，也不管理证书。"
+ui_info "以后使用 Nginx / Caddy / Traefik 配域名时，只需修改 PUBLIC_URL 并重启，无需重建镜像。"
+ask_default PUBLIC_URL "公开访问 URL" "$DEFAULT_URL"
+PUBLIC_URL="${PUBLIC_URL%/}"
+if ! is_public_url "$PUBLIC_URL"; then
+  ui_error "公开访问 URL 必须是无路径的 HTTP/HTTPS origin，例如 http://192.0.2.10:3000 或 https://blog.example.com。"
   exit 1
 fi
-ui_success "NEXT_PUBLIC_SITE_URL = $SITE_URL"
-
-TLS_STATE_DIR="/var/lib/shibei-tls"
-APP_BIND_IP="0.0.0.0"
-TRUST_PROXY_HOPS="0"
-UPDATE_RECREATE_SERVICES=""
-if [ "$BUILTIN_HTTPS" = "1" ]; then
+if [[ "$PUBLIC_URL" == https://* ]]; then
+  # The secure default assumes the user's reverse proxy runs on this host or
+  # joins the Compose network. A remote load balancer needs an explicit bind /
+  # firewall policy and should be configured manually after the wizard.
   APP_BIND_IP="127.0.0.1"
   TRUST_PROXY_HOPS="1"
-  UPDATE_RECREATE_SERVICES="proxy"
+  ui_info "已按同机/同网络单层反代收紧为 127.0.0.1:3000，并信任 1 层代理。"
+  ui_info "若 TLS 在远程负载均衡器终止，请按实际网络与代理层数修改 APP_BIND_IP / TRUST_PROXY_HOPS。"
 fi
+ui_success "PUBLIC_URL = $PUBLIC_URL"
 
 # ---------- [3/6] 管理员账号 -------------------------------------------------
 ui_stage "管理员账号"
@@ -300,11 +332,11 @@ INIT_AI_API_KEY=""
 if [ "$APP_MODE" = "frontend" ]; then
   ui_stage "前端 → 后端 同步参数"
   ui_info "也可以现在留空，启动后在 /admin/sync 网页端填写。"
-  ui_info "跨机必须使用 HTTPS；若用 SSH/WireGuard 私网隧道，填本机 http://127.0.0.1:<端口>。"
+  ui_info "跨公网必须使用 HTTPS；受保护私网可填私网 IP，Docker 网络可填单标签服务名。"
   ask_default BACKEND_API_URL "Backend 入口 URL" "https://api.example.com"
   BACKEND_API_URL="${BACKEND_API_URL%/}"
   if ! is_secure_backend_url "$BACKEND_API_URL"; then
-    ui_error "Backend 入口会携带 SYNC_TOKEN，跨机必须使用 HTTPS；私网隧道请填 http://127.0.0.1:<端口>。"
+    ui_error "Backend 入口会携带 SYNC_TOKEN：公网必须 HTTPS；HTTP 仅允许 localhost、私网 IP 或单标签内网服务名。"
     exit 1
   fi
   ask_default SYNC_MODE "同步模式 (auto/manual)" "auto"
@@ -356,10 +388,8 @@ fi
 ui_stage "Install Plan"
 ui_kv "OS"                    "$OS"
 ui_kv "APP_MODE"              "$APP_MODE"
-ui_kv "NEXT_PUBLIC_SITE_URL"  "$SITE_URL"
-if [ "$BUILTIN_HTTPS" = "1" ]; then
-  ui_kv "HTTPS 入口"           "$PUBLIC_HOST（自动证书 + 续期）"
-fi
+ui_kv "HTTP 监听"              "$APP_BIND_IP:$APP_PORT"
+ui_kv "PUBLIC_URL"            "$PUBLIC_URL"
 ui_kv "ADMIN_USERNAME"        "$ADMIN_USERNAME"
 ui_kv "ADMIN_PASSWORD"        "$ADMIN_PASSWORD"
 ui_kv_secret "AUTH_SECRET"    "$AUTH_SECRET"
@@ -397,13 +427,13 @@ REDIS_URL="redis://redis:6379"
 AUTH_SECRET="$(escape_dq "$AUTH_SECRET")"
 ENCRYPTION_KEY="$(escape_dq "$ENCRYPTION_KEY")"
 
-# --- 公开访问 URL 与可选内置 HTTPS --------------------------------------------
-NEXT_PUBLIC_SITE_URL="$(escape_dq "$SITE_URL")"
-PUBLIC_HOST="$(escape_dq "$PUBLIC_HOST")"
-TLS_STATE_DIR="$(escape_dq "$TLS_STATE_DIR")"
+# --- HTTP 服务与公开 URL ------------------------------------------------------
+# 默认直接暴露 3000/HTTP。使用外部反向代理时可把 APP_BIND_IP 改为 127.0.0.1，
+# 把 PUBLIC_URL 改成 HTTPS 域名，并按实际代理层数设置 TRUST_PROXY_HOPS。
+PUBLIC_URL="$(escape_dq "$PUBLIC_URL")"
 APP_BIND_IP="$(escape_dq "$APP_BIND_IP")"
+APP_PORT="$(escape_dq "$APP_PORT")"
 TRUST_PROXY_HOPS="$(escape_dq "$TRUST_PROXY_HOPS")"
-UPDATE_RECREATE_SERVICES="$(escape_dq "$UPDATE_RECREATE_SERVICES")"
 
 # --- 初始管理员账号（首次启动 seed 时写入；登录后请到 /admin/settings 改密码）---
 ADMIN_USERNAME="$(escape_dq "$ADMIN_USERNAME")"
@@ -485,36 +515,11 @@ case "$AUTO_START" in
       ui_info "切到 $PROJECT_DIR 并运行 ${COMPOSE_UP_DISPLAY} ..."
       ui_info "测试环境默认本地 build；如要改用远程镜像，删掉 --build 并 ${COMPOSE_CMD_DISPLAY} pull。"
       if (cd "$PROJECT_DIR" && docker compose "${COMPOSE_ARGS[@]}" "${COMPOSE_UP_ARGS[@]}"); then
-        TLS_BOOTSTRAP_OK=1
-        if [ "$BUILTIN_HTTPS" = "1" ]; then
-          echo
-          ui_info "签发 ${PUBLIC_HOST} 的 HTTPS 证书并安装自动续期…"
-          if [ "${EUID:-$(id -u)}" -eq 0 ]; then
-            TLS_BOOTSTRAP_CMD=("$PROJECT_DIR/scripts/bootstrap-ip-tls.sh")
-          elif command -v sudo >/dev/null 2>&1; then
-            TLS_BOOTSTRAP_CMD=(sudo "$PROJECT_DIR/scripts/bootstrap-ip-tls.sh")
-          else
-            TLS_BOOTSTRAP_CMD=()
-            TLS_BOOTSTRAP_OK=0
-            ui_error "缺少 root/sudo，无法绑定 80/443 或安装证书续期 timer。"
-          fi
-          if [ "${#TLS_BOOTSTRAP_CMD[@]}" -gt 0 ] && ! "${TLS_BOOTSTRAP_CMD[@]}"; then
-            TLS_BOOTSTRAP_OK=0
-            ui_error "HTTPS 证书或反向代理启动失败；应用仍只监听本机，不会退回不安全的公网 HTTP。"
-          fi
-        fi
-
-        if [ "$TLS_BOOTSTRAP_OK" = "1" ]; then
-          AUTO_STARTED=1
-          DOCKER_FAILED=0
-          DOCKER_MISSING=0
-          echo
-          ui_success "容器已启动；用 ${COMPOSE_CMD_DISPLAY} ps 看状态、logs -f 看日志。"
-        else
-          AUTO_STARTED=0
-          DOCKER_FAILED=1
-          DOCKER_MISSING=0
-        fi
+        AUTO_STARTED=1
+        DOCKER_FAILED=0
+        DOCKER_MISSING=0
+        echo
+        ui_success "容器已启动；用 ${COMPOSE_CMD_DISPLAY} ps 看状态、logs -f 看日志。"
       else
         AUTO_STARTED=0
         DOCKER_FAILED=1
@@ -546,13 +551,10 @@ if [ "${DOCKER_FAILED:-0}" = "1" ]; then
   printf "  ${BOLD}2. 单独 build 看报错：${NC}cd %s && %s build\n" "$PROJECT_DIR" "$COMPOSE_CMD_DISPLAY"
   printf "       ${MUTED}如果只想跳过本地 build,直接拉远程镜像:${NC}\n"
   printf "       ${MUTED}cd %s && %s pull && %s up -d --force-recreate${NC}\n" "$PROJECT_DIR" "$COMPOSE_CMD_DISPLAY" "$COMPOSE_CMD_DISPLAY"
-  printf "  ${BOLD}3. 检查端口：${NC}sudo lsof -i :3000   ${MUTED}(被占用就改 compose 的 ports 映射)${NC}\n"
+  printf "  ${BOLD}3. 检查端口：${NC}sudo lsof -i :%s   ${MUTED}(被占用就修改 .env 的 APP_PORT)${NC}\n" "$APP_PORT"
   printf "  ${BOLD}4. 重新启动：${NC}cd %s && %s\n" "$PROJECT_DIR" "$COMPOSE_UP_DISPLAY"
-  if [ "$BUILTIN_HTTPS" = "1" ]; then
-    printf "  ${BOLD}5. HTTPS：${NC}sudo %s/scripts/bootstrap-ip-tls.sh\n" "$PROJECT_DIR"
-  fi
   echo
-  ui_info "排查后容器跑起来,登录信息:${ACCENT_BRIGHT}${SITE_URL%/}/admin${NC}  账号:${BOLD}${ADMIN_USERNAME} / ${ADMIN_PASSWORD}${NC}"
+  ui_info "排查后容器跑起来,登录信息:${ACCENT_BRIGHT}${PUBLIC_URL%/}/admin${NC}  账号:${BOLD}${ADMIN_USERNAME} / ${ADMIN_PASSWORD}${NC}"
   echo
   ui_panel "Need help? FAQ → README.md#常见问题排查清单"
   exit 1
@@ -579,14 +581,9 @@ if [ "${DOCKER_MISSING:-0}" = "1" ]; then
   esac
   printf "  ${BOLD}2. 验证：${NC}docker --version && docker compose version\n"
   printf "  ${BOLD}3. 启动：${NC}cd %s && %s\n" "$PROJECT_DIR" "$COMPOSE_UP_DISPLAY"
-  if [ "$BUILTIN_HTTPS" = "1" ]; then
-    printf "  ${BOLD}4. HTTPS：${NC}sudo %s/scripts/bootstrap-ip-tls.sh\n" "$PROJECT_DIR"
-    printf "  ${BOLD}5. 健康检查：${NC}curl ${SITE_URL%/}/api/health\n"
-  else
-    printf "  ${BOLD}4. 健康检查：${NC}curl ${SITE_URL%/}/api/health\n"
-  fi
+  printf "  ${BOLD}4. 健康检查：${NC}curl ${PUBLIC_URL%/}/api/health\n"
   echo
-  ui_info "启动后管理后台:${ACCENT_BRIGHT}${SITE_URL%/}/admin${NC}  账号:${BOLD}${ADMIN_USERNAME} / ${ADMIN_PASSWORD}${NC}"
+  ui_info "启动后管理后台:${ACCENT_BRIGHT}${PUBLIC_URL%/}/admin${NC}  账号:${BOLD}${ADMIN_USERNAME} / ${ADMIN_PASSWORD}${NC}"
   if [ "$APP_MODE" = "backend" ]; then
     echo
     ui_warn "另一台 frontend 服务器的 SYNC_TOKEN 必须填同一串："
@@ -605,12 +602,9 @@ if [ "${AUTO_STARTED:-0}" = "1" ]; then
 else
   # 没自动起：完整把 cd + 启动一行写出来，避免用户在错误目录里跑 docker compose。
   printf "  ${BOLD}启动：${NC}cd %s && %s\n" "$PROJECT_DIR" "$COMPOSE_UP_DISPLAY"
-  if [ "$BUILTIN_HTTPS" = "1" ]; then
-    printf "  ${BOLD}HTTPS：${NC}sudo %s/scripts/bootstrap-ip-tls.sh\n" "$PROJECT_DIR"
-  fi
 fi
-printf "  ${BOLD}健康检查：${NC}curl ${SITE_URL%/}/api/health\n"
-printf "  ${BOLD}管理后台：${NC}${ACCENT_BRIGHT}${SITE_URL%/}/admin${NC}\n"
+printf "  ${BOLD}健康检查：${NC}curl ${PUBLIC_URL%/}/api/health\n"
+printf "  ${BOLD}管理后台：${NC}${ACCENT_BRIGHT}${PUBLIC_URL%/}/admin${NC}\n"
 printf "  ${BOLD}登录账号：${NC}${ADMIN_USERNAME} / ${BOLD}${ADMIN_PASSWORD}${NC}\n"
 
 if [ "$APP_MODE" = "backend" ]; then

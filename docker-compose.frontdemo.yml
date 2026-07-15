@@ -5,6 +5,8 @@
 #
 # 启动:
 #   docker compose -p video-frontdemo -f docker-compose.frontdemo.yml up -d --build
+# 可选覆盖: FRONTDEMO_BIND_IP / FRONTDEMO_PORT / FRONTDEMO_PUBLIC_URL /
+#           FRONTDEMO_TRUST_PROXY_HOPS（与主部署的 APP_* / PUBLIC_URL 隔离）
 # 销毁:
 #   docker compose -p video-frontdemo -f docker-compose.frontdemo.yml down -v
 
@@ -54,14 +56,18 @@ services:
       ENCRYPTION_KEY: "frontend-only-encryption-01127bc343892f83786563a9ac10ed2ed8"
       ADMIN_USERNAME: admin
       ADMIN_PASSWORD: Admin12345!
-      NEXT_PUBLIC_SITE_URL: "http://localhost:3001"
+      # Keep the side-by-side demo isolated from the main deployment's .env.
+      # Otherwise APP_PORT=3000 / PUBLIC_URL from a normal install would make
+      # this auxiliary frontend collide with, or impersonate, the backend.
+      PUBLIC_URL: "${FRONTDEMO_PUBLIC_URL:-http://localhost:3001}"
+      TRUST_PROXY_HOPS: "${FRONTDEMO_TRUST_PROXY_HOPS:-0}"
       # 把这台前端指向现有的 backend(同一 docker 网络里 service 名是 `app`)
       BACKEND_API_URL: "http://app:3000"
       SYNC_TOKEN: "test-shared-secret-12345"
       # 让 sync-worker 跑得勤一点,方便演示
       SYNC_INTERVAL_MINUTES: "1"
     ports:
-      - "3001:3000"
+      - "${FRONTDEMO_BIND_IP:-0.0.0.0}:${FRONTDEMO_PORT:-3001}:3000"
     command: ["sh", "scripts/start-app.sh"]
     volumes:
       - app-uploads-fro:/app/public/uploads

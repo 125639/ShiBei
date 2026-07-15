@@ -5,6 +5,13 @@ import { isSameOriginMutation } from "../src/lib/request-origin";
 import { parseJsonBody } from "../src/lib/request-validation";
 import { backendProxyHeaders } from "../src/lib/sync/proxy";
 
+const mutableEnv = process.env as Record<string, string | undefined>;
+
+function restoreEnv(name: "PUBLIC_URL" | "NEXT_PUBLIC_SITE_URL", value: string | undefined) {
+  if (value === undefined) delete mutableEnv[name];
+  else mutableEnv[name] = value;
+}
+
 describe("request mutation security", () => {
   test("JSON parser rejects simple text/plain and form requests before parsing", async () => {
     const schema = z.object({ action: z.string() });
@@ -52,6 +59,26 @@ describe("request mutation security", () => {
     assert.equal(isSameOriginMutation(new Request("https://app.example.com/api/internal", {
       method: "POST"
     })), true);
+  });
+
+  test("PUBLIC_URL supplies the browser origin when the server request URL is internal", () => {
+    const previousPublicUrl = process.env.PUBLIC_URL;
+    const previousLegacyUrl = process.env.NEXT_PUBLIC_SITE_URL;
+    try {
+      process.env.PUBLIC_URL = "https://app.example.com";
+      process.env.NEXT_PUBLIC_SITE_URL = "https://stale.example.com";
+      assert.equal(isSameOriginMutation(new Request("http://internal:3000/api/member/logout", {
+        method: "POST",
+        headers: { Origin: "https://app.example.com", "Sec-Fetch-Site": "same-origin" }
+      })), true);
+      assert.equal(isSameOriginMutation(new Request("http://internal:3000/api/member/logout", {
+        method: "POST",
+        headers: { Origin: "https://stale.example.com", "Sec-Fetch-Site": "same-site" }
+      })), false);
+    } finally {
+      restoreEnv("PUBLIC_URL", previousPublicUrl);
+      restoreEnv("NEXT_PUBLIC_SITE_URL", previousLegacyUrl);
+    }
   });
 
   test("allows the browser-visible Host when Next canonicalizes Request.url", () => {

@@ -1,3 +1,5 @@
+import { normalizeBackendUrl } from "@/lib/sync/backend-url";
+
 // 应用部署模式 — 由 APP_MODE 环境变量控制。
 //
 // - "full":单机自给自足，前端展示 + 后端抓取/总结/视频下载/调度都在同一个进程。
@@ -93,7 +95,7 @@ export function getSyncConfig(): SyncConfig {
   const mode = ((process.env.SYNC_MODE || "auto").trim().toLowerCase() === "manual"
     ? "manual"
     : "auto") as SyncMode;
-  const backendUrl = (process.env.BACKEND_API_URL || "").trim().replace(/\/+$/, "");
+  const backendUrl = normalizeBackendUrl(process.env.BACKEND_API_URL);
   const syncToken = (process.env.SYNC_TOKEN || "").trim();
   const intervalRaw = Number(process.env.SYNC_INTERVAL_MINUTES || "15");
   const intervalMinutes = Number.isFinite(intervalRaw) && intervalRaw > 0 ? Math.floor(intervalRaw) : 15;

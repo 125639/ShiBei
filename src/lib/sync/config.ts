@@ -1,6 +1,9 @@
 import { decryptSecret } from "@/lib/crypto";
 import { getSyncConfig, type SyncConfig, type SyncMode } from "@/lib/app-mode";
 import { prisma } from "@/lib/prisma";
+import { normalizeBackendUrl } from "@/lib/sync/backend-url";
+
+export { assertBackendUrl, BackendUrlValidationError, normalizeBackendUrl } from "@/lib/sync/backend-url";
 
 type ConfigSource = "settings" | "env" | "none";
 
@@ -14,10 +17,6 @@ export type ResolvedSyncConfig = SyncConfig & {
 
 export function normalizeSyncMode(value: unknown): SyncMode {
   return String(value || "auto").trim().toLowerCase() === "manual" ? "manual" : "auto";
-}
-
-export function normalizeBackendUrl(value: unknown): string {
-  return String(value || "").trim().replace(/\/+$/, "");
 }
 
 export function normalizeSyncIntervalMinutes(value: unknown, fallback = 15): number {
@@ -83,5 +82,8 @@ export function backendFetchInitForConfig(
 ): RequestInit {
   const headers = new Headers(extra?.headers || {});
   if (cfg.syncToken) headers.set("Authorization", `Bearer ${cfg.syncToken}`);
-  return { ...extra, headers };
+  // A service endpoint must not redirect a bearer credential to another
+  // origin or downgrade it from HTTPS. Operators should configure the final
+  // backend origin directly.
+  return { ...extra, redirect: "error", headers };
 }

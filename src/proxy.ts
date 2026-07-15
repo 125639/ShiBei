@@ -1,6 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { getAppMode, isPathAvailableInAppMode } from "@/lib/app-mode";
 import { rejectCrossOriginMutation } from "@/lib/request-origin";
+import { requestSiteOrigin } from "@/lib/site-url";
 
 // Next 16 的 proxy 运行在 Node Runtime。这里仍保持最小依赖，不访问数据库，
 // 让模式路由与跨来源写请求校验在每次请求上都快速、确定地执行。
@@ -10,28 +11,8 @@ import { rejectCrossOriginMutation } from "@/lib/request-origin";
 const BACKEND_PUBLIC_PREFIXES = ["/posts", "/news", "/stats", "/settings", "/about", "/write"];
 
 function buildRedirectUrl(request: NextRequest, path: string): URL {
-  const xfHost = request.headers.get("x-forwarded-host");
-  const xfProto = request.headers.get("x-forwarded-proto");
-  const host = xfHost || request.headers.get("host");
-
-  if (host && !host.startsWith("localhost") && !host.startsWith("127.")) {
-    // 生产环境基本都跑在 HTTPS 后面，反代如果配了 X-Forwarded-Proto 优先用它；
-    // 没配时默认 https，避免把 HTTPS 用户重定向到 HTTP（Secure cookie 不会被携带，
-    // 登录会循环到 /admin/login）。原来的 host.endsWith(":443") 启发式实际上几乎
-    // 永不为真——HTTPS 标准请求的 Host 头不带 :443。
-    const proto = xfProto || "https";
-    return new URL(`${proto}://${host}${path}`);
-  }
-
-  const siteUrl = process.env.NEXT_PUBLIC_SITE_URL;
-  if (siteUrl) {
-    try {
-      const parsed = new URL(siteUrl);
-      if (parsed.hostname !== "localhost" && parsed.hostname !== "127.0.0.1") {
-        return new URL(`${parsed.origin}${path}`);
-      }
-    } catch {}
-  }
+  const origin = requestSiteOrigin(request);
+  if (origin) return new URL(`${origin}${path}`);
 
   const url = request.nextUrl.clone();
   url.pathname = path;

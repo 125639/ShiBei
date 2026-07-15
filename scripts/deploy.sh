@@ -16,8 +16,7 @@ export GIT_COMMIT BUILD_TIME
 echo "[deploy] 构建 ${GIT_COMMIT}（${BUILD_TIME}）"
 docker compose build app
 docker compose up -d app worker
-if [ -n "$(docker compose --profile https ps -q proxy 2>/dev/null)" ]; then
-  docker compose --profile https up -d --no-deps --force-recreate proxy
-fi
-docker compose --profile https ps app worker proxy
-echo "[deploy] 完成。验证：curl -s ${NEXT_PUBLIC_SITE_URL:-http://localhost:3000}/api/health"
+docker compose ps app worker
+PUBLISHED_PORT="$(docker compose port app 3000 2>/dev/null | tail -n 1 | sed 's/.*://' || true)"
+echo "[deploy] 完成。HTTP 健康检查：curl -s http://127.0.0.1:${PUBLISHED_PORT:-3000}/api/health"
+echo "[deploy] PUBLIC_URL、域名与 HTTPS 均为运行时/外部反向代理配置，本次未操作入口代理。"
