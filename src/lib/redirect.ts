@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { configuredSiteOrigin, requestSiteOrigin } from "./site-url";
 
 export function redirectTo(path: string, requestOrStatus?: Request | number, statusArg = 303) {
   let status = statusArg;
@@ -10,7 +11,7 @@ export function redirectTo(path: string, requestOrStatus?: Request | number, sta
   }
 
   if (req) {
-    const origin = resolveOrigin(req);
+    const origin = requestSiteOrigin(req);
     if (origin) {
       return new NextResponse(null, { status, headers: { Location: `${origin}${path}` } });
     }
@@ -24,25 +25,6 @@ export function redirectTo(path: string, requestOrStatus?: Request | number, sta
   return new NextResponse(null, { status, headers: { Location: path } });
 }
 
-function resolveOrigin(req: Request): string | null {
-  const xfHost = req.headers.get("x-forwarded-host");
-  const xfProto = req.headers.get("x-forwarded-proto");
-  const host = xfHost || req.headers.get("host");
-  if (!host) return null;
-  if (host.startsWith("localhost") || host.startsWith("127.")) return null;
-  // 见 middleware.ts 同款修复：默认 https，避免把 HTTPS 用户重定向到 HTTP。
-  const proto = xfProto || "https";
-  return `${proto}://${host}`;
-}
-
 function envSiteOrigin(): string | null {
-  const url = process.env.NEXT_PUBLIC_SITE_URL;
-  if (!url) return null;
-  try {
-    const parsed = new URL(url);
-    if (parsed.hostname === "localhost" || parsed.hostname === "127.0.0.1") return null;
-    return parsed.origin;
-  } catch {
-    return null;
-  }
+  return configuredSiteOrigin();
 }

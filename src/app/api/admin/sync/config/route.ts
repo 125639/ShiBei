@@ -3,8 +3,8 @@ import { requireAdmin } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { redirectTo } from "@/lib/redirect";
 import { rejectCrossOriginMutation } from "@/lib/request-origin";
+import { assertBackendUrl, BackendUrlValidationError } from "@/lib/sync/backend-url";
 import {
-  normalizeBackendUrl,
   normalizeSyncIntervalMinutes,
   normalizeSyncMode,
 } from "@/lib/sync/config";
@@ -17,9 +17,18 @@ export async function POST(request: Request) {
 
   const syncToken = String(form.get("syncToken") || "").trim();
   const clearSyncToken = form.get("clearSyncToken") === "true";
+  let syncBackendUrl = "";
+  try {
+    syncBackendUrl = assertBackendUrl(form.get("syncBackendUrl"));
+  } catch (error) {
+    if (error instanceof BackendUrlValidationError) {
+      return redirectTo("/admin/sync?configError=unsafe-backend-url", request);
+    }
+    throw error;
+  }
   const update: Record<string, unknown> = {
     syncMode: normalizeSyncMode(form.get("syncMode")),
-    syncBackendUrl: normalizeBackendUrl(form.get("syncBackendUrl")),
+    syncBackendUrl,
     syncIntervalMinutes: normalizeSyncIntervalMinutes(form.get("syncIntervalMinutes")),
   };
 

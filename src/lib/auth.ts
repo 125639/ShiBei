@@ -2,6 +2,7 @@ import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { SignJWT, jwtVerify } from "jose";
 import { prisma } from "./prisma";
+import { siteOrigin } from "./site-url";
 
 export type AuthCookieKind =
   | "adminSession"
@@ -16,6 +17,17 @@ const PRODUCTION_COOKIE_NAMES: Record<AuthCookieKind, string> = {
   anonymousIdentity: "__Host-shibei_anon_id"
 };
 
+// Plain HTTP is the conventional default application listener for self-hosted
+// software. Keep its credentials host-only and in a visibly separate namespace:
+// switching a deployment to HTTPS cannot accidentally reinterpret an HTTP
+// credential as the hardened production cookie.
+const PRODUCTION_HTTP_COOKIE_NAMES: Record<AuthCookieKind, string> = {
+  adminSession: "shibei_http_admin_session",
+  memberSession: "shibei_http_member_session",
+  memberCredentialUpgrade: "shibei_http_member_credential_upgrade",
+  anonymousIdentity: "shibei_http_anon_id"
+};
+
 // Development deliberately uses a different namespace. Besides making local
 // HTTP usable, this prevents tests or a development cookie from accidentally
 // being treated as a production credential.
@@ -27,11 +39,13 @@ const DEVELOPMENT_COOKIE_NAMES: Record<AuthCookieKind, string> = {
 };
 
 export function usesHostPrefixedAuthCookies() {
-  return process.env.NODE_ENV === "production";
+  return process.env.NODE_ENV === "production" && shouldUseSecureCookies();
 }
 
 export function getAuthCookieName(kind: AuthCookieKind) {
-  return (usesHostPrefixedAuthCookies() ? PRODUCTION_COOKIE_NAMES : DEVELOPMENT_COOKIE_NAMES)[kind];
+  if (usesHostPrefixedAuthCookies()) return PRODUCTION_COOKIE_NAMES[kind];
+  if (process.env.NODE_ENV === "production") return PRODUCTION_HTTP_COOKIE_NAMES[kind];
+  return DEVELOPMENT_COOKIE_NAMES[kind];
 }
 
 /** `__Host-` cookies are required to use Secure + Path=/ and may not set Domain. */
@@ -52,17 +66,7 @@ export function getAuthSecret() {
 }
 
 export function shouldUseSecureCookies() {
-  // Production credentials use the browser-enforced `__Host-` prefix. Never
-  // weaken Secure because of a mistaken http:// site URL: fail closed instead.
-  if (usesHostPrefixedAuthCookies()) return true;
-  const siteUrl = process.env.NEXT_PUBLIC_SITE_URL;
-  if (!siteUrl) return false;
-
-  try {
-    return new URL(siteUrl).protocol === "https:";
-  } catch {
-    return false;
-  }
+  return new URL(siteOrigin()).protocol === "https:";
 }
 
 export async function createSession(userId: string, tokenVersion: number) {

@@ -7,8 +7,6 @@ COPY package.json package-lock.json* ./
 RUN npm ci
 
 FROM deps AS builder
-ARG NEXT_PUBLIC_SITE_URL=http://localhost:3000
-ENV NEXT_PUBLIC_SITE_URL=$NEXT_PUBLIC_SITE_URL
 COPY . .
 RUN npx prisma generate
 RUN npm run build

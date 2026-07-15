@@ -1,18 +1,22 @@
 export const AUTH_COOKIE_NAMES = Object.freeze({
   adminSession: Object.freeze([
     "__Host-shibei_admin_session",
+    "shibei_http_admin_session",
     "shibei_dev_admin_session"
   ]),
   memberSession: Object.freeze([
     "__Host-shibei_member_session",
+    "shibei_http_member_session",
     "shibei_dev_member_session"
   ]),
   memberCredentialUpgrade: Object.freeze([
     "__Host-shibei_member_credential_upgrade",
+    "shibei_http_member_credential_upgrade",
     "shibei_dev_member_credential_upgrade"
   ]),
   anonymousIdentity: Object.freeze([
     "__Host-shibei_anon_id",
+    "shibei_http_anon_id",
     "shibei_dev_anon_id"
   ])
 });

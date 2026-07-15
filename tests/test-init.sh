@@ -170,6 +170,68 @@ test_detect_os_returns_known_value() {
   esac
 }
 
+# ---------- is_public_url ----------------------------------------------------
+test_public_url_accepts_http_ip_with_port() {
+  is_public_url "http://192.0.2.10:3000" || {
+    echo "    FAIL: direct HTTP origin should be accepted"
+    return 1
+  }
+}
+
+test_public_url_accepts_external_https_origin() {
+  is_public_url "https://blog.example.com" || {
+    echo "    FAIL: reverse-proxied HTTPS origin should be accepted"
+    return 1
+  }
+}
+
+test_public_url_rejects_paths_credentials_and_invalid_ports() {
+  local value
+  for value in \
+    "https://blog.example.com/path" \
+    "https://user:pass@blog.example.com" \
+    "https://blog.example.com:0" \
+    "https://blog.example.com:65536"; do
+    if is_public_url "$value"; then
+      echo "    FAIL: invalid public URL accepted: $value"
+      return 1
+    fi
+  done
+}
+
+# ---------- is_secure_backend_url -------------------------------------------
+test_backend_url_accepts_https_and_private_http() {
+  local value
+  for value in \
+    "https://api.example.com" \
+    "http://127.0.0.1:3300" \
+    "http://10.0.0.8:3000" \
+    "http://100.64.1.2:3000" \
+    "http://172.31.0.8:3000" \
+    "http://192.168.1.8:3000" \
+    "http://[fd7a:115c:a1e0::1]:3000" \
+    "http://app:3000"; do
+    is_secure_backend_url "$value" || {
+      echo "    FAIL: safe backend URL rejected: $value"
+      return 1
+    }
+  done
+}
+
+test_backend_url_rejects_plaintext_public_and_non_origin_values() {
+  local value
+  for value in \
+    "http://backend.example.com:3000" \
+    "http://8.8.8.8:3000" \
+    "https://user:pass@api.example.com" \
+    "https://api.example.com/base"; do
+    if is_secure_backend_url "$value"; then
+      echo "    FAIL: unsafe backend URL accepted: $value"
+      return 1
+    fi
+  done
+}
+
 # ---------- runner -----------------------------------------------------------
 echo
 echo "Running bash unit tests for scripts/init.sh"

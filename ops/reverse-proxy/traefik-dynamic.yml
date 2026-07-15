@@ -1,0 +1,19 @@
+# Dynamic Traefik configuration.
+# Replace blog.example.com before loading this file.
+
+http:
+  routers:
+    shibei:
+      rule: "Host(`blog.example.com`)"
+      entryPoints:
+        - websecure
+      service: shibei
+      tls:
+        certResolver: letsencrypt
+
+  services:
+    shibei:
+      loadBalancer:
+        passHostHeader: true
+        servers:
+          - url: "http://127.0.0.1:3000"

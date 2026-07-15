@@ -5,8 +5,8 @@
 #   1) 准备 .env:
 #      共享密钥可启动后在 /admin/sync 保存；模型配置在 /admin/settings 中保存。
 #   2) docker compose -f docker-compose.backend.yml up -d
-#   3) backend 通常监听内网,不直接暴露给最终用户;给前端的 BACKEND_API_URL
-#      可以是 http://<backend-host>:3000(同机内网即可)。
+#   3) backend 通常不直接暴露给最终用户；受防火墙保护的私网可用 HTTP，
+#      跨公网的 BACKEND_API_URL 必须经过用户自己的 HTTPS 入口。
 
 x-shibei-logging: &shibei-logging
   driver: json-file
@@ -71,11 +71,12 @@ services:
       - .env
     environment:
       APP_MODE: backend
+      TRUST_PROXY_HOPS: ${TRUST_PROXY_HOPS:-0}
       NODE_OPTIONS: --max-old-space-size=768
       # 统计分桶按进程本地时区；默认上海，.env 里设 TZ 可覆盖。
       TZ: ${TZ:-Asia/Shanghai}
     ports:
-      - "3000:3000"
+      - "${APP_BIND_IP:-0.0.0.0}:${APP_PORT:-3000}:3000"
     command: ["sh", "scripts/start-app.sh"]
     volumes:
       - app-uploads:/app/public/uploads

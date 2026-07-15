@@ -1,3 +1,58 @@
+# 2026-07-15 HTTP-first 部署边界
+
+拾贝现在按常见自托管应用的分层方式部署：应用层稳定提供 HTTP，域名、TLS 和 80/443 由用户已有的 Nginx、Caddy、Traefik、宝塔或云入口处理。新安装不申请证书，不强制域名，不默认占用 80/443。
+
+## 三种形态的默认入口
+
+| 形态 | Compose | 默认入口 | 外置 TLS |
+| --- | --- | --- | --- |
+| 完整版 | `docker-compose.yml` | `http://<host>:3000` | 可选，公网建议 |
+| 后端 | `docker-compose.backend.yml` | `http://<host>:3000` | 公网同步时必需，私网可省略 |
+| 前端 | `docker-compose.frontend.yml` | `http://<host>:3000` | 公网站点必需 |
+
+默认直连 HTTP 配置：
+
+```dotenv
+PUBLIC_URL="http://<服务器IP>:3000"
+APP_BIND_IP="0.0.0.0"
+APP_PORT="3000"
+TRUST_PROXY_HOPS="0"
+```
+
+可以使用 HTTP 登录，但该模式使用独立的 `shibei_http_*` host-only Cookie，且网络上的密码、Cookie 和内容均为明文。它只适合本机、受信 LAN 或初次验活，不是公网安全方案。
+
+## 公网域名模式
+
+```dotenv
+PUBLIC_URL="https://blog.example.com"
+APP_BIND_IP="127.0.0.1"
+APP_PORT="3000"
+TRUST_PROXY_HOPS="1"
+```
+
+`PUBLIC_URL` 是运行时配置；更换域名或协议后只需修改 `.env` 并重启应用，不再为 URL 重建镜像。`https://` 模式使用 `Secure` + `__Host-*` Cookie。从 HTTP 切换到 HTTPS 后需要重新登录。
+
+外部反代必须传递 `Host`、`X-Forwarded-Proto` 和 `X-Forwarded-For`。`TRUST_PROXY_HOPS` 必须与客户端到应用之间的固定可信代理层数一致；只有应用端口无法被公网绕过反代直连时才能设为非零。
+
+可直接使用：
+
+- [Nginx 样例](./ops/reverse-proxy/nginx.conf)
+- [Caddy 样例](./ops/reverse-proxy/Caddyfile)
+- [Traefik 动态配置](./ops/reverse-proxy/traefik-dynamic.yml)
+- [完整反代说明](./ops/reverse-proxy/README.md)
+
+## 更新与代理的所有权
+
+一键更新只管理拾贝容器：frontend 更新 `app`，backend/full 更新 `app` 与 `worker`。它不重建、重载或改写用户的反代，不申请/续期证书，不修改 DNS。只要反代的上游保持为 `http://127.0.0.1:${APP_PORT:-3000}`，应用更新就不会破坏入口通信。
+
+## 存量内置 HTTPS 兼容
+
+旧版本的 Compose `proxy`、证书脚本与 TLS systemd 单元暂时作为过渡升级资产保留，避免旧更新器拉取本版后重启入口失败，或因 bind-mount 源被删除而导致 HTTPS 无法恢复。新向导、常规部署脚本和新版更新器均不启用或管理它们。存量实例更新后应迁移到 [外置反向代理](./ops/reverse-proxy/README.md)，验证后再删除旧代理容器和旧续期任务；新部署不要使用这些资产。
+
+存量 `NEXT_PUBLIC_SITE_URL` 可暂时作为运行时兼容值；升级时应将同一起源写入 `PUBLIC_URL`。两者同时存在时以 `PUBLIC_URL` 为准。
+
+---
+
 # 2026-07-09 网页端一键更新（三种形态通用）
 
 GitHub 仓库有新提交时，管理后台**左上角自动弹出提示**（叉掉后同一版本不再弹）；
@@ -16,7 +71,7 @@ GitHub 仓库有新提交时，管理后台**左上角自动弹出提示**（叉
   此时只能提示新版本，页面会给出启用 updater 的命令。
 - 更新流程固定为：拒绝脏工作区和本地领先提交，`git fetch && git merge --ff-only origin/<branch>` → `docker compose build <services>`；不会强制覆盖服务器文件
   →`up -d --no-deps <services>`，不接受任何请求参数，无注入面；服务器仓库存在未提交改动时更新会直接拒绝执行（不会丢弃任何本地修改）。
-  `--no-deps` 保证绝不顺手重建 postgres/redis；HTTPS 入口（proxy）用 `docker compose restart` 刷新模板与证书，绝不在 updater 容器内 recreate（避免把 ./ops 绑定挂载解析到宿主机不存在的 /repo 路径）。
+  `--no-deps` 保证绝不顺手重建 postgres/redis；外部反代、DNS 与证书不属于 updater 服务清单，不会被重启或改写。
 - compose project 名通过容器自身的 `com.docker.compose.project` label 自省获得，
   不会因为挂载路径是 /repo 而落到错误的 project 上。
 
@@ -316,8 +371,8 @@ docker compose -f docker-compose.frontend.yml up -d
 ```
 
 `BACKEND_API_URL` 携带 Bearer `SYNC_TOKEN` 并代理 AI 请求；跨机严禁使用
-`http://<公网 IP>:3000`。请使用 HTTPS 反代，或先建立 SSH/WireGuard/Tailscale 私网隧道后仅连接
-frontend 上的本地端口（例如 `http://127.0.0.1:3300`）。完整示例见 [SYNC.md](./SYNC.md)。
+`http://<公网 IP>:3000`。请使用 HTTPS 反代；受防火墙保护的 WireGuard/Tailscale/LAN 可连接私网 IP，
+SSH 隧道可连接 frontend 上的本地端口（例如 `http://127.0.0.1:3300`）。完整示例见 [SYNC.md](./SYNC.md)。
 
 前端起来后:
 - `/admin/sync` 显示当前模式 / 上次同步 / 立即同步按钮 / 手动 ZIP 上传

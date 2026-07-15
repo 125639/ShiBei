@@ -1,5 +1,6 @@
 import { createHmac } from "node:crypto";
 import { getAuthSecret } from "./auth";
+import { configuredSiteOrigin } from "./site-url";
 
 export const ANON_BOOTSTRAP_HEADER = "x-shibei-anon-bootstrap";
 export const ANON_BOOTSTRAP_HEADER_VALUE = "1";
@@ -70,7 +71,7 @@ export function anonBootstrapRequestRejection(
     return { status: 403, error: "生产环境匿名身份初始化必须携带有效 Origin" };
   }
 
-  const trusted = trustedRequestOrigins(request, options.siteUrl ?? process.env.NEXT_PUBLIC_SITE_URL);
+  const trusted = trustedRequestOrigins(request, options.siteUrl ?? configuredSiteOrigin() ?? undefined);
   if (!trusted.has(origin)) {
     return { status: 403, error: "匿名身份初始化 Origin 不受信任" };
   }
@@ -104,9 +105,14 @@ function trustedRequestOrigins(request: Request, siteUrl?: string): Set<string> 
     // Request constructed by Next always has an absolute URL; fail closed below if not.
   }
 
-  const forwardedHost = lastHeaderValue(request.headers.get("x-forwarded-host"));
+  const trustForwarded = trustedProxyHops() > 0;
+  const forwardedHost = trustForwarded
+    ? lastHeaderValue(request.headers.get("x-forwarded-host"))
+    : "";
   const host = forwardedHost || lastHeaderValue(request.headers.get("host"));
-  const forwardedProto = lastHeaderValue(request.headers.get("x-forwarded-proto"));
+  const forwardedProto = trustForwarded
+    ? lastHeaderValue(request.headers.get("x-forwarded-proto"))
+    : "";
   let requestProtocol = "";
   try {
     requestProtocol = new URL(request.url).protocol.replace(":", "");
@@ -127,4 +133,10 @@ function lastHeaderValue(raw: string | null): string {
 
 function isSafeHost(host: string): boolean {
   return host.length <= 255 && /^[a-zA-Z0-9.:[\]-]+$/.test(host);
+}
+
+function trustedProxyHops(): number {
+  const raw = process.env.TRUST_PROXY_HOPS?.trim() || "";
+  if (!/^(?:0|[1-9]\d*)$/.test(raw)) return 0;
+  return Math.min(10, Number(raw));
 }

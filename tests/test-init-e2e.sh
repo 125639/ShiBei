@@ -90,11 +90,14 @@ test_full_mode_with_skip_ai() {
   assert_grep "$env" '^ENCRYPTION_KEY="[a-f0-9]{64}"$' || return 1
   assert_grep "$env" '^ADMIN_USERNAME="admin"$' || return 1
   assert_grep "$env" '^ADMIN_PASSWORD="[A-Za-z0-9]{16}"$' || return 1
-  assert_grep "$env" '^NEXT_PUBLIC_SITE_URL="https://[0-9.]+"$' || return 1
-  assert_grep "$env" '^PUBLIC_HOST="[0-9.]+"$' || return 1
-  assert_grep "$env" '^APP_BIND_IP="127.0.0.1"$' || return 1
-  assert_grep "$env" '^TRUST_PROXY_HOPS="1"$' || return 1
-  assert_grep "$env" '^UPDATE_RECREATE_SERVICES="proxy"$' || return 1
+  assert_grep "$env" '^PUBLIC_URL="http://[0-9.]+:3000"$' || return 1
+  assert_grep "$env" '^APP_BIND_IP="0.0.0.0"$' || return 1
+  assert_grep "$env" '^APP_PORT="3000"$' || return 1
+  assert_grep "$env" '^TRUST_PROXY_HOPS="0"$' || return 1
+  assert_no_grep "$env" '^NEXT_PUBLIC_SITE_URL=' "new installs must use the runtime PUBLIC_URL key" || return 1
+  assert_no_grep "$env" '^PUBLIC_HOST=' "new installs must not configure a bundled proxy" || return 1
+  assert_no_grep "$env" '^TLS_STATE_DIR=' "new installs must not configure certificate storage" || return 1
+  assert_no_grep "$env" '^UPDATE_RECREATE_SERVICES=' "updater must not manage an entry proxy" || return 1
   assert_no_grep "$env" '^INIT_AI_PROVIDER=' "AI block must not appear when user skipped" || return 1
 
   rm -rf "$sandbox"
@@ -129,7 +132,9 @@ test_frontend_mode_with_sync_params() {
 
   local env="$sandbox/.env"
   assert_grep "$env" '^APP_MODE="frontend"$' || return 1
-  assert_grep "$env" '^NEXT_PUBLIC_SITE_URL="https://shibei.example.com"$' || return 1
+  assert_grep "$env" '^PUBLIC_URL="https://shibei.example.com"$' || return 1
+  assert_grep "$env" '^APP_BIND_IP="127.0.0.1"$' || return 1
+  assert_grep "$env" '^TRUST_PROXY_HOPS="1"$' || return 1
   assert_grep "$env" '^BACKEND_API_URL="https://api.example.com"$' || return 1
   assert_grep "$env" '^SYNC_MODE="auto"$' || return 1
   assert_grep "$env" '^SYNC_INTERVAL_MINUTES="15"$' || return 1

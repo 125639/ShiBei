@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { configuredSiteOrigin } from "./site-url";
 
 const MUTATING_METHODS = new Set(["POST", "PUT", "PATCH", "DELETE"]);
 
@@ -28,7 +29,7 @@ export function isSameOriginMutation(request: Pick<Request, "method" | "url" | "
   if (!MUTATING_METHODS.has(request.method.toUpperCase())) return true;
 
   const requestOrigin = normalizedOrigin(request.url);
-  const configuredOrigin = normalizedOrigin(process.env.NEXT_PUBLIC_SITE_URL);
+  const configuredOrigin = configuredSiteOrigin();
   const allowed = new Set([requestOrigin, configuredOrigin].filter((value): value is string => Boolean(value)));
   const rawOrigin = request.headers.get("origin");
   const origin = normalizedOrigin(rawOrigin);
@@ -40,7 +41,7 @@ export function isSameOriginMutation(request: Pick<Request, "method" | "url" | "
     if (!origin) return false;
     if (allowed.has(origin)) return true;
 
-    // Next may canonicalize Request.url to NEXT_PUBLIC_SITE_URL even when the
+    // Next may canonicalize Request.url to the configured public URL even when the
     // browser reached this same server through its IP address or a public host.
     // The browser's Host header still identifies the request target. Accept
     // that dynamic origin only when Fetch Metadata independently says the

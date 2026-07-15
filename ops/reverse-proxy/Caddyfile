@@ -1,0 +1,17 @@
+# Replace blog.example.com before loading this file.
+# Caddy obtains and renews the public certificate automatically.
+
+blog.example.com {
+	request_body {
+		# Leaves room for multipart overhead around the application's 512 MB ZIP limit.
+		max_size 600MB
+	}
+
+	reverse_proxy 127.0.0.1:3000 {
+		header_up Host {host}
+		transport http {
+			read_timeout 15m
+			write_timeout 15m
+		}
+	}
+}
