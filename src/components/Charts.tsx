@@ -161,11 +161,11 @@ export function DonutChart({
   const cx = size / 2;
   const cy = size / 2;
 
-  let cum = 0;
   const arcs = slices.map((slice, i) => {
-    const startAngle = (cum / total) * Math.PI * 2;
-    cum += slice.count;
-    const endAngle = (cum / total) * Math.PI * 2;
+    const startCount = slices.slice(0, i).reduce((sum, item) => sum + item.count, 0);
+    const endCount = startCount + slice.count;
+    const startAngle = (startCount / total) * Math.PI * 2;
+    const endAngle = (endCount / total) * Math.PI * 2;
     const path = donutPath(cx, cy, radius, inner, startAngle, endAngle);
     return { ...slice, path, color: CHART_COLORS[i % CHART_COLORS.length] };
   });

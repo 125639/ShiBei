@@ -1,6 +1,5 @@
 import Link from "next/link";
 import { ActiveLink } from "@/components/ActiveLink";
-import { ArticleToc } from "@/components/ArticleToc";
 import { FFCalendar } from "@/components/FFCalendar";
 import { I18nText } from "@/components/I18nText";
 import { MusicPlayer } from "@/components/MusicPlayer";
@@ -15,15 +14,15 @@ const PRIMARY_NAV_ITEMS: Array<{ href: string; zh: string; en: string; match: "e
   { href: "/", zh: "首页", en: "Home", match: "exact" },
   { href: "/posts", zh: "文章", en: "Posts", match: "prefix" },
   { href: "/create", zh: "共创", en: "Co-create", match: "prefix" },
-  { href: "/community", zh: "社区", en: "Community", match: "prefix" }
+  { href: "/community", zh: "社区", en: "Community", match: "prefix" },
+  { href: "/admin/login", zh: "管理员后台", en: "Admin", match: "prefix" }
 ];
 
 const EXPLORE_NAV_ITEMS: Array<{ href: string; zh: string; en: string; match: "exact" | "prefix" }> = [
   { href: "/write", zh: "写作工作台", en: "Writing workspace", match: "prefix" },
   { href: "/stats", zh: "内容数据", en: "Content stats", match: "prefix" },
   { href: "/about", zh: "关于本站", en: "About", match: "prefix" },
-  { href: "/settings", zh: "阅读设置", en: "Preferences", match: "prefix" },
-  { href: "/admin", zh: "管理后台", en: "Admin", match: "prefix" }
+  { href: "/settings", zh: "阅读设置", en: "Preferences", match: "prefix" }
 ];
 
 export async function PublicShell({ children }: { children: React.ReactNode }) {
@@ -71,7 +70,15 @@ export async function PublicShell({ children }: { children: React.ReactNode }) {
             </div>
           </RouteDisclosure>
         </nav>
-        <div className="header-actions" aria-label="显示偏好 / Display preferences">
+        <div className="header-actions" aria-label="账户与显示偏好 / Account and display preferences">
+          <Link
+            className="header-account-link"
+            href="/account"
+            aria-label="用户登录或账户 / Member sign-in or account"
+          >
+            <span className="header-account-icon" aria-hidden="true">{ICONS.user}</span>
+            <I18nText zh="用户登录 / 账户" en="Member sign-in" />
+          </Link>
           <QuickStylePanel defaultUi={settings?.defaultSettingsUI} />
           <ThemeQuickSwitch
             siteDefaults={{
@@ -203,9 +210,6 @@ export async function PublicShell({ children }: { children: React.ReactNode }) {
             </dl>
           </section>
 
-          {/* 文章目录：官方 Firefly 的侧栏小组件形态。放在最后 + sticky，
-              前面的组件滚过后目录钉在视口跟随全文；非文章页自动隐藏（null）。 */}
-          <ArticleToc variant="ff-widget" />
         </aside>
       </div>
 

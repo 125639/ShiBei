@@ -51,7 +51,7 @@ async function fetchPostsPageData(topicSlug: string | null, query: string, page:
     // 分栏 tab 展示「有已发布文章」的分类；isEnabled 只是自动生产的启停开关，
     // 停用主题下的存量文章仍需要入口。
     prisma.contentTopic.findMany({
-      where: { posts: { some: { status: "PUBLISHED" } } },
+      where: { posts: { some: { status: "PUBLISHED", publicationBlockedReason: null } } },
       orderBy: { createdAt: "asc" },
       select: { id: true, name: true, slug: true }
     }),
@@ -62,6 +62,7 @@ async function fetchPostsPageData(topicSlug: string | null, query: string, page:
 
   const where: Prisma.PostWhereInput = {
     status: "PUBLISHED",
+    publicationBlockedReason: null,
     ...(activeTopic ? { topics: { some: { id: activeTopic.id } } } : {}),
     ...(query ? {
       OR: [

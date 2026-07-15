@@ -26,6 +26,8 @@ export type ScrapedArticleImage = {
 export type ArticleImageCandidate = ScrapedArticleImage & {
   sourcePageUrl: string;
   sourceTitle?: string | null;
+  /** 该图片在其来源页候选序列中的位置；og:image 与正文首图更能代表页面主题。 */
+  documentIndex?: number | null;
 };
 
 export type ArticleImagePlacement = VideoPlacement;
@@ -42,6 +44,13 @@ export type EmbedArticleImagesResult = {
   skipped: number;
   urls: string[];
 };
+
+export class PostMediaConflictError extends Error {
+  constructor(message = "文章在媒体写入前发生变化") {
+    super(message);
+    this.name = "PostMediaConflictError";
+  }
+}
 
 const IMAGE_TRACKER_DOMAINS = ["trk.", "px.", "tracker.", "pixel.", "gravatar.com", "stats."];
 
@@ -73,10 +82,13 @@ export function canonicalizeArticleImageUrl(url: string): string {
 }
 
 export function scoreArticleImage(image: ArticleImageCandidate, keywords: string[]): number {
-  const width = image.width || 0;
-  const height = image.height || 0;
-  const ratio = width && height ? width / height : 0;
   const marker = (image.parentMarker || "").toLowerCase();
+  // og:image 元数据常不带尺寸；按 OG 规范推荐的 1200×630 卡片尺寸计分，
+  // 实际字节与尺寸在缓存落盘时再校验。
+  const assumeCardSize = marker === "og-image" && (!image.width || !image.height);
+  const width = assumeCardSize ? 1200 : image.width || 0;
+  const height = assumeCardSize ? 630 : image.height || 0;
+  const ratio = width && height ? width / height : 0;
   const alt = (image.alt || "").toLowerCase();
   let score = 0;
 
@@ -92,6 +104,9 @@ export function scoreArticleImage(image: ArticleImageCandidate, keywords: string
   // DOM 容器能区分正文图和边栏/推荐/广告图。
   if (/(article|main|content|entry|post)/.test(marker)) score += 25;
   if (/(sidebar|footer|header|nav|related|comment|share|advert|ad-|hot|recom)/.test(marker)) score -= 40;
+  // 页面自己的社交卡片配图（og:image / twitter:image）几乎总是与页面主题
+  // 一致，作为文章主图远比正文里的零散内联图可靠。
+  if (marker === "og-image") score += 55;
 
   let overlap = 0;
   for (const keyword of keywords) {
@@ -100,6 +115,12 @@ export function scoreArticleImage(image: ArticleImageCandidate, keywords: string
     if (overlap >= 5) break;
   }
   score += overlap * 12;
+  // 有 alt 文本却与本文标题/摘要毫无关键词交集的内联图，很可能是站点固定
+  // 栏目插画或跨题材推荐图（历史事故：新加坡隐私文章挂了德国机器人配图）。
+  // 社交卡片图不受此约束——它就是页面自定义的主题图，常没有 alt。
+  if (marker !== "og-image" && keywords.length > 0 && alt.length >= 8 && overlap === 0) {
+    score -= 35;
+  }
 
   const filename = (() => {
     try {
@@ -109,6 +130,13 @@ export function scoreArticleImage(image: ArticleImageCandidate, keywords: string
     }
   })().toLowerCase();
   if (filename.length > 6 && !/^[0-9_.-]+$/.test(filename)) score += 10;
+
+  // 页面靠前的图（og 卡片、正文首图）通常是主题主图；埋在页面深处的内联
+  // 插图更可能只服务某个小节。
+  const documentIndex = image.documentIndex;
+  if (typeof documentIndex === "number" && Number.isInteger(documentIndex) && documentIndex >= 0) {
+    score += Math.max(0, 15 - documentIndex * 5);
+  }
 
   const host = (() => {
     try {
@@ -123,6 +151,32 @@ export function scoreArticleImage(image: ArticleImageCandidate, keywords: string
   return score;
 }
 
+/**
+ * 同一图片的重复候选合并为一条：og 卡片身份优先保留（它承载主题相关性加分），
+ * 缺失的尺寸/alt/位置从另一条补齐。
+ */
+function mergeDuplicateImageCandidates(existing: ArticleImageCandidate, incoming: ArticleImageCandidate): ArticleImageCandidate {
+  const primary = existing.parentMarker === "og-image"
+    ? existing
+    : incoming.parentMarker === "og-image"
+      ? incoming
+      : ((incoming.width || 0) * (incoming.height || 0) + (incoming.alt?.length || 0)
+        > (existing.width || 0) * (existing.height || 0) + (existing.alt?.length || 0)
+        ? incoming
+        : existing);
+  const secondary = primary === existing ? incoming : existing;
+  const documentIndex = [primary.documentIndex, secondary.documentIndex]
+    .filter((value): value is number => typeof value === "number" && value >= 0)
+    .sort((a, b) => a - b)[0];
+  return {
+    ...primary,
+    width: primary.width || secondary.width || null,
+    height: primary.height || secondary.height || null,
+    alt: (primary.alt?.length || 0) >= (secondary.alt?.length || 0) ? primary.alt : secondary.alt,
+    documentIndex: documentIndex ?? null
+  };
+}
+
 export function selectArticleImages(
   images: ArticleImageCandidate[],
   limit: number,
@@ -135,14 +189,7 @@ export function selectArticleImages(
     if (!image?.src || !/^https?:\/\//i.test(image.src)) continue;
     const key = canonicalizeArticleImageUrl(image.src);
     const existing = byCanonical.get(key);
-    if (!existing) {
-      byCanonical.set(key, image);
-    } else {
-      // 同一图片保留元数据更完整的版本，后续 caption 和排序会更稳。
-      const oldRank = (existing.width || 0) * (existing.height || 0) + (existing.alt?.length || 0);
-      const newRank = (image.width || 0) * (image.height || 0) + (image.alt?.length || 0);
-      if (newRank > oldRank) byCanonical.set(key, image);
-    }
+    byCanonical.set(key, existing ? mergeDuplicateImageCandidates(existing, image) : image);
   }
 
   return [...byCanonical.values()]
@@ -269,13 +316,17 @@ export async function insertArticleImageFiguresIntoPost(
     preloadedPost?: { content: string; contentEn: string | null };
   } = {}
 ): Promise<EmbedArticleImagesResult> {
-  const post = opts.preloadedPost ?? await (prisma as unknown as {
-    post: { findUnique: (args: unknown) => Promise<{ content: string; contentEn: string | null } | null> };
-  }).post.findUnique({
+  // Always re-read immediately before mutation. Image fetching/caching can take
+  // seconds, so a preloaded copy is useful for candidate selection but is not a
+  // safe basis for overwriting the current article.
+  const post = await prisma.post.findUnique({
     where: { id: postId },
-    select: { content: true, contentEn: true }
+    select: { content: true, contentEn: true, pendingRevision: true, updatedAt: true }
   });
   if (!post) return { inserted: 0, skipped: figures.length, urls: [] };
+  if (post.pendingRevision !== null) {
+    throw new PostMediaConflictError("文章已有待审修改，媒体写入已取消");
+  }
 
   const existingHtml = `${post.content}\n${post.contentEn || ""}`;
   const uniqueFigures: string[] = [];
@@ -302,12 +353,13 @@ export async function insertArticleImageFiguresIntoPost(
     ? insertArticleImageFiguresIntoMarkdown(post.contentEn, uniqueFigures, placement)
     : null;
 
-  await (prisma as unknown as {
-    post: { update: (args: unknown) => Promise<unknown> };
-  }).post.update({
-    where: { id: postId },
+  const updated = await prisma.post.updateMany({
+    where: { id: postId, updatedAt: post.updatedAt },
     data: nextContentEn ? { content: nextContent, contentEn: nextContentEn } : { content: nextContent }
   });
+  if (updated.count !== 1) {
+    throw new PostMediaConflictError();
+  }
 
   return { inserted: uniqueFigures.length, skipped, urls };
 }

@@ -26,9 +26,6 @@ export async function POST(request: Request) {
   const denied = await ensureBackendCallerAllowed(request);
   if (denied) return denied;
 
-  const budget = await checkCreationAiBudget(request, "creation-bridge", 120);
-  if (budget) return budget;
-
   const parsed = await parseJsonBody(request, BodySchema);
   if (!parsed.ok) return parsed.response;
 
@@ -36,6 +33,9 @@ export async function POST(request: Request) {
   if (!modelConfig) {
     return NextResponse.json({ error: "管理员尚未配置写作模型" }, { status: 503 });
   }
+
+  const budget = await checkCreationAiBudget(request, "creation-bridge", 120);
+  if (budget) return budget;
 
   try {
     // 交互式写作助手：与其在 finish_reason=length 时整体 502，不如把已生成的

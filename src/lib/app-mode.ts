@@ -8,6 +8,16 @@
 
 export type AppMode = "frontend" | "backend" | "full";
 
+export type AppCapability = "local-worker";
+
+// Keep the deployment-mode capability matrix in one server-safe module. UI,
+// route guards and the Next proxy all consume this instead of maintaining
+// subtly different "frontend" allow/deny lists.
+export function appModeSupports(mode: AppMode, capability: AppCapability): boolean {
+  if (capability === "local-worker") return mode === "backend" || mode === "full";
+  return false;
+}
+
 export function getAppMode(): AppMode {
   const raw = (process.env.APP_MODE || "full").trim().toLowerCase();
   if (raw === "frontend" || raw === "backend" || raw === "full") return raw;
@@ -24,6 +34,50 @@ export function isBackend(): boolean {
 
 export function isFull(): boolean {
   return getAppMode() === "full";
+}
+
+export function hasLocalWorker(mode: AppMode = getAppMode()): boolean {
+  return appModeSupports(mode, "local-worker");
+}
+
+// Pages that present local crawling/AI/job controls, and APIs which either
+// enqueue BullMQ work or configure those local-only workflows. A frontend
+// deployment has no worker to consume them, so exposing any of these would
+// create jobs that remain QUEUED forever or settings which can never take
+// effect. Prefix matching intentionally covers nested pages/routes.
+export const LOCAL_WORKER_ADMIN_PAGE_PREFIXES = [
+  "/admin/ai",
+  "/admin/jobs",
+  "/admin/sources",
+  "/admin/modules",
+  "/admin/auto-curation"
+] as const;
+
+export const LOCAL_WORKER_ADMIN_API_PREFIXES = [
+  "/api/admin/ai-admin",
+  "/api/admin/run",
+  "/api/admin/sources",
+  "/api/admin/modules",
+  "/api/admin/content-topics",
+  "/api/admin/settings/auto-curation",
+  "/api/admin/settings/model-routing",
+  "/api/admin/content-styles",
+  "/api/admin/model-configs",
+  "/api/admin/posts/assist",
+  "/api/admin/posts/bulk-repair"
+] as const;
+
+function matchesPathPrefix(pathname: string, prefix: string): boolean {
+  return pathname === prefix || pathname.startsWith(`${prefix}/`);
+}
+
+export function requiresLocalWorker(pathname: string): boolean {
+  return [...LOCAL_WORKER_ADMIN_PAGE_PREFIXES, ...LOCAL_WORKER_ADMIN_API_PREFIXES]
+    .some((prefix) => matchesPathPrefix(pathname, prefix));
+}
+
+export function isPathAvailableInAppMode(pathname: string, mode: AppMode = getAppMode()): boolean {
+  return hasLocalWorker(mode) || !requiresLocalWorker(pathname);
 }
 
 export type SyncMode = "auto" | "manual";

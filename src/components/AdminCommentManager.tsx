@@ -18,6 +18,7 @@ export function AdminCommentManager({ initialComments }: { initialComments: Admi
   const [busyId, setBusyId] = useState("");
 
   async function remove(id: string) {
+    if (!window.confirm("确认永久删除这条评论吗？此操作无法撤销。")) return;
     setBusyId(id);
     setError("");
     try {

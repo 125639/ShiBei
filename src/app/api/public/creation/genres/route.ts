@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { serializeGenre } from "@/lib/creation-server";
-import { CREATION_DEPTHS, CREATION_MODES } from "@/lib/creation";
+import { CREATION_DEPTHS, INTERVIEW_CREATION_MODES } from "@/lib/creation";
 
 export const dynamic = "force-dynamic";
 
@@ -15,6 +15,6 @@ export async function GET() {
   return NextResponse.json({
     genres: genres.map(serializeGenre),
     depths: CREATION_DEPTHS,
-    modes: CREATION_MODES
+    modes: INTERVIEW_CREATION_MODES
   });
 }

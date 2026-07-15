@@ -17,7 +17,16 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   // frontend 模式:本地不持有 API Key,优先看缓存,缺翻译就转给 backend。
   if (isFrontend()) {
     const cached = await prisma.post.findUnique({ where: { id } });
-    if (cached && cached.titleEn && cached.summaryEn && cached.contentEn) {
+    if (cached && (cached.status !== "PUBLISHED" || cached.publicationBlockedReason)) {
+      return NextResponse.json({ error: "文章不存在或未发布" }, { status: 404 });
+    }
+    if (
+      cached?.status === "PUBLISHED"
+      && !cached.publicationBlockedReason
+      && cached.titleEn
+      && cached.summaryEn
+      && cached.contentEn
+    ) {
       return NextResponse.json({
         title: cached.titleEn,
         summary: cached.summaryEn,
@@ -43,12 +52,15 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   }
 
   const post = await prisma.post.findUnique({ where: { id } });
-  if (!post || post.status !== "PUBLISHED") {
+  if (!post || post.status !== "PUBLISHED" || post.publicationBlockedReason) {
     return NextResponse.json({ error: "文章不存在或未发布" }, { status: 404 });
   }
 
   if (post.titleEn && post.summaryEn && post.contentEn) {
     return NextResponse.json({ title: post.titleEn, summary: post.summaryEn, content: post.contentEn, cached: true });
+  }
+  if (post.pendingRevision !== null) {
+    return NextResponse.json({ error: "文章正在审核修改，请待新版本发布后再生成翻译" }, { status: 409 });
   }
 
   const modelConfig = await getModelConfigForUse("translation");
@@ -58,6 +70,9 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
 
   const locked = await withInFlightLock(`translate:${post.id}`, 10 * 60, async () => {
     const latest = await prisma.post.findUnique({ where: { id: post.id } });
+    if (!latest || latest.status !== "PUBLISHED" || latest.publicationBlockedReason || latest.pendingRevision !== null) {
+      return { unavailable: true as const };
+    }
     if (latest?.titleEn && latest.summaryEn && latest.contentEn) {
       return { title: latest.titleEn, summary: latest.summaryEn, content: latest.contentEn, cached: true };
     }
@@ -75,13 +90,18 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
 
     const translated = await translatePostToEnglish({
       modelConfig,
-      title: post.title,
-      summary: post.summary,
-      content: post.content
+      title: latest.title,
+      summary: latest.summary,
+      content: latest.content
     });
 
-    await prisma.post.update({
-      where: { id: post.id },
+    const updated = await prisma.post.updateMany({
+      where: {
+        id: post.id,
+        status: "PUBLISHED",
+        publicationBlockedReason: null,
+        updatedAt: latest.updatedAt
+      },
       data: {
         titleEn: translated.title,
         summaryEn: translated.summary,
@@ -89,6 +109,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
         translatedAt: new Date()
       }
     });
+    if (updated.count !== 1) return { unavailable: true as const };
 
     // 文章页是 ISR 缓存的：翻译落库后失效对应页面，下次访问直接带上 contentEn，
     // 客户端不用再走轮询（本次请求的调用方已经拿到返回值，不受影响）。
@@ -112,6 +133,10 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
       { pending: true, error: "translation already in progress" },
       { status: 202, headers: { "Retry-After": "3" } }
     );
+  }
+
+  if ("unavailable" in locked.value) {
+    return NextResponse.json({ error: "文章不存在或未发布" }, { status: 404 });
   }
 
   return NextResponse.json(locked.value);

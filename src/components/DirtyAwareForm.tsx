@@ -7,6 +7,7 @@ type Props = {
   children: ReactNode;
   action: string;
   method?: "post" | "POST";
+  id?: string;
   className?: string;
   encType?: string;
 };
@@ -23,6 +24,7 @@ export function DirtyAwareForm({
   children,
   action,
   method = "post",
+  id,
   className,
   encType
 }: Props) {
@@ -31,10 +33,12 @@ export function DirtyAwareForm({
 
   return (
     <form
+      id={id}
       action={action}
       method={method}
       className={className}
       encType={encType}
+      onInputCapture={() => setDirty(true)}
       onChange={() => setDirty(true)}
       onSubmit={() => setDirty(false)}
     >

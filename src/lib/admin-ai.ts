@@ -110,6 +110,7 @@ export async function generateAdminAiPlan(input: {
     feedback: string;
   };
 }): Promise<AdminAiPlan> {
+  const today = new Date().toISOString().slice(0, 10);
   const topics = (input.topics || []).slice(0, 40);
   const styles = (input.styles || []).slice(0, 20);
   const recentTitles = (input.recentTitles || []).slice(0, 30);
@@ -139,6 +140,9 @@ export async function generateAdminAiPlan(input: {
     : [];
 
   const prompt = [
+    `【当前日期】${today}`,
+    "如果管理员要求「最新」「近期」而没有指定年份，keyword 不得擅自写入旧年份；用具体主题和机构生成检索任务，研究阶段会按当前日期寻找最新资料。",
+    "",
     "【管理员需求】",
     input.request.slice(0, 6000),
     ...revisionSection,
@@ -164,7 +168,8 @@ export async function generateAdminAiPlan(input: {
     "1. 只规划和内容生产有关的任务，不执行系统设置、删除、发布、登录、同步等危险操作。",
     "2. 篇数必须忠实：管理员给了明确数字（如「4 篇財经」「其中 1 篇与日本有关」）时，任务的 articleCount 总和必须与要求精确一致；「几篇」「一些」等模糊数量由你决定具体拆分（总和仍要符合上下文，比如「8 篇中几篇讲 A、几篇讲 B」意味着两部分之和恰好是 8），并在 summary 里说明你定的数字。",
     "3. 优先一篇一个任务：每篇文章给一个独立任务（articleCount=1）、各自有不同的具体角度，避免同一 keyword 生成多篇雷同稿；只有管理员明确要同一选题出多篇时才用 articleCount>1。",
-    "4. 每个任务的 keyword 必须像真实搜索查询一样具体，包含主题、对象或角度。例如「欧洲央行 2026 降息 影响」优于「欧洲财经」。选题不要与【站点近期文章】重复或高度相似。",
+    "4. 每个任务的 keyword 必须像真实搜索查询一样具体，包含主题、对象或角度。例如「欧洲央行 利率路径 银行 债券 影响」优于「欧洲财经」。选题不要与【站点近期文章】重复或高度相似。",
+    "   keyword 要具体但不要堆砌：通常 4-10 个检索概念足够。不要把多个备选机构、年份和写作要求全部塞进一个查询；这些细节放 reason。",
     "5. topicId：从主题分类里给每个任务选最贴切的一个；没有贴切的就填 null（系统会自动归类）。styleId 同理：管理员表达了风格倾向（如「严肃一点」「轻快一点」）就从风格列表选，否则 null 用默认。都不要编造列表之外的 id。",
     "6. recurring 只用于管理员明确表达的持续/定期意图（「每天」「每周」「以后定期」）；一次性需求一律用 tasks。每个 recurring 给 name（主题名）、keywords（逗号分隔的 2-5 组搜索词）、cadence（daily/weekly/weekdays）、weekday（1=周一…7=周日，仅 weekly 用）、hour（0-23，默认 9）、mode（single=每次独立成文 / daily_digest=日报式汇总 / weekly_roundup=周报式汇总，「周报」「日报」「汇总」类意图选对应 digest 模式）。",
     `7. 上限：tasks 最多 ${MAX_PLAN_TASKS} 个且 articleCount 总和 ≤ ${MAX_PLAN_TOTAL_ARTICLES}；recurring 最多 ${MAX_PLAN_RECURRING} 个。`,

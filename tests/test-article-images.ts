@@ -56,6 +56,64 @@ describe("article image mounting", () => {
     assert.equal(selected[0].width, 1600);
   });
 
+  test("prefers the page's og:image over an off-topic inline diagram", () => {
+    const candidates: ArticleImageCandidate[] = [
+      {
+        // 历史事故形态：来源页深处一张与本文无关的大尺寸内联插图。
+        src: "https://example.com/deep/robotics-diagram.png",
+        alt: "Deutsche Robotik Fabrik Diagramm Automatisierung",
+        width: 1400,
+        height: 900,
+        parentMarker: "article main content",
+        documentIndex: 6,
+        sourcePageUrl: "https://example.com/privacy-rules"
+      },
+      {
+        // 页面自己的社交卡片主题图：无 alt、无尺寸也应胜出。
+        src: "https://example.com/cards/privacy-hero.jpg",
+        alt: "",
+        width: null,
+        height: null,
+        parentMarker: "og-image",
+        documentIndex: 0,
+        sourcePageUrl: "https://example.com/privacy-rules"
+      }
+    ];
+
+    const selected = selectArticleImages(candidates, 1, ["隐私", "新规", "数据"]);
+    assert.equal(selected.length, 1);
+    assert.equal(selected[0].src, "https://example.com/cards/privacy-hero.jpg");
+  });
+
+  test("duplicate og and inline candidates merge into one og-marked entry with inline dimensions", () => {
+    const candidates: ArticleImageCandidate[] = [
+      {
+        src: "https://example.com/hero.jpg",
+        alt: "",
+        width: null,
+        height: null,
+        parentMarker: "og-image",
+        documentIndex: 0,
+        sourcePageUrl: "https://example.com/story"
+      },
+      {
+        src: "https://example.com/hero.jpg",
+        alt: "现场照片",
+        width: 1280,
+        height: 720,
+        parentMarker: "article main content",
+        documentIndex: 1,
+        sourcePageUrl: "https://example.com/story"
+      }
+    ];
+
+    const selected = selectArticleImages(candidates, 2, []);
+    assert.equal(selected.length, 1);
+    assert.equal(selected[0].parentMarker, "og-image");
+    assert.equal(selected[0].width, 1280);
+    assert.equal(selected[0].alt, "现场照片");
+  });
+
   test("builds escaped figure html and inserts it after the intro paragraph", () => {
     const figure = buildArticleImageFigureHtml({
       src: "/uploads/image/manual-a.png",

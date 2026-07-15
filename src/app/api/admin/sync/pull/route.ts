@@ -3,11 +3,14 @@ import { requireAdmin } from "@/lib/auth";
 import { runAutoSync } from "@/lib/sync/auto-sync";
 import { isFrontend, isFull } from "@/lib/app-mode";
 import { redirectTo } from "@/lib/redirect";
+import { rejectCrossOriginMutation } from "@/lib/request-origin";
 
 // POST /api/admin/sync/pull
 // 立即从已配置的 backend 入口拉取增量并 import。
 // 仅 frontend 与 full 模式有意义。
 export async function POST(request: Request) {
+  const denied = rejectCrossOriginMutation(request);
+  if (denied) return denied;
   await requireAdmin();
   if (!isFrontend() && !isFull()) {
     return NextResponse.json(

@@ -6,8 +6,7 @@ import {
   EMBED_IFRAME_SANDBOX,
   formatVideoDuration,
   isAllowedEmbedUrl,
-  shouldRenderVideoAsLink,
-  VIDEO_SHORTCODE_RE
+  shouldRenderVideoAsLink
 } from "./video-display";
 
 // GFM 默认开启；breaks: 软换行转 <br>，更贴近写作直觉。
@@ -140,24 +139,215 @@ export function videoShortcodeHtml(video: VideoForShortcode): string {
   ].join("");
 }
 
-function preprocessShortcodes(markdown: string, videosById?: Map<string, VideoForShortcode>, hideVideos?: boolean): string {
-  if (hideVideos) {
-    return markdown.replace(VIDEO_SHORTCODE_RE, "");
+type TrustedVideoSlot = { token: string; html: string };
+
+type RawHtmlContext = {
+  stack: string[];
+  mode: "text" | "tag" | "comment" | "cdata" | "blocked";
+  tagBuffer: string;
+  quote: '"' | "'" | null;
+};
+
+const VOID_HTML_TAGS = new Set([
+  "area", "base", "br", "col", "embed", "hr", "img", "input", "link", "meta",
+  "param", "source", "track", "wbr"
+]);
+
+function applyRawHtmlTag(context: RawHtmlContext) {
+  const tag = context.tagBuffer;
+  const closing = tag.match(/^<\/([A-Za-z][\w:-]*)/);
+  if (closing) {
+    const name = closing[1].toLowerCase();
+    const matchingIndex = context.stack.lastIndexOf(name);
+    if (matchingIndex >= 0) context.stack.length = matchingIndex;
+    return;
   }
-  if (!videosById || videosById.size === 0) {
-    // 没提供 map 时仍处理：把短代码替换为占位提示，避免把 [[video:xxx]] 原样展示给用户。
-    return markdown.replace(VIDEO_SHORTCODE_RE, (_, id) => {
-      return `\n\n<div class="video-shortcode-missing">[未找到视频：${escapeHtml(id)}]</div>\n\n`;
-    });
-  }
-  return markdown.replace(VIDEO_SHORTCODE_RE, (_, id) => {
-    const video = videosById.get(id);
-    if (!video) {
-      return `\n\n<div class="video-shortcode-missing">[未找到视频：${escapeHtml(id)}]</div>\n\n`;
+
+  const opening = tag.match(/^<([A-Za-z][\w:-]*)/);
+  if (!opening) return;
+  const name = opening[1].toLowerCase();
+  if (!VOID_HTML_TAGS.has(name) && !/\/\s*>$/.test(tag)) context.stack.push(name);
+}
+
+/**
+ * Marked 会在 raw HTML 容器里的空行处切开 token。仅检查 token.type 会把
+ * `<div>\n\n[[video:id]]\n\n</div>` 中间误判成顶层 paragraph，因此还需按原始
+ * token 串连续跟踪标签、引号、注释和 CDATA 上下文。无法闭合的畸形标签采取
+ * 保守策略：其后的短代码不再展开。
+ */
+function scanRawHtmlContext(raw: string, context: RawHtmlContext) {
+  let index = 0;
+  while (index < raw.length) {
+    if (context.mode === "blocked") return;
+    if (context.mode === "comment") {
+      const end = raw.indexOf("-->", index);
+      if (end < 0) return;
+      context.mode = "text";
+      index = end + 3;
+      continue;
     }
-    // 前后各空行，让 marked 把整块当作 HTML block 处理，不会被 <p> 包裹。
-    return `\n\n${videoShortcodeHtml(video)}\n\n`;
+    if (context.mode === "cdata") {
+      const end = raw.indexOf("]]>", index);
+      if (end < 0) return;
+      context.mode = "text";
+      index = end + 3;
+      continue;
+    }
+    if (context.mode === "tag") {
+      const char = raw[index];
+      context.tagBuffer += char;
+      if (context.tagBuffer.length > 8_192) {
+        context.mode = "blocked";
+        context.tagBuffer = "";
+        return;
+      }
+      if (context.quote) {
+        if (char === context.quote) context.quote = null;
+      } else if (char === '"' || char === "'") {
+        context.quote = char;
+      } else if (char === ">") {
+        applyRawHtmlTag(context);
+        context.mode = "text";
+        context.tagBuffer = "";
+      }
+      index += 1;
+      continue;
+    }
+
+    const next = raw.indexOf("<", index);
+    if (next < 0) return;
+    if (raw.startsWith("<!--", next)) {
+      context.mode = "comment";
+      index = next + 4;
+      continue;
+    }
+    if (raw.startsWith("<![CDATA[", next)) {
+      context.mode = "cdata";
+      index = next + 9;
+      continue;
+    }
+    // 只把真正形似 HTML 标签的 `<name` / `</name` 当作上下文；Markdown
+    // autolink（<https://...>）和普通小于号不会意外锁住后续短代码。
+    if (/^<\/?[A-Za-z][\w:-]*(?=[\s/>])/.test(raw.slice(next))) {
+      context.mode = "tag";
+      context.tagBuffer = "<";
+      context.quote = null;
+      index = next + 1;
+      continue;
+    }
+    index = next + 1;
+  }
+}
+
+function isInsideRawHtml(context: RawHtmlContext) {
+  return context.mode !== "text" || context.stack.length > 0;
+}
+
+function scanTopLevelRawHtml(block: ReturnType<typeof marked.lexer>[number], context: RawHtmlContext) {
+  if (block.type === "html") {
+    scanRawHtmlContext(block.raw, context);
+    return;
+  }
+  if (block.type !== "paragraph") return;
+  // 代码围栏、codespan、link/autolink 的 raw 字符不是 HTML 语法，绝不能让其中
+  // 的伪造 </tag> 弹出真实容器栈。段落里只采信 Marked 明确认出的 html token。
+  for (const inline of block.tokens || []) {
+    if (inline.type === "html") scanRawHtmlContext(inline.raw, context);
+  }
+}
+
+/**
+ * 只识别 Marked 词法器确认的、内容仅为短代码的顶层段落。
+ *
+ * 这里先放一个本次渲染专属的纯文本 token，而不是直接放 iframe。正文会先在
+ * 禁止 iframe/video/object/embed 的规则下完成清洗，之后只把清洗结果中的完整
+ * `<p>TOKEN</p>` 节点换成服务端生成的片段。原始 HTML、href、代码围栏、引用
+ * 或列表会被词法器归为其他 token，因此无法把可信播放器回填进错误上下文。
+ */
+function preprocessShortcodes(
+  markdown: string,
+  videosById?: Map<string, VideoForShortcode>,
+  hideVideos?: boolean
+): { tokens: ReturnType<typeof marked.lexer>; slots: TrustedVideoSlot[] } {
+  const randomPart = globalThis.crypto?.randomUUID?.().replace(/-/g, "") || "fallback";
+  let marker = `SHIBEI_TRUSTED_VIDEO_${randomPart}_`;
+  while (markdown.includes(marker)) marker += "X";
+
+  const slots: TrustedVideoSlot[] = [];
+  const tokens = marked.lexer(markdown);
+  const htmlContext: RawHtmlContext = {
+    stack: [],
+    mode: "text",
+    tagBuffer: "",
+    quote: null,
+  };
+
+  for (const block of tokens) {
+    if (block.type === "paragraph" && !isInsideRawHtml(htmlContext)) {
+      const shortcode = block.raw.match(/^[ \t]{0,3}\[\[video:([A-Za-z0-9_-]+)\]\][ \t]*(?:\r?\n)?$/);
+      if (shortcode) {
+        const id = shortcode[1];
+        const video = videosById?.get(id);
+        const html = hideVideos
+          ? ""
+          : video
+            ? videoShortcodeHtml(video)
+            : `<div class="video-shortcode-missing">[未找到视频：${escapeHtml(id)}]</div>`;
+        const token = `${marker}${slots.length}`;
+        const replacement = marked.lexer(token)[0];
+        if (replacement?.type === "paragraph") {
+          slots.push({ token, html });
+          Object.assign(block, replacement);
+        }
+      }
+    }
+    scanTopLevelRawHtml(block, htmlContext);
+  }
+
+  return { tokens, slots };
+}
+
+const SHARED_SANITIZE_OPTIONS = {
+  USE_PROFILES: { html: true },
+  ADD_TAGS: ["figure", "figcaption", "details", "summary"],
+  ADD_ATTR: [
+    "target",
+    "rel",
+    "allow",
+    "allowfullscreen",
+    "frameborder",
+    "controls",
+    "preload",
+    "loading",
+    "decoding",
+    "data-video-id",
+    "sandbox",
+  ],
+  FORBID_ATTR: ["onerror", "onload", "onclick", "onmouseover", "onfocus"],
+};
+
+function sanitizeTrustedVideoFragment(html: string): string {
+  let clean = DOMPurify.sanitize(html, {
+    ...SHARED_SANITIZE_OPTIONS,
+    ADD_TAGS: [...SHARED_SANITIZE_OPTIONS.ADD_TAGS, "iframe", "video", "source"],
+    FORBID_TAGS: ["style", "form", "input", "button", "object", "embed"],
   });
+
+  // 纵使以后 videoShortcodeHtml 被修改，也要在最终边界再次验证 iframe。
+  clean = clean.replace(/<iframe\b[^>]*>[\s\S]*?<\/iframe>/gi, (iframe) => {
+    const src = iframe.match(/\ssrc="([^"]*)"/i)?.[1]?.replace(/&amp;/g, "&") || "";
+    const sandbox = iframe.match(/\ssandbox="([^"]*)"/i)?.[1] || "";
+    const allow = iframe.match(/\sallow="([^"]*)"/i)?.[1] || "";
+    if (
+      !isAllowedEmbedUrl(src) ||
+      sandbox !== EMBED_IFRAME_SANDBOX ||
+      /(?:^|[;\s])(camera|microphone)(?:[;\s]|$)/i.test(allow)
+    ) {
+      return "";
+    }
+    return iframe;
+  });
+  return clean;
 }
 
 export function markdownToHtml(markdown: string, opts?: MarkdownOptions): string {
@@ -165,30 +355,44 @@ export function markdownToHtml(markdown: string, opts?: MarkdownOptions): string
 
   headingIdCounts = new Map();
   const preprocessed = preprocessShortcodes(markdown, opts?.videosById, opts?.hideVideos);
-  const rawHtml = marked.parse(preprocessed, { async: false }) as string;
+  const rawHtml = marked.parser(preprocessed.tokens) as string;
 
   // 清洗 HTML，避免源内容（RSS / 抓取 / AI 生成）夹带 <script> 等危险节点。
-  // 视频短代码需要 iframe / video / source；按白名单允许这些标签和必要属性，
-  // 同时把 iframe src 限制在已知视频 host（已在 videoShortcodeHtml 中预过滤）。
-  const safeHtml = DOMPurify.sanitize(rawHtml, {
-    USE_PROFILES: { html: true },
-    ADD_TAGS: ["iframe", "video", "source", "figure", "figcaption", "details", "summary"],
-    ADD_ATTR: [
-      "target",
-      "rel",
-      "allow",
-      "allowfullscreen",
-      "frameborder",
-      "controls",
-      "preload",
-      "loading",
-      "decoding",
-      "data-video-id",
-      "sandbox",
-    ],
-    FORBID_TAGS: ["style", "form", "input", "button"],
-    FORBID_ATTR: ["onerror", "onload", "onclick", "onmouseover", "onfocus"],
-  });
+  // 用户/抓取/AI 原始 HTML 永不允许自带可执行或远程媒体容器。播放器只能由上面的
+  // 短代码路径生成，并在正文清洗完毕后以完整节点回填。
+  const safeRoot = DOMPurify.sanitize(rawHtml, {
+    ...SHARED_SANITIZE_OPTIONS,
+    FORBID_TAGS: ["style", "form", "input", "button", "iframe", "video", "source", "object", "embed"],
+    RETURN_DOM: true,
+  }) as unknown as HTMLElement;
+
+  const slotsByToken = new Map(preprocessed.slots.map((slot) => [slot.token, slot]));
+  for (const child of Array.from(safeRoot.children)) {
+    const slot = slotsByToken.get(child.textContent || "");
+    if (
+      !slot ||
+      child.tagName !== "P" ||
+      child.attributes.length !== 0 ||
+      child.childNodes.length !== 1 ||
+      child.firstChild?.nodeType !== 3
+    ) {
+      continue;
+    }
+    // 只标记清洗后 DOM 根节点的纯文本段落。嵌套在任意 raw HTML 容器中的
+    // shortcode 即使被 Marked 分成 paragraph token，也不会获得回填资格。
+    child.setAttribute("data-shibei-video-slot", slot.token);
+  }
+
+  let safeHtml = safeRoot.innerHTML;
+
+  for (const slot of preprocessed.slots) {
+    const placeholder = `<p data-shibei-video-slot="${slot.token}">${slot.token}</p>`;
+    if (!safeHtml.includes(placeholder)) continue;
+    // 必须用函数替换：视频标题/摘要转义后可能出现 `$&`、`$'` 等序列，字符串
+    // 替换会把它们展开成匹配文本，损坏播放器 HTML 并泄漏内部占位标记。
+    const fragment = sanitizeTrustedVideoFragment(slot.html);
+    safeHtml = safeHtml.replace(placeholder, () => fragment);
+  }
 
   // 正文图片默认懒加载 + 异步解码，长文首屏不再被图片阻塞。
   // 只补没有声明 loading 的 <img>，已有属性的保持原样。

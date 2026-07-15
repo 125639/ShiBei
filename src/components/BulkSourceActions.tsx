@@ -21,6 +21,14 @@ export type ListSource = {
   success7d?: number;
   failed7d?: number;
   failStreak?: number;
+  moduleIds: string[];
+};
+
+type ModuleOption = {
+  id: string;
+  name: string;
+  slug: string;
+  color: string;
 };
 
 // 与 worker 的自动暂停阈值保持一致（src/worker/index.ts SOURCE_FAIL_PAUSE_THRESHOLD）。
@@ -34,7 +42,15 @@ function formatPopularity(value: number): string {
   return "0";
 }
 
-export function BulkSourceActions({ sources, label }: { sources: ListSource[]; label: string }) {
+export function BulkSourceActions({
+  sources,
+  modules,
+  label
+}: {
+  sources: ListSource[];
+  modules: ModuleOption[];
+  label: string;
+}) {
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [editId, setEditId] = useState<string | null>(null);
   // 服务端重渲染后列表可能变化（删除/筛选），丢弃已不存在的选择，避免「已选 3 / 2」这类错乱。
@@ -170,16 +186,71 @@ export function BulkSourceActions({ sources, label }: { sources: ListSource[]; l
                     style={{ marginTop: 8 }}
                   >
                     <input type="hidden" name="sourceId" value={source.id} />
-                    <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                    <input type="hidden" name="fullEdit" value="true" />
+                    <div className="field-row">
+                      <div className="field">
+                        <label>名称 / Name</label>
+                        <input name="name" required defaultValue={source.name} autoFocus />
+                      </div>
+                      <div className="field">
+                        <label>URL</label>
+                        <input name="url" type="url" required defaultValue={source.url} />
+                      </div>
+                    </div>
+                    <div className="field-row">
+                      <div className="field">
+                        <label>类型 / Type</label>
+                        <select name="type" defaultValue={source.type}>
+                          <option value="WEB">WEB</option>
+                          <option value="RSS">RSS</option>
+                          <option value="VIDEO">VIDEO</option>
+                          <option value="EXA">EXA</option>
+                        </select>
+                      </div>
+                      <div className="field">
+                        <label>地区 / Region</label>
+                        <select name="region" defaultValue={source.region || "UNKNOWN"}>
+                          <option value="UNKNOWN">UNKNOWN</option>
+                          <option value="DOMESTIC">DOMESTIC</option>
+                          <option value="INTERNATIONAL">INTERNATIONAL</option>
+                        </select>
+                      </div>
+                      <div className="field">
+                        <label>知名度 / Popularity</label>
                       <input
                         name="popularity"
                         type="number"
                         min="0"
                         defaultValue={source.popularity}
-                        style={{ width: 160, padding: "6px 8px", border: "1px solid var(--line)", background: "rgba(255,250,242,0.86)", color: "var(--ink)" }}
-                        autoFocus
+                        style={{ width: 160 }}
                       />
-                      <button className="button" type="submit" style={{ padding: "6px 12px", fontSize: 13 }}><I18nText zh="保存" en="Save" /></button>
+                      </div>
+                    </div>
+                    {modules.length ? (
+                      <fieldset className="field">
+                        <legend><I18nText zh="所属模块（可多选）" en="Modules (multiple)" /></legend>
+                        <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+                          {modules.map((module) => (
+                            <label key={module.id} className="tag" style={{ cursor: "pointer", borderColor: module.color }}>
+                              <input
+                                type="checkbox"
+                                name="moduleIds"
+                                value={module.id}
+                                defaultChecked={source.moduleIds.includes(module.id)}
+                                style={{ marginRight: 6 }}
+                              />
+                              {module.name}
+                            </label>
+                          ))}
+                        </div>
+                      </fieldset>
+                    ) : null}
+                    <label>
+                      <input type="checkbox" name="isDefault" value="true" defaultChecked={source.isDefault} />{" "}
+                      <I18nText zh="默认来源" en="Default source" />
+                    </label>
+                    <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                      <button className="button" type="submit" style={{ padding: "6px 12px", fontSize: 13 }}><I18nText zh="保存全部修改" en="Save all changes" /></button>
                       <button className="button secondary" type="button" onClick={() => setEditId(null)} style={{ padding: "6px 12px", fontSize: 13 }}><I18nText zh="取消" en="Cancel" /></button>
                     </div>
                   </form>

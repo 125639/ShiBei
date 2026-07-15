@@ -5,7 +5,7 @@ import { triggerUpdate } from "@/lib/update";
 export const dynamic = "force-dynamic";
 
 // POST /api/admin/update/apply
-// 触发 updater 伴车容器执行更新（git reset → compose build → up -d）。
+// 触发 updater 伴车容器执行更新（干净工作区快进 → compose build → up -d）。
 // 异步启动，进度通过 /api/admin/update/status 轮询。
 export async function POST() {
   await requireAdmin();

@@ -1,6 +1,14 @@
 import fs from "node:fs/promises";
 import path from "node:path";
+import { Prisma } from "@prisma/client";
 import { prisma } from "./prisma";
+import {
+  completedStandaloneJobRetentionWhere,
+  normalizeCleanupRetentionDays,
+  shouldArchiveOldPosts,
+  shouldRunStorageCleanup,
+  type StorageCleanupTrigger
+} from "./storage-cleanup-policy";
 import { resolveUploadsPath } from "./uploads-path";
 
 const UPLOAD_ROOT = path.join(process.cwd(), "public", "uploads");
@@ -94,81 +102,147 @@ export type CleanupSummary = {
   bytesFreed: number;
 };
 
-export async function runStorageCleanup(opts?: { force?: boolean; daysOverride?: number }): Promise<CleanupSummary> {
-  const settings = await prisma.siteSettings.findUnique({
-    where: { id: "site" },
-    select: { cleanupAfterDays: true, maxStorageMb: true }
-  });
-  const days = opts?.daysOverride ?? (settings as { cleanupAfterDays?: number })?.cleanupAfterDays ?? 30;
-  const maxMb = (settings as { maxStorageMb?: number })?.maxStorageMb ?? 2048;
+type CleanupCount = { count: number };
 
-  const before = await dirSizeBytes(UPLOAD_ROOT);
+export type StorageCleanupDatabase = {
+  siteSettings: {
+    findUnique: (args: Prisma.SiteSettingsFindUniqueArgs) => Promise<{
+      cleanupAfterDays: number;
+      cleanupCustomEnabled: boolean;
+      maxStorageMb: number;
+    } | null>;
+  };
+  fetchJob: { deleteMany: (args: Prisma.FetchJobDeleteManyArgs) => Promise<CleanupCount> };
+  rawItem: { deleteMany: (args: Prisma.RawItemDeleteManyArgs) => Promise<CleanupCount> };
+  post: { updateMany: (args: Prisma.PostUpdateManyArgs) => Promise<CleanupCount> };
+  video: {
+    findMany: (args: Prisma.VideoFindManyArgs) => Promise<Array<{ id: string; localPath: string | null; postId: string | null }>>;
+    update: (args: Prisma.VideoUpdateArgs) => Promise<unknown>;
+  };
+};
+
+export type StorageCleanupDependencies = {
+  database?: StorageCleanupDatabase;
+  dirSize?: (dir: string) => Promise<number>;
+  unlinkFile?: (file: string) => Promise<void>;
+  resolveLocalPath?: (localPath: string | null | undefined) => string | null;
+  now?: () => number;
+};
+
+export async function runStorageCleanup(
+  opts?: {
+    trigger?: StorageCleanupTrigger;
+    /** @deprecated use trigger: "manual" */
+    force?: boolean;
+    daysOverride?: number;
+  },
+  dependencies: StorageCleanupDependencies = {}
+): Promise<CleanupSummary> {
+  const database = dependencies.database ?? (prisma as unknown as StorageCleanupDatabase);
+  const settings = await database.siteSettings.findUnique({
+    where: { id: "site" },
+    select: { cleanupAfterDays: true, cleanupCustomEnabled: true, maxStorageMb: true }
+  });
+  const trigger: StorageCleanupTrigger = opts?.trigger ?? (opts?.force ? "manual" : "scheduled");
+  const cleanupCustomEnabled = settings?.cleanupCustomEnabled === true;
+  const emptySummary = (reason: string): CleanupSummary => ({
+    cleaned: false,
+    reason,
+    fetchJobsDeleted: 0,
+    rawItemsDeleted: 0,
+    archivedPosts: 0,
+    videoFilesDeleted: 0,
+    bytesFreed: 0
+  });
+
+  if (!shouldRunStorageCleanup({ trigger, cleanupCustomEnabled })) {
+    return emptySummary("automatic-cleanup-disabled");
+  }
+
+  const days = normalizeCleanupRetentionDays(opts?.daysOverride ?? settings?.cleanupAfterDays ?? 30);
+  const maxMb = settings?.maxStorageMb ?? 2048;
+  const sizeOf = dependencies.dirSize ?? dirSizeBytes;
+  const now = dependencies.now?.() ?? Date.now();
+
+  const before = await sizeOf(UPLOAD_ROOT);
   const totalBytes = before;
   const overQuota = totalBytes > maxMb * 1024 * 1024;
-  const cutoff = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
+  const cutoff = new Date(now - days * 24 * 60 * 60 * 1000);
 
-  // Always delete completed FetchJobs older than cutoff (rawItems referencing them are kept via SetNull,
-  // but content can be safely shed once the post is archived).
-  const fetchJobsDeleted = await prisma.fetchJob.deleteMany({
-    where: { completedAt: { lt: cutoff } }
-  }).then((r) => r.count).catch(() => 0);
+  // Batch jobs are part of the durable AdminAiBatch audit/progress trail.
+  // Failed and in-flight jobs remain available for diagnosis. Only old,
+  // standalone successful jobs follow cleanupAfterDays.
+  const fetchJobsDeleted = await database.fetchJob.deleteMany({
+    where: completedStandaloneJobRetentionWhere(cutoff)
+  }).then((r) => r.count);
 
   // Drop orphan RawItems (no post linked) older than cutoff to free DB space.
-  const rawItemsDeleted = await prisma.rawItem.deleteMany({
+  const rawItemsDeleted = await database.rawItem.deleteMany({
     where: {
       createdAt: { lt: cutoff },
       post: null
     }
-  }).then((r) => r.count).catch(() => 0);
+  }).then((r) => r.count);
 
   // Archive (do not delete) old PUBLISHED posts when over quota or when forced.
   let archivedPosts = 0;
-  if (overQuota || opts?.force) {
-    archivedPosts = await prisma.post.updateMany({
-      where: { status: "PUBLISHED", createdAt: { lt: cutoff } },
+  const reclaimOldPostStorage = shouldArchiveOldPosts({ trigger, overQuota });
+  if (reclaimOldPostStorage) {
+    archivedPosts = await database.post.updateMany({
+      where: {
+        status: "PUBLISHED",
+        // Retention starts when readers could first see the article. An old
+        // draft published recently must not be archived immediately merely
+        // because its database row was created long ago.
+        publishedAt: { lt: cutoff },
+        pendingRevision: { equals: Prisma.DbNull }
+      },
       data: { status: "ARCHIVED" }
-    }).then((r) => r.count).catch(() => 0);
+    }).then((r) => r.count);
   }
 
   // Delete local video files for ARCHIVED posts (we keep metadata).
   let videoFilesDeleted = 0;
-  const videosToTrim = await (prisma as unknown as {
-    video: {
-      findMany: (args: unknown) => Promise<Array<{ id: string; localPath: string | null; postId: string | null }>>;
-      update: (args: unknown) => Promise<unknown>;
-    };
-  }).video.findMany({
-    where: {
-      localPath: { not: null },
-      post: { status: "ARCHIVED" }
-    },
-    select: { id: true, localPath: true, postId: true }
-  }).catch(() => [] as Array<{ id: string; localPath: string | null; postId: string | null }>);
+  const videosToTrim = reclaimOldPostStorage
+    ? await database.video.findMany({
+        where: {
+          localPath: { not: null },
+          // Keep videos for recently/manual-archived posts outside the configured
+          // age window. The destructive rule is tied to cleanupAfterDays too.
+          post: { status: "ARCHIVED", publishedAt: { lt: cutoff } }
+      },
+      select: { id: true, localPath: true, postId: true }
+      })
+    : [];
 
+  const resolveLocalPath = dependencies.resolveLocalPath ?? resolveUploadsPath;
+  const unlinkFile = dependencies.unlinkFile ?? fs.unlink;
   for (const video of videosToTrim) {
     if (!video.localPath) continue;
     // 安全:必须落在 public/uploads 内,防止 DB 中被恶意写入 ../etc/passwd
     // 而把 fs.unlink 变成任意删文件的原语。
-    const abs = resolveUploadsPath(video.localPath);
+    const abs = resolveLocalPath(video.localPath);
     if (!abs) continue;
+    let deleted = false;
     try {
-      await fs.unlink(abs);
-      videoFilesDeleted += 1;
-      await (prisma as unknown as {
-        video: { update: (args: unknown) => Promise<unknown> };
-      }).video.update({
-        where: { id: video.id },
-        data: { localPath: null, fileSizeBytes: null }
-      });
-    } catch {
-      // file may already be missing; ignore
+      await unlinkFile(abs);
+      deleted = true;
+    } catch (error) {
+      // A stale DB pointer to an already-missing file is safe to heal. Permission,
+      // I/O and database errors are not silently reported as a successful cleanup.
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
     }
+    await database.video.update({
+      where: { id: video.id },
+      data: { localPath: null, fileSizeBytes: null }
+    });
+    if (deleted) videoFilesDeleted += 1;
   }
 
-  const after = await dirSizeBytes(UPLOAD_ROOT);
+  const after = await sizeOf(UPLOAD_ROOT);
   return {
     cleaned: true,
-    reason: overQuota ? "over-quota" : "scheduled",
+    reason: trigger === "manual" ? "manual-forced" : overQuota ? "over-quota" : "scheduled-retention",
     fetchJobsDeleted,
     rawItemsDeleted,
     archivedPosts,

@@ -26,6 +26,25 @@ export function normalizeInviteCodeInput(value: string): string {
   return value.trim().toUpperCase();
 }
 
+/**
+ * 历史邀请码密码升级专用：只把确实像邀请码的大小写/空格/连字符变体
+ * 归一成旧 passwordHash 当初使用的标准形式，普通新密码返回 null。
+ */
+export function normalizeLegacyInvitePasswordCandidate(value: string): string | null {
+  const normalized = normalizeInviteCodeInput(value);
+  return isInviteCodeFormat(normalized) ? normalized : null;
+}
+
+/** 已使用/作废的邀请码在数据库中的不可还原占位值。 */
+export function retiredInviteCode(id: string, status: "USED" | "REVOKED"): string {
+  return `__RETIRED_${status}_${id}`;
+}
+
+/** 后台列表只允许看到仍可发放的 UNUSED 原码。 */
+export function inviteCodeForAdmin(status: string, code: string): string | null {
+  return status === "UNUSED" && isInviteCodeFormat(code) ? code : null;
+}
+
 export async function createInviteCodes(count: number, note: string): Promise<string[]> {
   const codes = new Set<string>();
   // 生成空间巨大,冲突概率可忽略;仍循环补足以防万一

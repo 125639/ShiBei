@@ -1,14 +1,18 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import type { PostStatus, Prisma } from "@prisma/client";
+import { AdminMarkdownWorkspace } from "@/components/AdminMarkdownWorkspace";
 import { AdminShell } from "@/components/AdminShell";
 import { BulkPostActions } from "@/components/BulkPostActions";
 import { I18nText } from "@/components/I18nText";
 import { Pagination } from "@/components/Pagination";
 import { SubmitButton } from "@/components/SubmitButton";
+import { hasLocalWorker } from "@/lib/app-mode";
 import { requireAdmin } from "@/lib/auth";
 import { normalizePage } from "@/lib/pagination";
 import { prisma } from "@/lib/prisma";
+
+export const dynamic = "force-dynamic";
 
 const PAGE_SIZE = 40;
 
@@ -18,8 +22,9 @@ const STATUS_LABELS: Record<PostStatus, string> = {
   ARCHIVED: "已归档"
 };
 
-export default async function AdminPostsPage({ searchParams }: { searchParams: Promise<{ q?: string; status?: string; page?: string }> }) {
+export default async function AdminPostsPage({ searchParams }: { searchParams: Promise<{ q?: string; status?: string; page?: string; publishError?: string; blockedCount?: string }> }) {
   await requireAdmin();
+  const workerEnabled = hasLocalWorker();
   const params = await searchParams;
   const query = params.q?.trim().slice(0, 120) || "";
   const status = normalizeStatusFilter(params.status);
@@ -47,6 +52,9 @@ export default async function AdminPostsPage({ searchParams }: { searchParams: P
         summary: true,
         status: true,
         sortOrder: true,
+        updatedAt: true,
+        publicationBlockedReason: true,
+        pendingRevision: true,
         _count: { select: { videos: true } }
       }
     }),
@@ -68,6 +76,25 @@ export default async function AdminPostsPage({ searchParams }: { searchParams: P
     <AdminShell>
       <p className="eyebrow">Posts</p>
       <h1><I18nText zh="草稿与文章" en="Drafts & Posts" /></h1>
+      {params.publishError === "blocked" || params.publishError === "pending_revision" ? (
+        <div className="form-error" role="alert">
+          {params.publishError === "pending_revision" ? (
+            <I18nText
+              zh={`所选内容中有 ${Math.max(1, Number(params.blockedCount) || 1)} 篇包含待审核修改，批量状态操作已取消。请逐篇决定发布或放弃待审版本。`}
+              en="The bulk status change was cancelled because one or more posts have pending revisions. Review or discard them individually."
+            />
+          ) : (
+            <I18nText
+              zh={workerEnabled
+                ? `所选内容中有 ${Math.max(1, Number(params.blockedCount) || 1)} 篇未通过发布检查。列表会直接显示每篇阻断原因；也可选择“AI 审核、返修并发布”，由系统按意见最多返修 3 轮。`
+                : `所选内容中有 ${Math.max(1, Number(params.blockedCount) || 1)} 篇未通过发布检查。列表会直接显示每篇阻断原因；frontend 节点不运行 AI 返修，请在 backend 节点处理或逐篇人工修正。`}
+              en={workerEnabled
+                ? "One or more posts failed publication checks. Each row now shows the exact reason; use AI review, repair, and publish for up to three audited repair rounds."
+                : "One or more posts failed publication checks. This frontend node has no AI repair worker; use the backend node or correct each draft manually."}
+            />
+          )}
+        </div>
+      ) : null}
 
       <form className="form-card filter-form" action="/admin/posts" method="get" style={{ marginBottom: 24 }}>
         <div className="field">
@@ -104,10 +131,14 @@ export default async function AdminPostsPage({ searchParams }: { searchParams: P
           <label htmlFor="summary"><I18nText zh="摘要" en="Summary" /></label>
           <textarea id="summary" name="summary" required />
         </div>
-        <div className="field">
-          <label htmlFor="content"><I18nText zh="正文 Markdown" en="Body (Markdown)" /></label>
-          <textarea id="content" name="content" required style={{ minHeight: 260 }} />
-        </div>
+        <AdminMarkdownWorkspace
+          id="content"
+          name="content"
+          initialValue=""
+          required
+          compact
+          label={<><I18nText zh="正文" en="Body" /><span aria-hidden="true" className="req">*</span></>}
+        />
         <div className="field-row">
           <div className="field">
             <label htmlFor="imageFile"><I18nText zh="正文配图（可选）" en="Body image (optional)" /></label>
@@ -235,13 +266,16 @@ export default async function AdminPostsPage({ searchParams }: { searchParams: P
             </div>
           </div>
         ) : (
-          <BulkPostActions posts={posts.map((post) => ({
+          <BulkPostActions allowAiRepair={workerEnabled} posts={posts.map((post) => ({
             id: post.id,
             title: post.title,
             summary: post.summary,
             status: post.status,
             videosCount: post._count.videos,
-            sortOrder: post.sortOrder
+            sortOrder: post.sortOrder,
+            updatedAt: post.updatedAt.toISOString(),
+            publicationBlockedReason: post.publicationBlockedReason,
+            pendingRevision: post.pendingRevision !== null
           }))} />
         )}
         <Pagination basePath="/admin/posts" page={page} totalPages={totalPages} params={{ q: query, status }} />

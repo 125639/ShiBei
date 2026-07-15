@@ -4,23 +4,39 @@ import { fetchRss } from "../lib/rss";
 import { type ResearchDepth, type ResearchScope } from "../lib/research";
 import { prisma } from "../lib/prisma";
 import { searchWithExa, type ExaResult } from "../lib/exa";
-import { filterUsableEvidenceItems, normalizeUrl } from "../lib/source-quality";
+import {
+  assessSourceSufficiency,
+  filterUsableEvidenceItems,
+  isBodyLevelEvidence,
+  normalizeUrl,
+  selectSubstantiveEvidenceItems
+} from "../lib/source-quality";
 import { hostFromUrl } from "../lib/html";
+import { scrapeWebPage } from "../lib/scrape";
 
 // 关键词/话题的证据收集(Exa + 已存 RSS 源 + Google News 搜索源),
 // 以及模型生成失败时基于证据的兜底稿构建。
 // 只依赖数据层与抓取库,不触碰队列、任务状态等 worker 主流程概念。
 
-export async function collectKeywordEvidence(keyword: string, scope: ResearchScope, opts?: { topicId?: string | null }) {
+export async function collectKeywordEvidence(
+  keyword: string,
+  scope: ResearchScope,
+  opts?: {
+    topicId?: string | null;
+    searchQueries?: string[];
+    onTransientFailure?: (error: unknown) => void;
+  }
+) {
   const topic = opts?.topicId
     ? await prisma.contentTopic.findUnique({ where: { id: opts.topicId }, select: { useExa: true } })
     : null;
   const useExa = topic ? topic.useExa : true;
 
+  const searchQueries = normalizeSearchQueries(opts?.searchQueries, keyword);
   const [savedEvidence, searchEvidence, exaEvidence] = await Promise.all([
     collectFromSavedSources(keyword, scope, opts),
-    collectFromSearchFeeds(keyword, scope),
-    useExa ? collectFromExa(keyword, scope) : Promise.resolve([])
+    collectFromSearchFeeds(searchQueries, scope, opts?.onTransientFailure),
+    useExa ? collectFromExa(searchQueries[0] || keyword, scope, opts?.onTransientFailure) : Promise.resolve([])
   ]);
   const seen = new Set<string>();
   const evidence: EvidenceItem[] = [];
@@ -41,7 +57,7 @@ export async function collectKeywordEvidence(keyword: string, scope: ResearchSco
   return evidence;
 }
 
-async function collectFromExa(keyword: string, scope: ResearchScope) {
+async function collectFromExa(keyword: string, scope: ResearchScope, onTransientFailure?: (error: unknown) => void) {
   try {
     const results = await searchWithExa(keyword, {
       numResults: 8,
@@ -51,6 +67,7 @@ async function collectFromExa(keyword: string, scope: ResearchScope) {
     return results.map(evidenceFromExaResult);
   } catch (error) {
     console.error("[exa] collect failed:", error);
+    onTransientFailure?.(error);
     return [];
   }
 }
@@ -62,13 +79,189 @@ export function evidenceFromExaResult(result: ExaResult): EvidenceItem {
     sourceName: result.sourceName || hostFromUrl(result.url) || "未知来源",
     summary: result.text || result.title,
     publishedAt: result.publishedDate,
-    // Exa search 的 text 最多只取配置的截断片段，必须回源抓取后才能升级为 fulltext。
+    // Exa text 最多只取配置的正文片段，因此仍标 excerpt；回源成功才升级
+    // fulltext，但实质片段可由证据门禁另行判定为“正文级资料”。
     materialKind: "excerpt",
     discoveryMethod: "exa"
   };
 }
 
-async function collectFromSavedSources(keyword: string, scope: ResearchScope, opts?: { topicId?: string | null }) {
+/**
+ * Search feeds are discovery tools, not evidence by themselves. Before writing,
+ * keep only body-level material and require an explicit topic/entity anchor when
+ * the request contains one. This prevents a broad “2026 H2 market risk” query
+ * from feeding Vietnam stocks or global real estate into a South Korea article.
+ */
+export function selectWritingEvidence(evidence: EvidenceItem[], keyword: string) {
+  const bodyLevel = evidence.filter((item) => isBodyLevelEvidence(item));
+  const anchors = researchAnchorPatterns(keyword);
+  const topicPatterns = researchTopicPatterns(keyword);
+  const relevant = bodyLevel.filter((item) => {
+    const heading = `${item.title}\n${item.sourceName}`;
+    const text = `${heading}\n${item.summary}`;
+    const hasEveryEntity = anchors.every((pattern) =>
+      pattern.test(heading) || countPatternMatches(item.summary, pattern) >= 2
+    );
+    const hasCoreTopic = !topicPatterns.length || topicPatterns.some((pattern) => pattern.test(text));
+    return hasEveryEntity && hasCoreTopic;
+  });
+  return selectSubstantiveEvidenceItems(relevant);
+}
+
+/**
+ * Historical research inventories predate the trusted-evidence manifest and
+ * must be treated as discovery candidates only. Fetch every candidate again,
+ * admit only current substantive page bodies, then let selectWritingEvidence
+ * apply the normal topic/entity filter. Failed or blocked pages are omitted;
+ * their archived excerpt is never promoted merely because it was persisted.
+ */
+export async function revalidateArchivedEvidence(
+  candidates: EvidenceItem[],
+  maxFetches = 8,
+  onTransientFailure?: (error: unknown) => void
+) {
+  const seen = new Set<string>();
+  const distinct = candidates.filter((item) => {
+    const key = normalizeEvidenceUrl(item.url);
+    if (!key || !/^https?:\/\//i.test(item.url) || seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  }).slice(0, Math.max(0, maxFetches));
+
+  const admitted: EvidenceItem[] = [];
+  for (let offset = 0; offset < distinct.length; offset += 3) {
+    const batch = await Promise.all(distinct.slice(offset, offset + 3).map(async (item) => {
+      try {
+        const scraped = await scrapeWebPage(item.url);
+        const finalUrl = scraped.finalUrl || item.url;
+        const fetchedTitle = scraped.title?.trim() || hostFromUrl(finalUrl) || "原始来源";
+        const assessment = assessSourceSufficiency({
+          url: finalUrl,
+          title: fetchedTitle,
+          content: scraped.content,
+          markdown: scraped.markdown
+        });
+        if (!assessment.ok) return null;
+        const summary = clipRevalidatedEvidenceText(
+          sanitizeRevalidatedEvidence(selectRicherEvidenceBody(scraped.markdown, scraped.content)),
+          5000
+        );
+        if (!summary) return null;
+        return {
+          title: fetchedTitle,
+          url: finalUrl,
+          // Legacy title/source/date metadata came from an ambiguous Markdown
+          // block. Keep only the independently fetched page title and canonical
+          // host; otherwise a forged source label could satisfy topic anchors.
+          sourceName: hostFromUrl(finalUrl) || "原始来源",
+          summary,
+          materialKind: "fulltext" as const
+        };
+      } catch (error) {
+        console.error(`[research-revalidate] evidence fetch failed ${item.url}:`, error);
+        onTransientFailure?.(error);
+        return null;
+      }
+    }));
+    for (const item of batch) {
+      if (item) admitted.push(item);
+    }
+  }
+
+  const seenFinal = new Set<string>();
+  return admitted.filter((item) => {
+    const key = normalizeEvidenceUrl(item.url);
+    if (!key || seenFinal.has(key)) return false;
+    seenFinal.add(key);
+    return true;
+  });
+}
+
+function sanitizeRevalidatedEvidence(markdown: string) {
+  return markdown
+    .replace(/<figure\b[^>]*>[\s\S]*?<\/figure>/gi, " ")
+    .replace(/!\[[^\]]*]\((?:[^()\s]|\([^()\s]*\))+\)/g, " ")
+    .replace(/\[([^\]]+)]\((?:[^()\s]|\([^()\s]*\))+\)/g, "$1")
+    .replace(/<https?:\/\/[^>\s]+>/gi, " ")
+    .replace(/https?:\/\/[^\s<>"'”’)\]}，。；！？]+/gi, " ")
+    .replace(/<[^>]+>/g, " ")
+    .replace(/[ \t]+/g, " ")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
+function clipRevalidatedEvidenceText(value: string, limit: number) {
+  if (value.length <= limit) return value;
+  const head = value.slice(0, limit);
+  const floor = Math.floor(limit * 0.72);
+  const paragraph = head.lastIndexOf("\n\n");
+  if (paragraph >= floor) return head.slice(0, paragraph).trimEnd();
+  const sentence = Math.max(head.lastIndexOf("。"), head.lastIndexOf("！"), head.lastIndexOf("？"), head.lastIndexOf(". "));
+  return head.slice(0, sentence >= floor ? sentence + 1 : limit).trimEnd();
+}
+
+function researchAnchorPatterns(keyword: string) {
+  const mappings: Array<[RegExp, RegExp]> = [
+    [/(?:韩国|南韩)/i, /(?:south\s+)?korea|korean|kospi|seoul|韩国|한국/i],
+    [/(?:三星)/i, /samsung|三星|삼성/i],
+    [/(?:日本)/i, /japan|japanese|nikkei|tokyo|日本|日本語/i],
+    [/(?:欧洲|欧盟|欧元区)/i, /europe|european|eurozone|\beu\b|欧洲|欧盟/i],
+    [/(?:美国)/i, /united\s+states|american|\bu\.?s\.?\b|美国/i],
+    [/(?:中国|中国大陆)/i, /china|chinese|中国/i],
+    [/(?:英伟达|NVIDIA)/i, /nvidia|英伟达/i],
+    [/(?:台积电|TSMC)/i, /tsmc|taiwan\s+semiconductor|台积电/i],
+    [/(?:苹果|Apple)/i, /\bapple\b|苹果/i],
+    [/(?:OpenAI)/i, /openai/i]
+  ];
+  return mappings.filter(([needle]) => needle.test(keyword)).map(([, anchor]) => anchor);
+}
+
+function researchTopicPatterns(keyword: string) {
+  const mappings: Array<[RegExp, RegExp]> = [
+    [/(?:股市|股票|股价|KOSPI|证券市场)/i, /stock|equities|equity\s+market|shares|kospi|股市|股票|股价|증시/i],
+    [/(?:半导体|芯片)/i, /semiconductor|chips?|半导体|芯片|반도체/i],
+    [/(?:外资|外资流向|外国投资者)/i, /foreign\s+(?:investor|capital|fund)|capital\s+flows?|外资|外国投资者|외국인/i],
+    [/(?:估值)/i, /valuation|price[- ]to[- ]earnings|\bp\/?e\b|估值|밸류에이션/i],
+    [/(?:出口)/i, /exports?|出口|수출/i],
+    [/(?:消费电子)/i, /consumer\s+electronics|消费电子/i],
+    [/(?:市场情绪)/i, /market\s+sentiment|investor\s+sentiment|市场情绪/i]
+  ];
+  return mappings.filter(([needle]) => needle.test(keyword)).map(([, topic]) => topic);
+}
+
+function countPatternMatches(value: string, pattern: RegExp) {
+  const flags = pattern.flags.includes("g") ? pattern.flags : `${pattern.flags}g`;
+  return value.match(new RegExp(pattern.source, flags))?.length || 0;
+}
+
+/**
+ * 抓取器同时返回纯文本与 Turndown Markdown。少数站点的正文节点里有复杂组件，
+ * 会出现“纯文本完整、Markdown 只剩标题”的情况；写作证据必须选择可见信息更
+ * 多的一份，不能仅因 markdown 是非空字符串就丢掉真正的正文。
+ */
+export function selectRicherEvidenceBody(markdown: string | null | undefined, content: string | null | undefined) {
+  const markdownValue = markdown || "";
+  const contentValue = content || "";
+  return visibleInformationLength(markdownValue) >= visibleInformationLength(contentValue)
+    ? markdownValue
+    : contentValue;
+}
+
+function visibleInformationLength(value: string) {
+  const visible = value
+    .replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, " ")
+    .replace(/<style\b[^>]*>[\s\S]*?<\/style>/gi, " ")
+    .replace(/!\[[^\]]*]\((?:[^()\s]|\([^()\s]*\))+\)/g, " ")
+    .replace(/\[([^\]]+)]\((?:[^()\s]|\([^()\s]*\))+\)/g, "$1")
+    .replace(/<[^>]+>/g, " ");
+  return visible.match(/[\p{L}\p{N}]/gu)?.length || 0;
+}
+
+async function collectFromSavedSources(
+  keyword: string,
+  scope: ResearchScope,
+  opts?: { topicId?: string | null; onTransientFailure?: (error: unknown) => void }
+) {
   const where: Record<string, unknown> = { status: "ACTIVE", type: "RSS" };
   if (scope !== "all") {
     where.OR = [
@@ -96,7 +289,7 @@ async function collectFromSavedSources(keyword: string, scope: ResearchScope, op
   const evidence: EvidenceItem[] = [];
 
   for (const source of sources) {
-    const items = await safeFetchSourceItems(source);
+    const items = await safeFetchSourceItems(source, opts?.onTransientFailure);
     for (const item of items) {
       if (!matchesKeyword(keyword, `${item.title}\n${item.summary}`)) continue;
       evidence.push({
@@ -115,14 +308,21 @@ async function collectFromSavedSources(keyword: string, scope: ResearchScope, op
   return evidence;
 }
 
-async function collectFromSearchFeeds(keyword: string, scope: ResearchScope) {
-  const feeds = buildSearchFeeds(keyword, scope);
+async function collectFromSearchFeeds(
+  queries: string[],
+  scope: ResearchScope,
+  onTransientFailure?: (error: unknown) => void
+) {
+  const feeds = buildSearchFeeds(queries, scope);
   const evidence: EvidenceItem[] = [];
 
   for (const feed of feeds) {
     try {
       const items = await fetchRss(feed.url);
-      for (const item of items.slice(0, 6)) {
+      // 每条查询最多取 3 条，给“最新进展 / 官方原始资料 / 独立报道”三类
+      // 查询都留下靠前位置；否则第一条宽泛查询的 6 个结果会吃完后续正文
+      // 抓取预算，官方资料虽被搜到却永远轮不到回源。
+      for (const item of items.slice(0, 3)) {
         const parsedTitle = splitGoogleNewsTitle(item.title);
         evidence.push({
           title: parsedTitle.title,
@@ -137,6 +337,7 @@ async function collectFromSearchFeeds(keyword: string, scope: ResearchScope) {
       }
     } catch (error) {
       console.error(`Search feed failed ${feed.url}:`, error);
+      onTransientFailure?.(error);
     }
   }
 
@@ -149,52 +350,90 @@ function splitGoogleNewsTitle(title: string) {
   return { title: match[1].trim() || title, publisher: match[2].trim() };
 }
 
-async function safeFetchSourceItems(source: Source) {
+async function safeFetchSourceItems(source: Source, onTransientFailure?: (error: unknown) => void) {
   try {
     return await fetchRss(source.url);
   } catch (error) {
     console.error(`Source RSS failed ${source.name}:`, error);
+    onTransientFailure?.(error);
     return [];
   }
 }
 
-function buildSearchFeeds(keyword: string, scope: ResearchScope) {
+export function normalizeSearchQueries(value: string[] | undefined, keyword: string) {
+  const candidates = [...(value || []), keyword];
+  const queries: string[] = [];
+  const seen = new Set<string>();
+  for (const candidate of candidates) {
+    const query = String(candidate || "").replace(/[\u0000-\u001f\u007f]+/g, " ").replace(/\s+/g, " ").trim().slice(0, 180);
+    if (query.length < 3) continue;
+    const key = query.toLocaleLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    queries.push(query);
+    if (queries.length >= 4) break;
+  }
+  return queries;
+}
+
+export function buildSearchFeeds(queries: string[], scope: ResearchScope) {
   const domesticSites = ["news.cn", "people.com.cn", "cctv.com", "thepaper.cn", "caixin.com"];
   const internationalSites = ["bbc.com", "reuters.com", "apnews.com", "theguardian.com", "npr.org", "theverge.com"];
-  const queries = [keyword, `${keyword} when:14d`];
-  const feeds = [];
+  const cleanedQueries = normalizeSearchQueries(queries, "").slice(0, 3);
+  const freshnessQueries = cleanedQueries.length ? [cleanedQueries[0], `${cleanedQueries[0]} when:365d`] : [];
+  const feedQueries = normalizeSearchQueries([...cleanedQueries, ...freshnessQueries], "");
+  const feeds: Array<{ name: string; url: string }> = [];
 
   if (scope !== "international") {
-    for (const query of queries) {
+    for (const query of feedQueries) {
       feeds.push({
         name: "[搜索] Google News 中文",
         url: `https://news.google.com/rss/search?q=${encodeURIComponent(query)}&hl=zh-CN&gl=CN&ceid=CN:zh-Hans`
       });
     }
-    for (const site of domesticSites) {
+    for (const site of domesticSites.slice(0, 3)) {
+      const query = cleanedQueries[0];
+      if (!query) break;
       feeds.push({
         name: `[搜索] ${site}`,
-        url: `https://news.google.com/rss/search?q=${encodeURIComponent(`${keyword} site:${site}`)}&hl=zh-CN&gl=CN&ceid=CN:zh-Hans`
+        url: `https://news.google.com/rss/search?q=${encodeURIComponent(`${query} site:${site}`)}&hl=zh-CN&gl=CN&ceid=CN:zh-Hans`
       });
     }
   }
 
   if (scope !== "domestic") {
-    for (const query of queries) {
+    for (const query of feedQueries) {
+      // 国际选题不等于只能用英文界面搜索。模型查询扩展偶发失败时，输入仍
+      // 可能是中文；Google News 的 en-US 端会把多个中文词近似当作严格
+      // AND 条件并返回 0 条，而 zh-CN 端可以正常发现同一国际议题的报道。
+      // 这里只增加发现入口，后续仍必须回源抓到合格正文，RSS 摘要不能成稿。
+      if (containsCjk(query)) {
+        feeds.push({
+          name: "[搜索] Google News 中文国际",
+          url: `https://news.google.com/rss/search?q=${encodeURIComponent(query)}&hl=zh-CN&gl=CN&ceid=CN:zh-Hans`
+        });
+      }
       feeds.push({
         name: "[搜索] Google News Global",
         url: `https://news.google.com/rss/search?q=${encodeURIComponent(query)}&hl=en-US&gl=US&ceid=US:en`
       });
     }
-    for (const site of internationalSites) {
+    const siteSeed = cleanedQueries.find((query) => !containsCjk(query)) || cleanedQueries[0];
+    for (const site of internationalSites.slice(0, 4)) {
+      const query = siteSeed;
+      if (!query) break;
       feeds.push({
         name: `[搜索] ${site}`,
-        url: `https://news.google.com/rss/search?q=${encodeURIComponent(`${keyword} site:${site}`)}&hl=en-US&gl=US&ceid=US:en`
+        url: `https://news.google.com/rss/search?q=${encodeURIComponent(`${query} site:${site}`)}&hl=en-US&gl=US&ceid=US:en`
       });
     }
   }
 
   return feeds;
+}
+
+function containsCjk(value: string) {
+  return /[\u3400-\u9fff\uf900-\ufaff]/.test(value);
 }
 
 export function buildResearchFallbackDraft(keyword: string, scopeLabel: string, evidence: EvidenceItem[], error: unknown, index = 1, count = 1, depth: ResearchDepth = "long") {

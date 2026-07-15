@@ -2,6 +2,7 @@ import { encryptSecret } from "@/lib/crypto";
 import { requireAdmin } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { redirectTo } from "@/lib/redirect";
+import { rejectCrossOriginMutation } from "@/lib/request-origin";
 import {
   normalizeBackendUrl,
   normalizeSyncIntervalMinutes,
@@ -9,6 +10,8 @@ import {
 } from "@/lib/sync/config";
 
 export async function POST(request: Request) {
+  const denied = rejectCrossOriginMutation(request);
+  if (denied) return denied;
   await requireAdmin();
   const form = await request.formData();
 

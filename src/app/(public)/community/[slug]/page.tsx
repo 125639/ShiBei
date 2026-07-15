@@ -7,7 +7,13 @@ import { prisma } from "@/lib/prisma";
 import { I18nText } from "@/components/I18nText";
 import { RelativeTime } from "@/components/RelativeTime";
 import { markdownToHtml } from "@/lib/markdown";
-import { CREATION_MODES, type ScoreDetail } from "@/lib/creation";
+import {
+  CREATION_MODES,
+  deriveScoredCommunityDescription,
+  isCommunityScoreCurrent,
+  scoredCommunitySummary,
+  type ScoreDetail
+} from "@/lib/creation";
 
 export const dynamic = "force-dynamic";
 
@@ -27,14 +33,18 @@ const loadSharedWork = cache((slug: string) =>
         include: { genre: true, owner: { select: { displayName: true } } }
       });
       if (!work || work.status !== "SHARED") return null;
+      // 旧 scoredHash 只绑定标题+正文，不能证明摘要受过评审；只有当前 V2
+      // 标题+摘要+正文快照完整命中时，页面和 SEO 才使用摘要。分数还必须
+      // 同时绑定当前题材标尺，避免历史分数被误标成达到当前门槛。
+      const currentScore = isCommunityScoreCurrent(work);
       return {
         title: work.title,
-        summary: work.summary,
-        topic: work.topic,
+        summary: scoredCommunitySummary(work),
+        metadataDescription: deriveScoredCommunityDescription(work),
         mode: work.mode,
-        score: work.score,
+        score: currentScore ? work.score : null,
         publishedAtIso: work.publishedAt?.toISOString() ?? null,
-        scoreDetail: work.scoreDetail,
+        scoreDetail: currentScore ? work.scoreDetail : null,
         isOwned: Boolean(work.ownerId),
         ownerName: work.owner?.displayName ?? null,
         genre: { name: work.genre.name, slug: work.genre.slug, threshold: work.genre.threshold },
@@ -49,10 +59,12 @@ const loadSharedWork = cache((slug: string) =>
 export async function generateMetadata({ params }: { params: Promise<{ slug: string }> }): Promise<Metadata> {
   const { slug } = await params;
   const work = await loadSharedWork(slug);
-  if (!work) return { title: "作品不存在" };
+  // Metadata resolves before streamed UI. Throwing here gives removed slugs a
+  // real HTTP 404 instead of a streamed "soft 404" with a 200 status header.
+  if (!work) notFound();
   return {
     title: work.title,
-    description: work.summary || work.topic,
+    ...(work.metadataDescription ? { description: work.metadataDescription } : {}),
     alternates: { canonical: `/community/${slug}` }
   };
 }
@@ -105,8 +117,12 @@ export default async function CommunityWorkPage({ params }: { params: Promise<{ 
 
         <p className="muted-block creation-disclaimer">
           <I18nText
-            zh={`本文由创作者与 AI 通过访谈共同创作（${CREATION_MODES[work.mode].label}），内容经创作者本人确认并主动公开。`}
-            en="This piece was co-created by the author and AI through an interview, reviewed and published by the author's own choice."
+            zh={work.mode === "MANUAL"
+              ? "本文由创作者纯手写，未经 AI 访谈或自动成稿；内容经创作者本人确认并主动公开。"
+              : `本文由创作者与 AI 通过访谈共同创作（${CREATION_MODES[work.mode].label}），内容经创作者本人确认并主动公开。`}
+            en={work.mode === "MANUAL"
+              ? "This piece was written entirely by its creator without an AI interview or automatic drafting, then reviewed and published by the creator's own choice."
+              : "This piece was co-created by the author and AI through an interview, reviewed and published by the author's own choice."}
           />
         </p>
       </article>

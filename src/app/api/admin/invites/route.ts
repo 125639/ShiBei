@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { requireAdmin } from "@/lib/auth";
-import { createInviteCodes } from "@/lib/invite-codes";
+import { createInviteCodes, inviteCodeForAdmin } from "@/lib/invite-codes";
 import { prisma } from "@/lib/prisma";
 import { parseJsonBody } from "@/lib/request-validation";
 
@@ -12,17 +12,28 @@ const CreateSchema = z.object({
   note: z.string().trim().max(120).optional().default("")
 });
 
-export async function GET() {
+export async function GET(request: Request) {
   await requireAdmin();
+  const url = new URL(request.url);
+  const rawPage = Number(url.searchParams.get("page") || 1);
+  const requestedPage = Number.isInteger(rawPage) && rawPage > 0 ? rawPage : 1;
+  const pageSize = 100;
+  const total = await prisma.inviteCode.count();
+  const totalPages = Math.max(1, Math.ceil(total / pageSize));
+  const page = Math.min(requestedPage, totalPages);
   const codes = await prisma.inviteCode.findMany({
     orderBy: { createdAt: "desc" },
-    take: 300,
+    skip: (page - 1) * pageSize,
+    take: pageSize,
     include: { member: { select: { username: true, displayName: true } } }
   });
   return NextResponse.json({
+    page,
+    total,
+    totalPages,
     codes: codes.map((row) => ({
       id: row.id,
-      code: row.code,
+      code: inviteCodeForAdmin(row.status, row.code),
       status: row.status,
       note: row.note,
       usedBy: row.member ? row.member.displayName || row.member.username : null,

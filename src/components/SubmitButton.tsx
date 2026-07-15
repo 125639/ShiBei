@@ -11,6 +11,7 @@ type Props = {
   disabled?: boolean;
   name?: string;
   value?: string;
+  form?: string;
   style?: React.CSSProperties;
   formAction?: (formData: FormData) => void | Promise<void>;
 };
@@ -29,6 +30,7 @@ export function SubmitButton({
   disabled,
   name,
   value,
+  form,
   style,
   formAction
 }: Props) {
@@ -63,6 +65,7 @@ export function SubmitButton({
       aria-busy={pending}
       name={name}
       value={value}
+      form={form}
       style={style}
       formAction={formAction}
     >

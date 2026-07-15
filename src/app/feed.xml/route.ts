@@ -10,7 +10,7 @@ export async function GET() {
   const [settings, posts] = await Promise.all([
     getCachedSiteChromeSettings().catch(() => null),
     prisma.post.findMany({
-      where: { status: "PUBLISHED" },
+      where: { status: "PUBLISHED", publicationBlockedReason: null },
       orderBy: [{ publishedAt: "desc" }, { updatedAt: "desc" }],
       take: 50,
       select: { slug: true, title: true, summary: true, publishedAt: true, updatedAt: true }

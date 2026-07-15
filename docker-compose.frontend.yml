@@ -11,6 +11,12 @@
 #   - 没有 worker 容器(只有 app + sync-worker 同进程)
 #   - app 镜像换成 Dockerfile.frontend(无 Playwright/yt-dlp/ffmpeg)
 
+x-shibei-logging: &shibei-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "5"
+
 services:
   postgres:
     image: postgres:16-alpine
@@ -27,6 +33,10 @@ services:
       timeout: 5s
       retries: 5
     mem_limit: 128m
+    pids_limit: 150
+    security_opt:
+      - no-new-privileges:true
+    logging: *shibei-logging
     restart: unless-stopped
 
   app:
@@ -37,6 +47,7 @@ services:
       args:
         GIT_COMMIT: ${GIT_COMMIT:-unknown}
         BUILD_TIME: ${BUILD_TIME:-unknown}
+        NEXT_PUBLIC_SITE_URL: ${NEXT_PUBLIC_SITE_URL:-http://localhost:3000}
     depends_on:
       postgres:
         condition: service_healthy
@@ -44,9 +55,12 @@ services:
       - .env
     environment:
       APP_MODE: frontend
-      # 容器里有两个 Node 进程(Next + sync-worker)，都继承这里的堆上限；
-      # 224MB×2 的最坏情况仍在 448m 限额内，实测常态 RSS ~320MB。
-      NODE_OPTIONS: --max-old-space-size=224
+      # Next 使用 192MB 堆；start-app.sh 会把 sync-worker 单独压到 128MB。
+      # 生产构建连续巡检公开路由可稳定运行，同时给 ZIP Buffer 留出余量。
+      NODE_OPTIONS: --max-old-space-size=192
+      # 1 核小机不需要默认 4 线程池；限制 glibc arena 可减少长期运行的 RSS 碎片。
+      UV_THREADPOOL_SIZE: 2
+      MALLOC_ARENA_MAX: 2
       # 统计分桶按进程本地时区；默认上海，.env 里设 TZ 可覆盖。
       TZ: ${TZ:-Asia/Shanghai}
     ports:
@@ -64,6 +78,10 @@ services:
     # 实测(2026-07-04): 320m 时热身后 RSS 到 318MiB，贴着上限跑，大 ZIP 导入
     # 必被 OOM 杀。448m + postgres 128m = 576m 硬顶，765MB 小机上给系统留 ~190MB。
     mem_limit: 448m
+    pids_limit: 384
+    security_opt:
+      - no-new-privileges:true
+    logging: *shibei-logging
     restart: unless-stopped
 
   # 网页端一键更新伴车（前端形态只重建 app 一个服务）。
@@ -89,6 +107,10 @@ services:
       timeout: 5s
       retries: 3
     mem_limit: 128m
+    pids_limit: 128
+    security_opt:
+      - no-new-privileges:true
+    logging: *shibei-logging
     restart: unless-stopped
 
 volumes:

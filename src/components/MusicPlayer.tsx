@@ -71,7 +71,6 @@ export function MusicPlayer() {
     if (!audio) return;
     if (!prefs.musicEnabled) {
       audio.pause();
-      setPlaying(false);
       return;
     }
     // Autoplay attempt; will silently fail without user interaction (expected).

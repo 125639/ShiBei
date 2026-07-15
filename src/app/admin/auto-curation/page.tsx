@@ -9,15 +9,21 @@ import { formatDateTime } from "@/lib/job-utils";
 import { prisma } from "@/lib/prisma";
 import { displayModeOptions } from "@/lib/topics";
 
+export const dynamic = "force-dynamic";
+
 export default async function AutoCurationPage() {
   await requireAdmin();
-  const [site, topics, styles, recentRuns] = await Promise.all([
+  const [site, topics, styles, modules, recentRuns] = await Promise.all([
     prisma.siteSettings.findUnique({ where: { id: "site" } }),
     prisma.contentTopic.findMany({
       orderBy: { createdAt: "asc" },
-      include: { schedule: true, style: true }
+      include: { schedule: true, style: true, modules: { select: { id: true, name: true } } }
     }),
     prisma.contentStyle.findMany({ orderBy: { updatedAt: "desc" } }),
+    prisma.sourceModule.findMany({
+      orderBy: [{ sortOrder: "asc" }, { name: "asc" }],
+      select: { id: true, name: true, color: true }
+    }),
     prisma.fetchJob.findMany({
       where: { contentTopicId: { not: null } },
       orderBy: { createdAt: "desc" },
@@ -39,6 +45,8 @@ export default async function AutoCurationPage() {
     styleName: topic.style?.name || null,
     isEnabled: topic.isEnabled,
     useExa: topic.useExa,
+    moduleIds: topic.modules.map((module) => module.id),
+    moduleNames: topic.modules.map((module) => module.name),
     scheduleCron: topic.schedule?.cron || "0 9 * * *",
     lastRunLabel: formatDateTime(topic.schedule?.lastRunAt),
     nextRunLabel: formatDateTime(topic.schedule?.nextRunAt)
@@ -106,7 +114,7 @@ export default async function AutoCurationPage() {
         <SubmitButton pendingLabel={<I18nText zh="保存中…" en="Saving…" />}><I18nText zh="保存全局设置" en="Save Global Settings" /></SubmitButton>
       </form>
 
-      <AutoCurationTopicsClient topics={topicItems} styles={styleOptions} />
+      <AutoCurationTopicsClient topics={topicItems} styles={styleOptions} modules={modules} />
 
       <section className="admin-panel" style={{ marginTop: 24 }}>
         <h2><I18nText zh="最近自动内容任务" en="Recent Auto-Curation Jobs" /></h2>

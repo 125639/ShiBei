@@ -14,9 +14,9 @@ GitHub 仓库有新提交时，管理后台**左上角自动弹出提示**（叉
   检查主路径走 updater（git fetch 对比，支持私有仓库、无 API 限额）；
   updater 没起来时降级 GitHub API（`UPDATE_REPO`/`UPDATE_BRANCH`，默认 `125639/ShiBei` main），
   此时只能提示新版本，页面会给出启用 updater 的命令。
-- 更新流程固定为 `git fetch && git reset --hard origin/<branch>` → `docker compose build <services>`
-  →`up -d --no-deps <services>`，不接受任何请求参数，无注入面；服务器仓库里未提交的改动会被丢弃。
-  `--no-deps` 保证绝不顺手重建 postgres/redis。
+- 更新流程固定为：拒绝脏工作区和本地领先提交，`git fetch && git merge --ff-only origin/<branch>` → `docker compose build <services>`；不会强制覆盖服务器文件
+  →`up -d --no-deps <services>`，不接受任何请求参数，无注入面；服务器仓库存在未提交改动时更新会直接拒绝执行（不会丢弃任何本地修改）。
+  `--no-deps` 保证绝不顺手重建 postgres/redis；HTTPS 入口（proxy）用 `docker compose restart` 刷新模板与证书，绝不在 updater 容器内 recreate（避免把 ./ops 绑定挂载解析到宿主机不存在的 /repo 路径）。
 - compose project 名通过容器自身的 `com.docker.compose.project` label 自省获得，
   不会因为挂载路径是 /repo 而落到错误的 project 上。
 
@@ -310,10 +310,14 @@ cd /root/video
 #   APP_MODE=frontend
 #   SYNC_MODE=auto
 #   SYNC_INTERVAL_MINUTES=15
-#   BACKEND_API_URL=http://<backend-host>:3000
+#   BACKEND_API_URL=https://backend.example.com
 #   SYNC_TOKEN=<和 backend 同一串>
 docker compose -f docker-compose.frontend.yml up -d
 ```
+
+`BACKEND_API_URL` 携带 Bearer `SYNC_TOKEN` 并代理 AI 请求；跨机严禁使用
+`http://<公网 IP>:3000`。请使用 HTTPS 反代，或先建立 SSH/WireGuard/Tailscale 私网隧道后仅连接
+frontend 上的本地端口（例如 `http://127.0.0.1:3300`）。完整示例见 [SYNC.md](./SYNC.md)。
 
 前端起来后:
 - `/admin/sync` 显示当前模式 / 上次同步 / 立即同步按钮 / 手动 ZIP 上传
@@ -356,11 +360,15 @@ docker logs video-app-1 --tail 50
 默认存到 `/home/app/backups`，保留 14 天。**强烈建议配置异地同步**（`SHIBEI_BACKUP_SYNC_CMD`，如 rclone
 到对象存储），否则备份和数据同盘，机器级故障救不回来。
 
-安装每日 cron（04:30）：
+安装每日 systemd timer（04:30，带随机延迟与错过补跑）：
 
 ```bash
-( crontab -l 2>/dev/null; echo '30 4 * * * /home/app/ShiBei/scripts/backup.sh >> /home/app/backups/backup.log 2>&1' ) | crontab -
+sudo /home/app/ShiBei/scripts/install-backup-timer.sh
+systemctl list-timers shibei-backup.timer
 ```
+
+仓库不会假设 cron/timer 已经安装；只有上述安装命令成功后才存在每日任务。首次安装后建议执行
+`sudo systemctl start shibei-backup.service`，再检查 `systemctl status shibei-backup.service`。
 
 手动备份一次：
 

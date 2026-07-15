@@ -16,6 +16,13 @@ type ModuleRow = {
   color: string;
 };
 
+async function getSevenDayWindowStart() {
+  const [row] = await prisma.$queryRaw<Array<{ since: Date }>>`
+    SELECT CURRENT_TIMESTAMP - INTERVAL '7 days' AS "since"
+  `;
+  return row.since;
+}
+
 export default async function SourcesPage({
   searchParams
 }: {
@@ -48,7 +55,7 @@ export default async function SourcesPage({
     ? await prisma.fetchJob.findMany({
         where: {
           sourceId: { in: sourceIds },
-          createdAt: { gte: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000) }
+          createdAt: { gte: await getSevenDayWindowStart() }
         },
         orderBy: { createdAt: "desc" },
         select: {
@@ -84,6 +91,7 @@ export default async function SourcesPage({
     success7d: jobsBySource.get(s.id)?.filter((job) => job.status === "COMPLETED").length ?? 0,
     failed7d: jobsBySource.get(s.id)?.filter((job) => job.status === "FAILED").length ?? 0,
     failStreak: (s as { failStreak?: number }).failStreak ?? 0
+    ,moduleIds: (s.modules || []).map((module) => module.id)
   });
 
   const infoSources = sources.filter((s) => s.type === "WEB" || s.type === "RSS" || s.type === "EXA");
@@ -226,8 +234,8 @@ export default async function SourcesPage({
         </form>
       </div>
 
-      <BulkSourceActions sources={infoSources.map(toListSource)} label="信息源" />
-      <BulkSourceActions sources={videoSources.map(toListSource)} label="视频源" />
+      <BulkSourceActions sources={infoSources.map(toListSource)} modules={modules} label="信息源" />
+      <BulkSourceActions sources={videoSources.map(toListSource)} modules={modules} label="视频源" />
     </AdminShell>
   );
 }

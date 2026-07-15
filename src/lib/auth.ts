@@ -3,7 +3,42 @@ import { redirect } from "next/navigation";
 import { SignJWT, jwtVerify } from "jose";
 import { prisma } from "./prisma";
 
-const cookieName = "shibei_admin_session";
+export type AuthCookieKind =
+  | "adminSession"
+  | "memberSession"
+  | "memberCredentialUpgrade"
+  | "anonymousIdentity";
+
+const PRODUCTION_COOKIE_NAMES: Record<AuthCookieKind, string> = {
+  adminSession: "__Host-shibei_admin_session",
+  memberSession: "__Host-shibei_member_session",
+  memberCredentialUpgrade: "__Host-shibei_member_credential_upgrade",
+  anonymousIdentity: "__Host-shibei_anon_id"
+};
+
+// Development deliberately uses a different namespace. Besides making local
+// HTTP usable, this prevents tests or a development cookie from accidentally
+// being treated as a production credential.
+const DEVELOPMENT_COOKIE_NAMES: Record<AuthCookieKind, string> = {
+  adminSession: "shibei_dev_admin_session",
+  memberSession: "shibei_dev_member_session",
+  memberCredentialUpgrade: "shibei_dev_member_credential_upgrade",
+  anonymousIdentity: "shibei_dev_anon_id"
+};
+
+export function usesHostPrefixedAuthCookies() {
+  return process.env.NODE_ENV === "production";
+}
+
+export function getAuthCookieName(kind: AuthCookieKind) {
+  return (usesHostPrefixedAuthCookies() ? PRODUCTION_COOKIE_NAMES : DEVELOPMENT_COOKIE_NAMES)[kind];
+}
+
+/** `__Host-` cookies are required to use Secure + Path=/ and may not set Domain. */
+export function getAuthCookiePath(kind: AuthCookieKind) {
+  if (usesHostPrefixedAuthCookies()) return "/";
+  return kind === "memberCredentialUpgrade" ? "/api/member/upgrade-credential" : "/";
+}
 
 export function getAuthSecret() {
   const secret = process.env.AUTH_SECRET;
@@ -17,13 +52,16 @@ export function getAuthSecret() {
 }
 
 export function shouldUseSecureCookies() {
+  // Production credentials use the browser-enforced `__Host-` prefix. Never
+  // weaken Secure because of a mistaken http:// site URL: fail closed instead.
+  if (usesHostPrefixedAuthCookies()) return true;
   const siteUrl = process.env.NEXT_PUBLIC_SITE_URL;
-  if (!siteUrl) return process.env.NODE_ENV === "production";
+  if (!siteUrl) return false;
 
   try {
     return new URL(siteUrl).protocol === "https:";
   } catch {
-    return process.env.NODE_ENV === "production";
+    return false;
   }
 }
 
@@ -39,23 +77,31 @@ export async function createSession(userId: string, tokenVersion: number) {
 
 export async function setSessionCookie(token: string) {
   const store = await cookies();
-  store.set(cookieName, token, {
+  store.set(getAuthCookieName("adminSession"), token, {
     httpOnly: true,
     sameSite: "lax",
     secure: shouldUseSecureCookies(),
-    path: "/",
+    path: getAuthCookiePath("adminSession"),
     maxAge: 60 * 60 * 24 * 7
   });
 }
 
 export async function clearSessionCookie() {
   const store = await cookies();
-  store.delete(cookieName);
+  store.set(getAuthCookieName("adminSession"), "", {
+    httpOnly: true,
+    sameSite: "lax",
+    secure: shouldUseSecureCookies(),
+    path: getAuthCookiePath("adminSession"),
+    maxAge: 0
+  });
 }
 
 export async function getSession() {
   const store = await cookies();
-  const token = store.get(cookieName)?.value;
+  // Production intentionally never falls back to the legacy unprefixed name:
+  // a sibling subdomain can plant a Domain/longer-Path cookie with that name.
+  const token = store.get(getAuthCookieName("adminSession"))?.value;
   if (!token) return null;
 
   try {

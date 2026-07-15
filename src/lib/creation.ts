@@ -37,13 +37,24 @@ export type ScoreDetail = {
   suggestions: string[]; // 具体可执行的修改建议
 };
 
-// 访谈深度：短评 3 问；完整文章 8-10 问（满 8 问后模型可判定素材足够提前收尾）。
+// 两档都会生成文章。SHORT 是历史枚举名，为兼容已有数据保留：
+// 快速成文问 2-3 个关键问题；深度成文问 8-10 个问题。
 export const CREATION_DEPTHS: Record<
   CreationDepth,
   { minQuestions: number; maxQuestions: number; label: string; description: string }
 > = {
-  SHORT: { minQuestions: 3, maxQuestions: 3, label: "短评", description: "3 个问题，产出一条短评" },
-  FULL: { minQuestions: 8, maxQuestions: 10, label: "完整文章", description: "8-10 个问题，产出一篇完整文章" }
+  SHORT: {
+    minQuestions: 2,
+    maxQuestions: 3,
+    label: "快速成文",
+    description: "2-3 个关键问题；你给方向，AI 补齐结构并生成一篇文章"
+  },
+  FULL: {
+    minQuestions: 8,
+    maxQuestions: 10,
+    label: "深度成文",
+    description: "8-10 个递进问题；充分表达材料，生成指向更明确的完整文章"
+  }
 };
 
 export const CREATION_MODES: Record<CreationMode, { label: string; description: string }> = {
@@ -54,7 +65,17 @@ export const CREATION_MODES: Record<CreationMode, { label: string; description: 
   AI_FIRST: {
     label: "AI 整合为主",
     description: "你的回答作为素材，由 AI 组织成完整文章——适合便捷的信息整合。"
+  },
+  MANUAL: {
+    label: "纯手写",
+    description: "文章由创作者从头到尾自己撰写，不经访谈或 AI 成稿。"
   }
+};
+
+/** 访谈启动 API 只接受这两种模式；MANUAL 走写作台交接流程。 */
+export const INTERVIEW_CREATION_MODES = {
+  VOICE_FIRST: CREATION_MODES.VOICE_FIRST,
+  AI_FIRST: CREATION_MODES.AI_FIRST
 };
 
 // 未登录时单个 IP 最多生成的文章数（以「成稿」为准，不是开始访谈）。
@@ -120,22 +141,316 @@ export function computeWeightedScore(
   return Math.round((weighted / weightSum) * 10) / 10;
 }
 
-// 内容指纹：发布前校验「评分对应的就是当前这份内容」，改动后必须重新评分。
-export function contentFingerprint(content: string) {
-  return createHash("sha256").update(content.trim(), "utf8").digest("hex");
+export type WorkScoreSurface = { title: string; summary: string; content: string };
+export type LegacyWorkScoreSurface = Pick<WorkScoreSurface, "title" | "content">;
+
+function normalizeScoredContent(content: string) {
+  // Markdown 的行首缩进、空行和行尾空格都可能改变渲染语义，不能 trim。
+  // 只统一跨平台换行符，避免同一文本因 CRLF/LF 传输差异被迫重评。
+  return content.replace(/\r\n?/g, "\n");
+}
+
+/**
+ * 当前评分快照指纹：标题、公开摘要与正文都是社区读者实际看到的内容，也都会
+ * 交给评分模型审查，因此必须作为一个不可拆分的发布快照。
+ */
+export function workScoreFingerprint(input: WorkScoreSurface) {
+  const surface = JSON.stringify([
+    input.title.trim(),
+    input.summary.trim(),
+    normalizeScoredContent(input.content)
+  ]);
+  return createHash("sha256").update(surface, "utf8").digest("hex");
+}
+
+/** migration 50000 已写入的旧治理指纹只包含标题+正文；仅用于兼容历史记录。 */
+export function legacyWorkScoreFingerprint(input: LegacyWorkScoreSurface) {
+  const surface = JSON.stringify([input.title.trim(), input.content.trim()]);
+  return createHash("sha256").update(surface, "utf8").digest("hex");
+}
+
+export function isScoredSurfaceCurrent(input: WorkScoreSurface & {
+  scoredHash: string | null;
+}) {
+  return Boolean(input.scoredHash && input.scoredHash === workScoreFingerprint(input));
+}
+
+export type WorkRubricSurface = {
+  depth: CreationDepth;
+  genre: Pick<{ name: string; dimensions: string; threshold: number }, "name" | "dimensions" | "threshold">;
+};
+
+/**
+ * 评分标尺指纹：题材显示名、有效维度、公开门槛和篇幅预期都会进入评分提示，
+ * 因而必须与分数一起绑定。JSON 格式和无意义首尾空白被规范化，避免纯格式调整
+ * 迫使用户重评；维度顺序保留，因为它会改变模型逐项评审的顺序。
+ */
+export function workRubricFingerprint(input: WorkRubricSurface) {
+  const dimensions = parseGenreDimensions(input.genre.dimensions).map((dimension) => ({
+    key: dimension.key,
+    label: dimension.label,
+    weight: dimension.weight,
+    hint: dimension.hint.trim()
+  }));
+  const surface = JSON.stringify({
+    depth: input.depth,
+    genreName: input.genre.name.trim(),
+    dimensions,
+    threshold: input.genre.threshold
+  });
+  return createHash("sha256").update(surface, "utf8").digest("hex");
+}
+
+export function isScoredRubricCurrent(input: WorkRubricSurface & {
+  scoredRubricHash: string | null;
+}) {
+  return Boolean(
+    input.scoredRubricHash && input.scoredRubricHash === workRubricFingerprint(input)
+  );
+}
+
+/** 公开社区只能展示由当前 V2 评分快照实际覆盖过的摘要。 */
+export function scoredCommunitySummary(input: WorkScoreSurface & {
+  scoredHash: string | null;
+}) {
+  return isScoredSurfaceCurrent(input) ? input.summary : "";
+}
+
+/**
+ * 分数与“当前门槛”同时展示时，公开表面和当前题材标尺必须都与评分时一致。
+ * 迁移前缺少 rubric 指纹的历史分数不冒充当前标尺下的通过结果。
+ */
+export function isCommunityScoreCurrent(input: WorkScoreSurface & WorkRubricSurface & {
+  scoredHash: string | null;
+  scoredRubricHash: string | null;
+}) {
+  return isScoredSurfaceCurrent(input) && isScoredRubricCurrent(input);
+}
+
+export function ownerScorePresentation(input: WorkScoreSurface & WorkRubricSurface & {
+  score: number | null;
+  scoredHash: string | null;
+  scoredRubricHash: string | null;
+}) {
+  const current = input.score !== null && isCommunityScoreCurrent(input);
+  return {
+    current,
+    score: current ? input.score : null,
+    hasHistoricalScore: input.score !== null && !current
+  };
+}
+
+/** 导出文本不能把历史分数和当前题材门槛拼成一份并不存在的评审结论。 */
+export function ownerExportScoreLabel(input: WorkScoreSurface & WorkRubricSurface & {
+  score: number | null;
+  scoredHash: string | null;
+  scoredRubricHash: string | null;
+}) {
+  const presentation = ownerScorePresentation(input);
+  if (presentation.current) {
+    return `AI 评分：${presentation.score}/${input.genre.threshold}（公开门槛）`;
+  }
+  if (presentation.hasHistoricalScore) {
+    return "AI 历史评分已失效（请按当前内容与标尺重新评分）";
+  }
+  return null;
+}
+
+export type ModeratedSurfaceSnapshot = {
+  algorithm: "TITLE_CONTENT_V1" | "TITLE_SUMMARY_CONTENT_V2";
+  surfaceHash: string;
+  reason: string;
+};
+
+/** 找出当前公开表面命中的任一历史治理版本；只返回当前命中，不暴露其他原因。 */
+export function findModeratedSurfaceMatch(
+  input: WorkScoreSurface,
+  history: readonly ModeratedSurfaceSnapshot[]
+) {
+  const currentHashes = {
+    TITLE_CONTENT_V1: legacyWorkScoreFingerprint(input),
+    TITLE_SUMMARY_CONTENT_V2: workScoreFingerprint(input)
+  };
+  return history.find(
+    (surface) => surface.surfaceHash === currentHashes[surface.algorithm]
+  ) ?? null;
+}
+
+/** 给作品所有者的可操作说明；原因只在所有权校验通过后返回。 */
+export function moderationBlockedMessage(reason: string | null) {
+  const suffix = reason?.trim() ? `治理原因：${reason.trim()}` : "请根据社区规范实质修改标题、摘要或正文。";
+  return `当前版本与被社区下架的版本相同，不能评分或发布。${suffix}`;
+}
+
+/** SEO 描述只来自已评分的公开摘要/正文，绝不回退到未参与评分的 topic。 */
+export function deriveCommunityDescription(summary: string, content: string, maxLength = 160) {
+  const source = summary.trim() || content;
+  const plain = source
+    .replace(/```[\s\S]*?```/g, " ")
+    .replace(/<(?:script|style|template)\b[^>]*>[\s\S]*?<\/(?:script|style|template)>/gi, " ")
+    .replace(/!\[([^\]]*)\]\([^)]*\)/g, "$1")
+    .replace(/\[([^\]]+)\]\([^)]*\)/g, "$1")
+    .replace(/<[^>]+>/g, " ")
+    .replace(/^\s{0,3}(?:#{1,6}|>|[-+*]|\d+[.)])\s+/gm, "")
+    .replace(/[*_~`]/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (!plain) return null;
+  if (plain.length <= maxLength) return plain;
+  return `${plain.slice(0, Math.max(1, maxLength - 1)).trimEnd()}…`;
+}
+
+/**
+ * 社区详情页的 SEO 描述必须来自确实参与过当前评分快照的字段：V2 可以使用
+ * 摘要并在摘要为空时回退正文；迁移前的 V1 只证明正文受过评审；无匹配快照
+ * 时省略描述，避免把未评审内容放入搜索结果摘要。
+ */
+export function deriveScoredCommunityDescription(input: WorkScoreSurface & {
+  scoredHash: string | null;
+}) {
+  if (isScoredSurfaceCurrent(input)) {
+    return deriveCommunityDescription(input.summary, input.content);
+  }
+  if (
+    input.scoredHash &&
+    input.scoredHash === legacyWorkScoreFingerprint(input)
+  ) {
+    return deriveCommunityDescription("", input.content);
+  }
+  return null;
+}
+
+/** 判断一次草稿编辑是否改变了模型实际评分过的字段。 */
+export function scoreSurfaceChanged(
+  current: WorkScoreSurface,
+  patch: Partial<WorkScoreSurface>
+) {
+  return workScoreFingerprint(current) !== workScoreFingerprint({
+    title: patch.title ?? current.title,
+    summary: patch.summary ?? current.summary,
+    content: patch.content ?? current.content
+  });
+}
+
+/** 所有持久化评分字段必须一起失效，不能留下可被发布接口误用的半份快照。 */
+export function scoreInvalidationData() {
+  return {
+    score: null,
+    scoreDetail: null,
+    scoredAt: null,
+    scoredHash: null,
+    scoredRubricHash: null
+  };
+}
+
+/**
+ * 长任务写回时使用的版本条件。status + updatedAt 是当前 schema 下的乐观锁：
+ * 任何并发编辑、成稿或发布都会令旧请求的最终 updateMany 命中 0 行。
+ */
+export function workRevisionWhere(input: {
+  id: string;
+  status: "INTERVIEWING" | "DRAFT" | "SHARED";
+  updatedAt: Date;
+}) {
+  return { id: input.id, status: input.status, updatedAt: input.updatedAt };
+}
+
+/**
+ * Anonymous deletion is additionally pinned to the irreversible publication
+ * marker. This makes the policy atomic with DELETE, even if publish/unpublish
+ * happens between the route's initial read and its deleteMany call.
+ */
+export function workDeletionWhere(input: {
+  id: string;
+  status: "INTERVIEWING" | "DRAFT" | "SHARED";
+  updatedAt: Date;
+  ownerId: string | null;
+}) {
+  return input.ownerId === null
+    ? { ...workRevisionWhere(input), publishedOnceAt: null }
+    : workRevisionWhere(input);
+}
+
+export function anonymousWorkWasPublished(input: {
+  ownerId: string | null;
+  publishedOnceAt: Date | null;
+}) {
+  return input.ownerId === null && input.publishedOnceAt !== null;
+}
+
+export function scoredSurfaceRevisionWhere(input: {
+  id: string;
+  status: "INTERVIEWING" | "DRAFT" | "SHARED";
+  updatedAt: Date;
+  title: string;
+  summary: string;
+  content: string;
+}) {
+  return {
+    ...workRevisionWhere(input),
+    title: input.title,
+    summary: input.summary,
+    content: input.content
+  };
+}
+
+/** 发布 CAS 必须锁定版本、评分表面以及通过闸门的那份评分。 */
+export function publicationSnapshotWhere(input: {
+  id: string;
+  status: "INTERVIEWING" | "DRAFT" | "SHARED";
+  updatedAt: Date;
+  title: string;
+  summary: string;
+  content: string;
+  score: number | null;
+  scoredHash: string | null;
+  scoredRubricHash: string | null;
+}) {
+  return {
+    ...scoredSurfaceRevisionWhere(input),
+    score: input.score,
+    scoredHash: input.scoredHash,
+    scoredRubricHash: input.scoredRubricHash
+  };
+}
+
+/** 核验澄清会退回访谈态，但绝不覆盖旧草稿；旧评分同时作废。 */
+export function verificationClarificationData(
+  status: "INTERVIEWING" | "DRAFT" | "SHARED",
+  pendingQuestion: string
+) {
+  return status === "DRAFT"
+    ? {
+        status: "INTERVIEWING" as const,
+        pendingQuestion,
+        ...scoreInvalidationData()
+      }
+    : { pendingQuestion };
 }
 
 export function canPublishWork(input: {
   score: number | null;
   threshold: number;
   scoredHash: string | null;
+  scoredRubricHash: string | null;
+  currentRubricHash: string;
+  title: string;
+  summary: string;
   content: string;
+  moderationBlocked?: boolean;
+  moderationReason?: string | null;
 }): { ok: true } | { ok: false; reason: string } {
+  if (input.moderationBlocked) {
+    return { ok: false, reason: moderationBlockedMessage(input.moderationReason ?? null) };
+  }
   if (input.score === null || input.scoredHash === null) {
     return { ok: false, reason: "发布前需要先完成 AI 评分。" };
   }
-  if (input.scoredHash !== contentFingerprint(input.content)) {
-    return { ok: false, reason: "内容在评分后有改动，请重新评分后再发布。" };
+  if (!isScoredSurfaceCurrent(input)) {
+    return { ok: false, reason: "标题、摘要或正文在评分后有改动，请重新评分后再发布。" };
+  }
+  if (input.scoredRubricHash !== input.currentRubricHash) {
+    return { ok: false, reason: "题材评分标尺或篇幅预期在评分后有变化，请按当前标尺重新评分。" };
   }
   if (input.score < input.threshold) {
     return { ok: false, reason: `当前得分 ${input.score} 未达到该题材的公开门槛 ${input.threshold}，请参考评分反馈修改后重新评分。` };

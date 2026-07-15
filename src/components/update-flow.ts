@@ -88,42 +88,46 @@ export function useUpdateRunner() {
     };
   }, []);
 
-  const poll = useCallback((failCount: number, deadline: number) => {
-    timerRef.current = setTimeout(async () => {
-      if (!aliveRef.current) return;
-      if (Date.now() > deadline) {
-        setPhase("failed");
-        setError("等待更新结果超时（20 分钟）。请到「系统更新」页查看日志，或登录服务器排查。");
-        return;
-      }
-      const data = await fetchAdminJson<StatusPayload>("/api/admin/update/status");
-      if (!aliveRef.current) return;
-      if (!data) {
-        // 应用容器正在被替换（构建后 up -d 阶段），短暂不可达是预期内的。
-        setPhase(failCount >= 1 ? "restarting" : "working");
-        poll(failCount + 1, deadline);
-        return;
-      }
-      setStatus(data);
-      if (data.running) {
+  const poll = useCallback((initialFailCount: number, deadline: number) => {
+    function schedulePoll(failCount: number) {
+      timerRef.current = setTimeout(async () => {
+        if (!aliveRef.current) return;
+        if (Date.now() > deadline) {
+          setPhase("failed");
+          setError("等待更新结果超时（20 分钟）。请到「系统更新」页查看日志，或登录服务器排查。");
+          return;
+        }
+        const data = await fetchAdminJson<StatusPayload>("/api/admin/update/status");
+        if (!aliveRef.current) return;
+        if (!data) {
+          // 应用容器正在被替换（构建后 up -d 阶段），短暂不可达是预期内的。
+          setPhase(failCount >= 1 ? "restarting" : "working");
+          schedulePoll(failCount + 1);
+          return;
+        }
+        setStatus(data);
+        if (data.running) {
+          setPhase("working");
+          schedulePoll(0);
+          return;
+        }
+        if (data.ok === true) {
+          invalidateClientCheck(); // 新版本已上线，旧的「有新版本」检查结果作废
+          setPhase("done");
+          return;
+        }
+        if (data.ok === false) {
+          setPhase("failed");
+          setError(data.error || "更新失败，详见日志。");
+          return;
+        }
+        // updater 空闲且没有任务记录（可能刚被重启）：再等等。
         setPhase("working");
-        poll(0, deadline);
-        return;
-      }
-      if (data.ok === true) {
-        invalidateClientCheck(); // 新版本已上线，旧的「有新版本」检查结果作废
-        setPhase("done");
-        return;
-      }
-      if (data.ok === false) {
-        setPhase("failed");
-        setError(data.error || "更新失败，详见日志。");
-        return;
-      }
-      // updater 空闲且没有任务记录（可能刚被重启）：再等等。
-      setPhase("working");
-      poll(failCount + 1, deadline);
-    }, POLL_INTERVAL_MS);
+        schedulePoll(failCount + 1);
+      }, POLL_INTERVAL_MS);
+    }
+
+    schedulePoll(initialFailCount);
   }, []);
 
   const start = useCallback(async () => {

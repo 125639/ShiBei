@@ -1,31 +1,9 @@
 import { NextResponse, type NextRequest } from "next/server";
+import { getAppMode, isPathAvailableInAppMode } from "@/lib/app-mode";
+import { rejectCrossOriginMutation } from "@/lib/request-origin";
 
-// 注意:此文件运行在 Edge Runtime,不能 import 任何会触摸 Node API 或数据库的模块。
-// 因此这里直接读 process.env(Edge 也支持)而不去 import @/lib/app-mode(它本身是纯 env,
-// 但保持中间件最小依赖更稳)。
-
-type AppMode = "frontend" | "backend" | "full";
-
-function getMode(): AppMode {
-  const raw = (process.env.APP_MODE || "full").trim().toLowerCase();
-  if (raw === "frontend" || raw === "backend" || raw === "full") return raw;
-  return "full";
-}
-
-// 在 frontend 模式下应被屏蔽(404)的路径前缀。
-// 这些路由依赖 BullMQ / 抓取 / AI 模型等后端能力,在前端形态下不可用。
-const FRONTEND_BLOCKED_PREFIXES = [
-  "/admin/sources",
-  "/admin/modules",
-  "/admin/auto-curation",
-  "/api/admin/sources",
-  "/api/admin/modules",
-  "/api/admin/content-topics",
-  "/api/admin/run",
-  "/api/admin/settings/auto-curation",
-  "/api/admin/content-styles",
-  "/api/admin/model-configs",
-];
+// Next 16 的 proxy 运行在 Node Runtime。这里仍保持最小依赖，不访问数据库，
+// 让模式路由与跨来源写请求校验在每次请求上都快速、确定地执行。
 
 // 在 backend 模式下,公开页面(/posts, /news, /stats, /settings, /about, /write 等)
 // 不面向最终用户,统一重定向到 admin。
@@ -60,17 +38,20 @@ function buildRedirectUrl(request: NextRequest, path: string): URL {
   return url;
 }
 
-export function middleware(request: NextRequest) {
-  const mode = getMode();
+export function proxy(request: NextRequest) {
+  const mode = getAppMode();
   const { pathname } = request.nextUrl;
 
-  if (mode === "frontend") {
-    if (FRONTEND_BLOCKED_PREFIXES.some((p) => pathname === p || pathname.startsWith(p + "/"))) {
-      return NextResponse.json(
-        { error: "本路由在 frontend 模式下不可用,请前往 backend 应用操作。" },
-        { status: 404 }
-      );
-    }
+  if (pathname.startsWith("/api/")) {
+    const originDenied = rejectCrossOriginMutation(request);
+    if (originDenied) return originDenied;
+  }
+
+  if (!isPathAvailableInAppMode(pathname, mode)) {
+    return NextResponse.json(
+      { error: "本路由依赖本地 worker，在 frontend 模式下不可用；请前往 backend 应用操作。" },
+      { status: 404 }
+    );
   }
 
   if (mode === "backend") {
@@ -85,9 +66,8 @@ export function middleware(request: NextRequest) {
 
 // 不拦截静态资源、内置路径。注意:正则需要排除 /_next/*, /uploads/*, 静态文件、
 // 健康检查与同步路由。健康检查必须始终可访问，否则反代/容器运行时无法判断状态。
-// videos/music 上传也要排除：Next.js 15.5 给经过 middleware 的请求加了
-// 10MB body 上限（middlewareClientMaxBodySize），不排除的话大文件 FormData
-// 解析会失败抛 500。sync 早就因为同样原因排除了。
+// videos/music 上传也要排除：代理层不应读取或缓冲大文件 FormData，
+// 否则上传会增加无意义的内存与延迟；sync 也因同样原因排除。
 export const config = {
   matcher: [
     "/((?!_next/static|_next/image|favicon.ico|uploads/|api/health|api/admin/sync|api/admin/videos|api/admin/music).*)",

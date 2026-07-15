@@ -1,5 +1,5 @@
 import { DEFAULT_LANGUAGE } from "@/lib/language";
-import { DEFAULT_DENSITY, DEFAULT_FONT, DEFAULT_THEME, PREF_KEYS, UI_STYLE_KEYS } from "@/lib/themes";
+import { DEFAULT_DENSITY, DEFAULT_FONT, DEFAULT_THEME, DEFAULT_TOC_ACCENT, PREF_KEYS, UI_STYLE_KEYS } from "@/lib/themes";
 import { QUICK_STYLE_KEYS } from "@/lib/quick-style";
 
 /**
@@ -34,10 +34,19 @@ export function UserPreferencesScript({
       language: ${JSON.stringify(defaultLanguage)},
       ui: ${JSON.stringify(defaultSettingsUI)}
     };
-    var theme = localStorage.getItem(k.theme) || def.theme;
+    var theme = localStorage.getItem(k.theme);
+    if (!theme) {
+      theme = def.theme;
+      // 首次访问且管理员默认是亮色主题时，跟随系统深色模式，避免夜间刺眼
+      var darkThemes = ['dark', 'midnight'];
+      if (darkThemes.indexOf(theme) === -1 && window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) {
+        theme = 'dark';
+      }
+    }
     var font = localStorage.getItem(k.font) || def.font;
     var density = localStorage.getItem(k.density) || def.density;
     var language = localStorage.getItem(k.language) || def.language;
+    var tocAccent = localStorage.getItem(k.tocAccent);
     var uiKeys = ${JSON.stringify(UI_STYLE_KEYS)};
     var ui = localStorage.getItem(k.ui);
     if (uiKeys.indexOf(ui) === -1) ui = def.ui;
@@ -47,6 +56,7 @@ export function UserPreferencesScript({
     doc.setAttribute('data-density', density);
     doc.setAttribute('data-language', language);
     doc.setAttribute('data-ui', ui);
+    doc.style.setProperty('--toc-accent', /^#[0-9a-f]{6}$/i.test(tocAccent || '') ? tocAccent : ${JSON.stringify(DEFAULT_TOC_ACCENT)});
     doc.lang = language === 'en' ? 'en' : 'zh-CN';
 
     // 快速美化（色相/壁纸/布局/横幅）：与 lib/quick-style.ts 的 applyQuickStyle 一致

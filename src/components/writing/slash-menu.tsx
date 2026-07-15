@@ -15,6 +15,10 @@ export type SlashItem = {
   run: (editor: Editor, range: Range) => void;
 };
 
+function runIfEditable(editor: Editor, action: () => void) {
+  if (editor.isEditable) action();
+}
+
 export function buildSlashItems(onAiContinue?: () => void): SlashItem[] {
   const items: SlashItem[] = [
     {
@@ -22,63 +26,63 @@ export function buildSlashItems(onAiContinue?: () => void): SlashItem[] {
       title: "正文",
       hint: "普通段落",
       keywords: "text paragraph 正文 段落 zhengwen",
-      run: (editor, range) => editor.chain().focus().deleteRange(range).setParagraph().run()
+      run: (editor, range) => runIfEditable(editor, () => editor.chain().focus().deleteRange(range).setParagraph().run())
     },
     {
       id: "h1",
       title: "标题 1",
       hint: "大节标题",
       keywords: "h1 heading1 标题 大标题 biaoti",
-      run: (editor, range) => editor.chain().focus().deleteRange(range).setHeading({ level: 1 }).run()
+      run: (editor, range) => runIfEditable(editor, () => editor.chain().focus().deleteRange(range).setHeading({ level: 1 }).run())
     },
     {
       id: "h2",
       title: "标题 2",
       hint: "中节标题",
       keywords: "h2 heading2 标题 biaoti",
-      run: (editor, range) => editor.chain().focus().deleteRange(range).setHeading({ level: 2 }).run()
+      run: (editor, range) => runIfEditable(editor, () => editor.chain().focus().deleteRange(range).setHeading({ level: 2 }).run())
     },
     {
       id: "h3",
       title: "标题 3",
       hint: "小节标题",
       keywords: "h3 heading3 标题 biaoti",
-      run: (editor, range) => editor.chain().focus().deleteRange(range).setHeading({ level: 3 }).run()
+      run: (editor, range) => runIfEditable(editor, () => editor.chain().focus().deleteRange(range).setHeading({ level: 3 }).run())
     },
     {
       id: "bullet",
       title: "无序列表",
       hint: "• 项目符号",
       keywords: "bullet list ul 列表 无序 liebiao",
-      run: (editor, range) => editor.chain().focus().deleteRange(range).toggleBulletList().run()
+      run: (editor, range) => runIfEditable(editor, () => editor.chain().focus().deleteRange(range).toggleBulletList().run())
     },
     {
       id: "ordered",
       title: "有序列表",
       hint: "1. 编号列表",
       keywords: "ordered number ol 列表 有序 编号",
-      run: (editor, range) => editor.chain().focus().deleteRange(range).toggleOrderedList().run()
+      run: (editor, range) => runIfEditable(editor, () => editor.chain().focus().deleteRange(range).toggleOrderedList().run())
     },
     {
       id: "quote",
       title: "引用",
       hint: "引言块",
       keywords: "quote blockquote 引用 yinyong",
-      run: (editor, range) => editor.chain().focus().deleteRange(range).toggleBlockquote().run()
+      run: (editor, range) => runIfEditable(editor, () => editor.chain().focus().deleteRange(range).toggleBlockquote().run())
     },
     {
       id: "code",
       title: "代码块",
       hint: "等宽代码",
       keywords: "code codeblock 代码 daima",
-      run: (editor, range) => editor.chain().focus().deleteRange(range).toggleCodeBlock().run()
+      run: (editor, range) => runIfEditable(editor, () => editor.chain().focus().deleteRange(range).toggleCodeBlock().run())
     },
     {
       id: "divider",
       title: "分割线",
       hint: "水平分隔",
       keywords: "divider hr line 分割 分隔 fenge",
-      run: (editor, range) => editor.chain().focus().deleteRange(range).setHorizontalRule().run()
+      run: (editor, range) => runIfEditable(editor, () => editor.chain().focus().deleteRange(range).setHorizontalRule().run())
     }
   ];
   if (onAiContinue) {
@@ -88,6 +92,7 @@ export function buildSlashItems(onAiContinue?: () => void): SlashItem[] {
       hint: "根据上文继续写",
       keywords: "ai continue 续写 xuxie 继续",
       run: (editor, range) => {
+        if (!editor.isEditable) return;
         editor.chain().focus().deleteRange(range).run();
         onAiContinue();
       }
@@ -157,6 +162,12 @@ export const SlashList = forwardRef<SlashListHandle, SlashListProps>(function Sl
 function createSlashRenderer() {
   let renderer: ReactRenderer<SlashListHandle, SlashListProps> | null = null;
 
+  const destroy = () => {
+    renderer?.element.remove();
+    renderer?.destroy();
+    renderer = null;
+  };
+
   const position = (props: SuggestionProps<SlashItem>) => {
     const rect = props.clientRect?.();
     if (!rect || !renderer?.element) return;
@@ -172,6 +183,7 @@ function createSlashRenderer() {
 
   return {
     onStart: (props: SuggestionProps<SlashItem>) => {
+      if (!props.editor.isEditable) return;
       renderer = new ReactRenderer(SlashList, {
         props: { items: props.items, command: props.command },
         editor: props.editor
@@ -180,30 +192,37 @@ function createSlashRenderer() {
       position(props);
     },
     onUpdate: (props: SuggestionProps<SlashItem>) => {
+      if (!props.editor.isEditable) {
+        destroy();
+        return;
+      }
       renderer?.updateProps({ items: props.items, command: props.command });
       position(props);
     },
     onKeyDown: (props: SuggestionKeyDownProps) => {
+      if (!props.view.editable) {
+        destroy();
+        return true;
+      }
       if (props.event.key === "Escape") return false;
       return renderer?.ref?.onKeyDown(props) ?? false;
     },
     onExit: () => {
-      renderer?.element.remove();
-      renderer?.destroy();
-      renderer = null;
+      destroy();
     }
   };
 }
 
 export type SlashCommandOptions = {
   onAiContinue?: () => void;
+  isAiEnabled?: () => boolean;
 };
 
 export const SlashCommand = Extension.create<SlashCommandOptions>({
   name: "shibeiSlashCommand",
 
   addOptions() {
-    return { onAiContinue: undefined };
+    return { onAiContinue: undefined, isAiEnabled: undefined };
   },
 
   addProseMirrorPlugins() {
@@ -213,9 +232,13 @@ export const SlashCommand = Extension.create<SlashCommandOptions>({
         char: "/",
         startOfLine: false,
         allowSpaces: false,
-        command: ({ editor, range, props }) => props.run(editor, range),
+        allow: ({ editor }) => editor.isEditable,
+        command: ({ editor, range, props }) => {
+          if (editor.isEditable) props.run(editor, range);
+        },
         items: ({ query }) => {
-          const all = buildSlashItems(this.options.onAiContinue);
+          const aiEnabled = this.options.isAiEnabled?.() ?? Boolean(this.options.onAiContinue);
+          const all = buildSlashItems(aiEnabled ? this.options.onAiContinue : undefined);
           const q = query.trim().toLowerCase();
           if (!q) return all;
           return all.filter(

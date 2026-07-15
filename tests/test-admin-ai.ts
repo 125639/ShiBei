@@ -9,6 +9,7 @@ import {
   normalizeAdminAiPlan,
   planArticleTotal
 } from "../src/lib/admin-ai";
+import { enqueueBatchContinuing } from "../src/lib/batch-queue";
 
 test("admin AI plan normalization clamps and limits model output", () => {
   const plan = normalizeAdminAiPlan({
@@ -202,4 +203,34 @@ test("recurring mode maps to compile kind", () => {
   assert.equal(compileKindFromRecurringMode("single"), "SINGLE_ARTICLE");
   assert.equal(compileKindFromRecurringMode("daily_digest"), "DAILY_DIGEST");
   assert.equal(compileKindFromRecurringMode("weekly_roundup"), "WEEKLY_ROUNDUP");
+});
+
+test("admin AI batch dispatch keeps all 10 tasks when a middle enqueue fails", async () => {
+  const items = Array.from({ length: 10 }, (_, index) => ({
+    jobId: `job-${index + 1}`,
+    task: { keyword: `选题 ${index + 1}` }
+  }));
+  const enqueueAttempts: string[] = [];
+  const failedRows = new Map<string, string>();
+
+  const outcomes = await enqueueBatchContinuing(items, {
+    enqueue: async (jobId) => {
+      enqueueAttempts.push(jobId);
+      if (jobId === "job-6") throw new Error("Redis temporary unavailable");
+    },
+    markFailed: async (jobId, error) => {
+      failedRows.set(jobId, error);
+    }
+  });
+
+  assert.equal(outcomes.length, 10);
+  assert.deepEqual(enqueueAttempts, items.map((item) => item.jobId));
+  assert.equal(outcomes[5].status, "FAILED");
+  assert.match(outcomes[5].error || "", /Redis temporary unavailable/);
+  assert.equal(failedRows.size, 1);
+  assert.match(failedRows.get("job-6") || "", /任务入队失败/);
+  assert.deepEqual(
+    outcomes.filter((item) => item.status === "QUEUED").map((item) => item.jobId),
+    ["job-1", "job-2", "job-3", "job-4", "job-5", "job-7", "job-8", "job-9", "job-10"]
+  );
 });

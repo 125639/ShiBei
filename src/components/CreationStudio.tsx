@@ -2,7 +2,12 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  ANON_CREATION_SEED_HEADER,
+  ensureAnonymousBootstrap
+} from "@/lib/client/anon-bootstrap";
 import { markdownToHtml } from "@/lib/markdown";
+import { TaskProgress } from "./TaskProgress";
 import { useUnsavedChangesGuard } from "./useUnsavedChangesGuard";
 
 type Dimension = { key: string; label: string; weight: number; hint: string };
@@ -17,7 +22,8 @@ type Genre = {
 };
 
 type DepthKey = "SHORT" | "FULL";
-type ModeKey = "VOICE_FIRST" | "AI_FIRST";
+type InterviewModeKey = "VOICE_FIRST" | "AI_FIRST";
+type ModeKey = InterviewModeKey | "MANUAL";
 
 type DepthMeta = { minQuestions: number; maxQuestions: number; label: string; description: string };
 type ModeMeta = { label: string; description: string };
@@ -51,7 +57,13 @@ type Work = {
   isAnonymous: boolean;
   score: number | null;
   scoreDetail: ScoreDetail | null;
+  scoreCurrent: boolean;
+  hasHistoricalScore: boolean;
+  scoreRubricCurrent: boolean;
+  moderationReason: string | null;
+  moderationBlocked: boolean;
   publishedAt: string | null;
+  updatedAt: string;
 };
 
 type WorkListItem = {
@@ -61,14 +73,35 @@ type WorkListItem = {
   topic: string;
   title: string;
   score: number | null;
+  scoreCurrent: boolean;
+  hasHistoricalScore: boolean;
   updatedAt: string;
   genre: { name: string; threshold: number };
+};
+
+type WorkListPage = {
+  works: WorkListItem[];
+  nextCursor: string | null;
+  hasMore: boolean;
+  isMember: boolean;
+  anonQuotaRemaining: number | null;
+  anonWorkLimit: number;
 };
 
 const STATUS_LABELS: Record<Work["status"], string> = {
   INTERVIEWING: "访谈中",
   DRAFT: "草稿",
   SHARED: "已公开"
+};
+
+const BUSY_PROGRESS: Record<string, { label: string; stage: string }> = {
+  start: { label: "正在准备访谈", stage: "AI 正在生成第一个具体问题" },
+  answer: { label: "正在处理回答", stage: "AI 正在判断素材并准备下一问" },
+  compose: { label: "正在生成草稿", stage: "AI 正在整理材料、核验并成稿" },
+  save: { label: "正在保存修改", stage: "正在写入你的私有草稿" },
+  score: { label: "正在评审草稿", stage: "AI 正在按已选标尺逐项评分" },
+  publish: { label: "正在发布作品", stage: "正在保存公开版本并刷新社区" },
+  resume: { label: "正在打开作品", stage: "正在读取最近保存的内容" }
 };
 
 async function requestJson<T>(url: string, init?: RequestInit): Promise<T> {
@@ -81,8 +114,10 @@ async function requestJson<T>(url: string, init?: RequestInit): Promise<T> {
 export function CreationStudio() {
   const [genres, setGenres] = useState<Genre[]>([]);
   const [depths, setDepths] = useState<Record<DepthKey, DepthMeta> | null>(null);
-  const [modes, setModes] = useState<Record<ModeKey, ModeMeta> | null>(null);
+  const [modes, setModes] = useState<Record<InterviewModeKey, ModeMeta> | null>(null);
   const [works, setWorks] = useState<WorkListItem[]>([]);
+  const [worksNextCursor, setWorksNextCursor] = useState<string | null>(null);
+  const [worksLoadingMore, setWorksLoadingMore] = useState(false);
   const [isMember, setIsMember] = useState(false);
   const [quotaRemaining, setQuotaRemaining] = useState<number | null>(null);
   const [quotaLimit, setQuotaLimit] = useState(2);
@@ -94,7 +129,9 @@ export function CreationStudio() {
 
   // 第一步：题材（=评分标尺）、模式、深度、主题
   const [genreId, setGenreId] = useState("");
-  const [mode, setMode] = useState<ModeKey>("VOICE_FIRST");
+  // 快速成文的目标是「用户给方向即可」，默认让 AI 承担资料组织；
+  // 仍保留「我的话为主」供希望最大程度保留原话的创作者选择。
+  const [mode, setMode] = useState<InterviewModeKey>("AI_FIRST");
   const [depth, setDepth] = useState<DepthKey>("SHORT");
   const [topic, setTopic] = useState("");
 
@@ -112,25 +149,60 @@ export function CreationStudio() {
   const [showAnonConfirm, setShowAnonConfirm] = useState(false);
   // 成稿审校提示（归因/事实/歧义）：只在刚生成后展示，切换作品或重新访谈即清空
   const [composeNotes, setComposeNotes] = useState<string[]>([]);
+  const [interviewFallbackNotice, setInterviewFallbackNotice] = useState(false);
+  const worksRequestRef = useRef(0);
+  const worksPageLoadingRef = useRef(false);
 
   const refreshWorks = useCallback(async () => {
-    const data = await requestJson<{
-      works: WorkListItem[];
-      isMember: boolean;
-      anonQuotaRemaining: number | null;
-      anonWorkLimit: number;
-    }>("/api/public/creation/works");
+    const requestId = ++worksRequestRef.current;
+    await ensureAnonymousBootstrap();
+    const data = await requestJson<WorkListPage>("/api/public/creation/works");
+    if (requestId !== worksRequestRef.current) return;
     setWorks(data.works);
+    setWorksNextCursor(data.nextCursor);
     setIsMember(data.isMember);
     setQuotaRemaining(data.anonQuotaRemaining);
     setQuotaLimit(data.anonWorkLimit);
   }, []);
 
+  const loadMoreWorks = useCallback(async () => {
+    const cursor = worksNextCursor;
+    if (!cursor || worksPageLoadingRef.current) return;
+    const requestId = worksRequestRef.current;
+    worksPageLoadingRef.current = true;
+    setWorksLoadingMore(true);
+    setError("");
+    try {
+      await ensureAnonymousBootstrap();
+      const data = await requestJson<WorkListPage>(
+        `/api/public/creation/works?cursor=${encodeURIComponent(cursor)}`
+      );
+      // A login/logout or full refresh may have changed the active identity
+      // while this page was in flight. Never append that stale identity page.
+      if (requestId !== worksRequestRef.current) return;
+      setWorks((current) => {
+        const existing = new Set(current.map((item) => item.id));
+        return [...current, ...data.works.filter((item) => !existing.has(item.id))];
+      });
+      setWorksNextCursor(data.nextCursor);
+    } catch (err) {
+      if (requestId === worksRequestRef.current) {
+        setError(err instanceof Error ? err.message : String(err));
+      }
+    } finally {
+      worksPageLoadingRef.current = false;
+      setWorksLoadingMore(false);
+    }
+  }, [worksNextCursor]);
+
   useEffect(() => {
     (async () => {
       try {
+        // 先让同源标签页收敛到唯一匿名身份，再并发读取任何私有列表/指定作品。
+        await ensureAnonymousBootstrap();
+        const requestedWorkId = new URLSearchParams(window.location.search).get("work")?.trim() || "";
         const [genreData] = await Promise.all([
-          requestJson<{ genres: Genre[]; depths: Record<DepthKey, DepthMeta>; modes: Record<ModeKey, ModeMeta> }>(
+          requestJson<{ genres: Genre[]; depths: Record<DepthKey, DepthMeta>; modes: Record<InterviewModeKey, ModeMeta> }>(
             "/api/public/creation/genres"
           ),
           refreshWorks()
@@ -139,6 +211,20 @@ export function CreationStudio() {
         setDepths(genreData.depths);
         setModes(genreData.modes);
         if (genreData.genres.length > 0) setGenreId(genreData.genres[0].id);
+        if (requestedWorkId) {
+          // ?work= 指向的作品可能已被删除、身份已轮换或链接已过期。这只影响
+          // “继续这篇”，不能把整个创作台变成不可用的错误页。
+          try {
+            const requestedWork = await requestJson<{ work: Work }>(
+              `/api/public/creation/works/${encodeURIComponent(requestedWorkId)}`
+            );
+            setWork(requestedWork.work);
+            setComposeNotes([]);
+            setTouchedAfterScore(false);
+          } catch (err) {
+            setError(`未能打开链接指向的作品（可能已删除或归属其他身份）：${err instanceof Error ? err.message : String(err)}`);
+          }
+        }
       } catch (err) {
         setLoadError(err instanceof Error ? err.message : String(err));
       }
@@ -146,11 +232,13 @@ export function CreationStudio() {
   }, [refreshWorks]);
 
   useEffect(() => {
-    if (work?.status === "DRAFT") {
+    if (work?.status !== "DRAFT") return;
+    const timer = window.setTimeout(() => {
       setEditTitle(work.title);
       setEditSummary(work.summary);
       setEditContent(work.content);
-    }
+    }, 0);
+    return () => window.clearTimeout(timer);
   }, [work?.id, work?.status, work?.title, work?.summary, work?.content]);
 
   useEffect(() => {
@@ -171,12 +259,17 @@ export function CreationStudio() {
 
   const startInterview = () =>
     run("start", async () => {
-      const data = await requestJson<{ work: Work }>("/api/public/creation/works", {
+      const anonymousSeed = await ensureAnonymousBootstrap();
+      const data = await requestJson<{ work: Work; questionFallback?: boolean }>("/api/public/creation/works", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          [ANON_CREATION_SEED_HEADER]: anonymousSeed
+        },
         body: JSON.stringify({ genreId, mode, depth, topic })
       });
       setWork(data.work);
+      setInterviewFallbackNotice(Boolean(data.questionFallback));
       setTouchedAfterScore(false);
       setComposeNotes([]);
       await refreshWorks();
@@ -185,22 +278,27 @@ export function CreationStudio() {
   const submitAnswer = () =>
     run("answer", async () => {
       if (!work) return;
-      const data = await requestJson<{ done: boolean; work: Work }>(
+      const data = await requestJson<{ done: boolean; work: Work; questionFallback?: boolean }>(
         `/api/public/creation/works/${work.id}/answer`,
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ answer })
+          body: JSON.stringify({ answer, expectedUpdatedAt: work.updatedAt })
         }
       );
       setWork(data.work);
+      setInterviewFallbackNotice(Boolean(data.questionFallback));
       setAnswer("");
     });
 
   const composeDraft = () =>
     run("compose", async () => {
       if (!work) return;
-      const response = await fetch(`/api/public/creation/works/${work.id}/compose`, { method: "POST" });
+      const response = await fetch(`/api/public/creation/works/${work.id}/compose`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ expectedUpdatedAt: work.updatedAt })
+      });
       const data = (await response.json().catch(() => ({}))) as {
         work?: Work;
         composeNotes?: string[];
@@ -227,25 +325,44 @@ export function CreationStudio() {
       const data = await requestJson<{ work: Work }>(`/api/public/creation/works/${work.id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ title: editTitle, summary: editSummary, content: editContent })
+        body: JSON.stringify({
+          title: editTitle,
+          summary: editSummary,
+          content: editContent,
+          expectedUpdatedAt: work.updatedAt
+        })
       });
-      if (work.score !== null && editContent !== work.content) setTouchedAfterScore(true);
+      if (
+        work.score !== null
+        && (editTitle !== work.title || editSummary !== work.summary || editContent !== work.content)
+      ) {
+        setTouchedAfterScore(true);
+      }
       setWork(data.work);
     });
 
   const scoreDraft = () =>
     run("score", async () => {
       if (!work) return;
+      let workForScore = work;
       if (isDirty) {
         const saved = await requestJson<{ work: Work }>(`/api/public/creation/works/${work.id}`, {
           method: "PATCH",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ title: editTitle, summary: editSummary, content: editContent })
+          body: JSON.stringify({
+            title: editTitle,
+            summary: editSummary,
+            content: editContent,
+            expectedUpdatedAt: work.updatedAt
+          })
         });
         setWork(saved.work);
+        workForScore = saved.work;
       }
       const data = await requestJson<{ work: Work }>(`/api/public/creation/works/${work.id}/score`, {
-        method: "POST"
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ expectedUpdatedAt: workForScore.updatedAt })
       });
       setWork(data.work);
       setTouchedAfterScore(false);
@@ -259,7 +376,10 @@ export function CreationStudio() {
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ confirmAnonymousNoDelete: confirmed })
+          body: JSON.stringify({
+            confirmAnonymousNoDelete: confirmed,
+            expectedUpdatedAt: work.updatedAt
+          })
         }
       );
       setWork(data.work);
@@ -271,6 +391,7 @@ export function CreationStudio() {
     run("resume", async () => {
       const data = await requestJson<{ work: Work }>(`/api/public/creation/works/${id}`);
       setWork(data.work);
+      setInterviewFallbackNotice(false);
       setComposeNotes([]);
       setTouchedAfterScore(false);
       setShowAnonConfirm(false);
@@ -287,6 +408,7 @@ export function CreationStudio() {
   const canFinishEarly = Boolean(
     work && work.status === "INTERVIEWING" && work.pendingQuestion && work.interview.length >= work.minQuestions
   );
+  const busyProgress = busy ? BUSY_PROGRESS[busy] : null;
 
   if (loadError) {
     return (
@@ -305,12 +427,17 @@ export function CreationStudio() {
       <div className="creation-studio">
         <section className="form-card form-stack">
           <h2>开始一次共创</h2>
+          <ol className="creation-flow-guide" aria-label="共创流程">
+            <li><span>1</span><strong>选题材</strong><small>同时确定评分标尺</small></li>
+            <li><span>2</span><strong>选择写法</strong><small>接受访谈，或完全自己写</small></li>
+            <li><span>3</span><strong>编辑与核验</strong><small>评分达标后由你决定是否公开</small></li>
+          </ol>
           <p className="muted-block">
             你的内容默认私有：访谈与草稿只有你自己可见，在你主动点击发布之前，绝不会公开。
             {!isMember && quotaRemaining !== null ? (
               <>
                 {" "}未登录状态下单个 IP 最多生成 {quotaLimit} 篇（还剩 {quotaRemaining} 篇），且发布后不可删除；
-                <Link className="text-link" href="/account">使用邀请码注册账号</Link>后不受此限并可随时删除、导出自己的作品。
+                <Link className="text-link" href="/account">登录或注册账号</Link>后，新建作品不受匿名额度限制并可随时删除、导出；当前匿名作品不会转入账号。
               </>
             ) : null}
           </p>
@@ -345,7 +472,7 @@ export function CreationStudio() {
             <fieldset className="field creation-choice-field">
               <legend>2. 成文模式</legend>
               <div className="creation-option-row">
-                {(Object.keys(modes) as ModeKey[]).map((key) => (
+                {(Object.keys(modes) as InterviewModeKey[]).map((key) => (
                   <button
                     key={key}
                     type="button"
@@ -357,13 +484,18 @@ export function CreationStudio() {
                     <span className="muted">{modes[key].description}</span>
                   </button>
                 ))}
+                <Link className="creation-option-card creation-manual-card" href="/write?mode=manual">
+                  <strong>纯手写</strong>
+                  <span className="muted">从空白文档直接写，不经过 AI 访谈或自动成稿；自动保存并可导出 Markdown。</span>
+                  <span className="creation-manual-link">进入纯手写写作台 →</span>
+                </Link>
               </div>
             </fieldset>
           ) : null}
 
           {depths ? (
             <fieldset className="field creation-choice-field">
-              <legend>3. 访谈深度</legend>
+              <legend>3. 访谈深度（两档都会生成文章）</legend>
               <div className="creation-option-row">
                 {(Object.keys(depths) as DepthKey[]).map((key) => (
                   <button
@@ -392,6 +524,9 @@ export function CreationStudio() {
             />
           </div>
 
+          {busyProgress ? (
+            <TaskProgress label={busyProgress.label} stage={busyProgress.stage} active />
+          ) : null}
           {error ? <p className="muted-block creation-error" role="alert">{error}</p> : null}
           <button
             className="button"
@@ -419,7 +554,11 @@ export function CreationStudio() {
                     <span className="creation-work-title">{item.title || item.topic}</span>
                     <span className="muted">
                       {item.genre.name}
-                      {item.score !== null ? ` ｜ ${item.score} 分（门槛 ${item.genre.threshold}）` : ""}
+                      {item.score !== null
+                        ? ` ｜ ${item.score} 分（门槛 ${item.genre.threshold}）`
+                        : item.hasHistoricalScore
+                          ? " ｜ 历史评分已失效"
+                          : ""}
                     </span>
                   </button>
                   {item.status === "SHARED" && item.slug ? (
@@ -428,6 +567,18 @@ export function CreationStudio() {
                 </li>
               ))}
             </ul>
+            {worksNextCursor ? (
+              <button
+                className="button secondary"
+                type="button"
+                data-testid="creation-load-more"
+                disabled={busy !== null || worksLoadingMore}
+                aria-busy={worksLoadingMore}
+                onClick={() => void loadMoreWorks()}
+              >
+                {worksLoadingMore ? "正在加载更多作品…" : "加载更多作品"}
+              </button>
+            ) : null}
             <p className="muted">
               作品管理（导出 / 删除）在<Link className="text-link" href="/account">账户页</Link>。
             </p>
@@ -445,8 +596,27 @@ export function CreationStudio() {
         <section className="form-card form-stack">
           <div className="row between">
             <h2>访谈：{work.topic}</h2>
-            <span className="tag">{work.genre.name} ｜ 已答 {work.interview.length} / 约 {total} 题</span>
+            <span className="tag">{work.genre.name} ｜ 已答 {work.interview.length} / {total} 题</span>
           </div>
+          <TaskProgress
+            label={`访谈进度：已回答 ${work.interview.length} 题`}
+            stage={work.interview.length >= work.minQuestions ? "已达到可成稿题数" : `至少回答 ${work.minQuestions} 题`}
+            value={work.interview.length}
+            max={work.maxQuestions}
+          />
+          {work.content.trim() ? (
+            <p className="muted-block">
+              上一次草稿仍安全保留。请完成下面的事实核验说明；重新成稿成功前，原草稿不会被覆盖或公开。
+            </p>
+          ) : null}
+          {interviewFallbackNotice ? (
+            <p className="muted-block" role="status">
+              写作模型暂时不可用，当前问题来自内置访谈提纲。你的回答仍会正常保存；服务恢复后可继续让 AI 成稿或重新生成草稿。
+            </p>
+          ) : null}
+          {busyProgress ? (
+            <TaskProgress label={busyProgress.label} stage={busyProgress.stage} active />
+          ) : null}
           <div className="creation-chat" aria-live="polite">
             {work.interview.map((entry, index) => (
               <div key={index}>
@@ -462,7 +632,7 @@ export function CreationStudio() {
 
           {interviewFinished ? (
             <>
-              <p className="muted-block">访谈完成。AI 会先生成一份可编辑的草稿——内容经你过目、修改并主动发布后才会公开。</p>
+              <p className="muted-block">访谈完成。AI 会按你选择的深度生成一篇可编辑文章——内容经你过目、修改并主动发布后才会公开。</p>
               {error ? <p className="muted-block creation-error" role="alert">{error}</p> : null}
               <button className="button" type="button" disabled={busy !== null} onClick={composeDraft}>
                 {busy === "compose" ? "正在成稿…" : "生成可编辑草稿"}
@@ -509,7 +679,7 @@ export function CreationStudio() {
           </p>
           <div className="row-actions">
             {work.slug ? <Link className="button" href={`/community/${work.slug}`}>查看发布页</Link> : null}
-            <a className="button secondary" href={`/api/public/creation/works/${work.id}/export`}>导出 Markdown</a>
+            <a className="button secondary" href={`/api/public/creation/works/${work.id}/export`} download>导出 Markdown</a>
             <button className="button secondary" type="button" onClick={() => setWork(null)}>返回列表</button>
           </div>
         </section>
@@ -519,19 +689,46 @@ export function CreationStudio() {
 
   // ============ 第三步：草稿编辑 + 评分 + 发布 ============
   const detail = work.scoreDetail;
-  const scoreValid = work.score !== null && !touchedAfterScore && !isDirty;
+  const scoreValid = work.scoreCurrent && work.score !== null && !touchedAfterScore && !isDirty;
+  const isManualWork = work.mode === "MANUAL";
+  const moderationSurfaceDirty =
+    editTitle.trim() !== work.title.trim()
+    || editSummary.trim() !== work.summary.trim()
+    || editContent.trim() !== work.content.trim();
   return (
-    <div className="creation-studio">
+    <div className="creation-studio" data-testid={isManualWork ? "manual-creative-work" : undefined}>
       <section className="form-card form-stack">
         <div className="row between">
-          <h2>可编辑草稿</h2>
+          <h2>{isManualWork ? "纯手写作品草稿" : "可编辑草稿"}</h2>
           <span className="tag">{work.genre.name} ｜ 公开门槛 ≥ {work.genre.threshold} 分</span>
         </div>
+        {busyProgress ? (
+          <TaskProgress label={busyProgress.label} stage={busyProgress.stage} active />
+        ) : null}
         <p className="muted-block">
-          这是 AI 根据访谈生成的草稿，不会直接存档或公开——内容始终经你本人过目修改，评分达标后由你决定是否发布。
+          {isManualWork
+            ? "这是你完全手写的作品，完成与交接过程没有调用 AI。你可继续修改；只有主动点击「提交 AI 评分」才会进行评审，达标后仍由你决定是否公开。"
+            : "这是 AI 根据访谈生成的草稿，不会直接存档或公开——内容始终经你本人过目修改，评分达标后由你决定是否发布。"}
         </p>
 
-        {composeNotes.length > 0 ? (
+        {work.hasHistoricalScore ? (
+          <p className="muted-block" role="status">
+            历史评分已失效，不能代表当前内容达到当前题材门槛；请重新提交 AI 评分。
+          </p>
+        ) : null}
+
+        {work.moderationReason ? (
+          <div className="muted-block creation-error" role="status" data-testid="creation-moderation-lock">
+            <strong>
+              {work.moderationBlocked && !moderationSurfaceDirty
+                ? "当前标题、摘要与正文仍是被下架版本，不能评分或发布。"
+                : "这篇作品曾被下架；当前修改可提交，但服务端仍会阻止恢复被下架的原版本。"}
+            </strong>
+            <br />治理原因：{work.moderationReason}
+          </div>
+        ) : null}
+
+        {!isManualWork && composeNotes.length > 0 ? (
           <div className="creation-compose-notes" role="status">
             <strong>成稿审校提示</strong>
             <ul>
@@ -572,25 +769,36 @@ export function CreationStudio() {
           <button className="button secondary" type="button" disabled={busy !== null || !isDirty} onClick={saveDraft}>
             {busy === "save" ? "保存中…" : isDirty ? "保存修改" : "已保存"}
           </button>
+          {!isManualWork ? (
+            <button
+              className="button secondary"
+              type="button"
+              disabled={busy !== null}
+              onClick={() => {
+                // 重新成稿会用 AI 输出覆盖当前草稿；有手动修改时先确认。
+                if (isDirty && !window.confirm("重新生成会覆盖当前未保存的修改，确定继续吗？")) return;
+                void composeDraft();
+              }}
+            >
+              {busy === "compose" ? "重新成稿…" : "重新生成草稿"}
+            </button>
+          ) : null}
+          <a className="button secondary" href={`/api/public/creation/works/${work.id}/export`} download>导出 Markdown</a>
           <button
-            className="button secondary"
+            className="button"
             type="button"
-            disabled={busy !== null}
-            onClick={() => {
-              // 重新成稿会用 AI 输出覆盖当前草稿；有手动修改时先确认。
-              if (isDirty && !window.confirm("重新生成会覆盖当前未保存的修改，确定继续吗？")) return;
-              void composeDraft();
-            }}
+            disabled={
+              busy !== null
+              || !editContent.trim()
+              || (work.moderationBlocked && !moderationSurfaceDirty)
+            }
+            onClick={scoreDraft}
           >
-            {busy === "compose" ? "重新成稿…" : "重新生成草稿"}
-          </button>
-          <a className="button secondary" href={`/api/public/creation/works/${work.id}/export`}>导出 Markdown</a>
-          <button className="button" type="button" disabled={busy !== null || !editContent.trim()} onClick={scoreDraft}>
             {busy === "score" ? "AI 评审中…" : work.score === null ? "提交 AI 评分" : "重新评分"}
           </button>
         </div>
         {(touchedAfterScore || (isDirty && work.score !== null)) ? (
-          <p className="muted">内容在评分后有改动，发布前需要重新评分。</p>
+          <p className="muted">标题、摘要或正文在评分后有改动，发布前需要重新评分。</p>
         ) : null}
       </section>
 
@@ -639,7 +847,7 @@ export function CreationStudio() {
                   />
                   <span>
                     我了解：未登录发布的作品公开后<strong>不可删除</strong>。若想保留删除权，请先到
-                    <Link className="text-link" href="/account">账户页</Link>注册（当前草稿会自动归入新账号）。
+                    <Link className="text-link" href="/account">账户页</Link>登录或注册后新建作品；当前匿名草稿不会转入账号。
                   </span>
                 </label>
                 <div className="row-actions">
@@ -677,7 +885,9 @@ export function CreationStudio() {
           ) : (
             <p className="muted">
               {detail.publishable
-                ? "内容有改动，重新评分通过后即可发布。"
+                ? work.scoreRubricCurrent
+                  ? "内容有改动，重新评分通过后即可发布。"
+                  : "题材评分标尺或篇幅预期已更新，请按当前标尺重新评分。"
                 : "达到门槛后这里会出现发布按钮。参考上面的反馈修改，然后重新评分。"}
             </p>
           )}

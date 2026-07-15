@@ -36,8 +36,11 @@ export function QuickStylePanel({ defaultUi = "classic" }: { defaultUi?: string 
     : prefs.ui;
 
   useEffect(() => {
-    setQs(readQuickStyle());
-    setHydrated(true);
+    const timer = window.setTimeout(() => {
+      setQs(readQuickStyle());
+      setHydrated(true);
+    }, 0);
+    return () => window.clearTimeout(timer);
   }, []);
 
   useDismissableOverlay(open, rootRef, () => setOpen(false), triggerRef);

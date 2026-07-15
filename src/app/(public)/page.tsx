@@ -25,7 +25,7 @@ const getHomePageData = unstable_cache(
     const weekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
     const [posts, settings, publishedPostCount, weekPostCount] = await Promise.all([
       prisma.post.findMany({
-        where: { status: "PUBLISHED" },
+        where: { status: "PUBLISHED", publicationBlockedReason: null },
         orderBy: [{ sortOrder: "asc" }, { publishedAt: "desc" }],
         take: 6,
         select: {
@@ -42,8 +42,8 @@ const getHomePageData = unstable_cache(
         }
       }),
       prisma.siteSettings.findUnique({ where: { id: "site" }, select: { description: true } }),
-      prisma.post.count({ where: { status: "PUBLISHED" } }),
-      prisma.post.count({ where: { status: "PUBLISHED", publishedAt: { gte: weekAgo } } })
+      prisma.post.count({ where: { status: "PUBLISHED", publicationBlockedReason: null } }),
+      prisma.post.count({ where: { status: "PUBLISHED", publicationBlockedReason: null, publishedAt: { gte: weekAgo } } })
     ]);
     return {
       posts: posts.map((post) => ({

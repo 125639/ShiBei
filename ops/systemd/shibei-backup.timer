@@ -1,0 +1,11 @@
+[Unit]
+Description=Run ShiBei backup every day
+
+[Timer]
+OnCalendar=*-*-* 04:30:00
+RandomizedDelaySec=10m
+Persistent=true
+Unit=shibei-backup.service
+
+[Install]
+WantedBy=timers.target

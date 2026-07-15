@@ -2,6 +2,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { VideoType } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
+import { generationPublicationBlockReason } from "@/lib/publication-policy";
 import { ensureUploadDirs } from "@/lib/storage";
 import { parseSyncZip } from "./export";
 import {
@@ -28,6 +29,7 @@ export type ImportResult = {
  */
 export async function importFromZip(buffer: Buffer): Promise<ImportResult> {
   const { bundle, zip } = parseSyncZip(buffer);
+  validateBundleBeforeWrite(bundle);
   const result: ImportResult = {
     postsUpserted: 0,
     postsSkipped: 0,
@@ -43,11 +45,32 @@ export async function importFromZip(buffer: Buffer): Promise<ImportResult> {
   // 1) 落盘视频本地文件
   const publicDir = path.resolve(process.cwd(), "public");
   const uploadsRoot = path.resolve(publicDir, "uploads");
+  const payloadByLocalEntry = new Map<string, SyncVideoPayload>();
+  for (const video of bundle.videos) {
+    if (!video.localPath) continue;
+    const rel = video.localPath.replace(/^\/+/, "");
+    if (!/^uploads\/video\/[A-Za-z0-9._-]+$/.test(rel)) continue;
+    if (payloadByLocalEntry.has(rel)) throw new Error(`多个视频引用同一同步文件: ${rel}`);
+    payloadByLocalEntry.set(rel, video);
+  }
+  const existingVideos = bundle.videos.length
+    ? await prisma.video.findMany({
+        where: { id: { in: bundle.videos.map((video) => video.id) } },
+        select: { id: true, updatedAt: true }
+      })
+    : [];
+  const existingVideoById = new Map(existingVideos.map((video) => [video.id, video]));
   let fileEntries = 0;
   let totalFileBytes = 0;
   for (const entry of zip.getEntries()) {
     if (entry.isDirectory) continue;
     if (!entry.entryName.startsWith("uploads/")) continue;
+    const incomingVideo = payloadByLocalEntry.get(entry.entryName);
+    if (!incomingVideo) {
+      result.filesSkipped += 1;
+      result.errors.push(`跳过未被视频记录引用的文件: ${entry.entryName}`);
+      continue;
+    }
     fileEntries += 1;
     if (fileEntries > MAX_SYNC_FILE_ENTRIES) {
       result.filesSkipped += 1;
@@ -68,11 +91,27 @@ export async function importFromZip(buffer: Buffer): Promise<ImportResult> {
     // 双层防御:即使 entryName 通过了前缀过滤,path.resolve 后仍要落在 uploadsRoot 内,
     // 防止 "uploads/../../etc/passwd" / 绝对路径 / 反斜线注入等绕过。
     const dest = path.resolve(publicDir, entry.entryName);
-    if (dest !== uploadsRoot && !dest.startsWith(uploadsRoot + path.sep)) {
+    if (
+      !/^uploads\/video\/[A-Za-z0-9._-]+$/.test(entry.entryName)
+      || (dest !== uploadsRoot && !dest.startsWith(uploadsRoot + path.sep))
+    ) {
       result.filesSkipped += 1;
       result.errors.push(`跳过不安全路径: ${entry.entryName}`);
       continue;
     }
+    const existingVideo = existingVideoById.get(incomingVideo.id);
+    const incomingUpdatedAt = new Date(incomingVideo.updatedAt);
+    if (
+      existingVideo
+      && incomingUpdatedAt <= existingVideo.updatedAt
+      && await regularFileExists(dest)
+    ) {
+      // An older/equal package must never replace bytes belonging to a newer
+      // local video record. Missing bytes may still be restored below.
+      result.filesSkipped += 1;
+      continue;
+    }
+    let temporaryPath = "";
     try {
       const data = entry.getData();
       if (data.length > MAX_SYNC_SINGLE_FILE_BYTES) {
@@ -86,10 +125,17 @@ export async function importFromZip(buffer: Buffer): Promise<ImportResult> {
         continue;
       }
       await fs.mkdir(path.dirname(dest), { recursive: true });
-      await fs.writeFile(dest, data);
+      temporaryPath = path.join(
+        path.dirname(dest),
+        `.sync-${process.pid}-${Date.now()}-${Math.random().toString(16).slice(2)}.tmp`
+      );
+      await fs.writeFile(temporaryPath, data, { flag: "wx", mode: 0o640 });
+      await fs.rename(temporaryPath, dest);
+      temporaryPath = "";
       totalFileBytes += data.length;
       result.filesWritten += 1;
     } catch (err) {
+      if (temporaryPath) await fs.unlink(temporaryPath).catch(() => undefined);
       result.filesSkipped += 1;
       result.errors.push(`写入文件 ${entry.entryName} 失败: ${err instanceof Error ? err.message : String(err)}`);
     }
@@ -145,6 +191,67 @@ export async function importFromZip(buffer: Buffer): Promise<ImportResult> {
   return result;
 }
 
+function validateBundleBeforeWrite(bundle: SyncBundle) {
+  const postIds = new Set<string>();
+  const slugs = new Set<string>();
+  for (const post of bundle.posts) {
+    if (!post || typeof post !== "object" || !cleanId(post.id) || !cleanText(post.slug, 240)) {
+      throw new Error("同步包包含无效 Post id/slug");
+    }
+    if (postIds.has(post.id) || slugs.has(post.slug)) throw new Error(`同步包包含重复 Post: ${post.slug}`);
+    postIds.add(post.id);
+    slugs.add(post.slug);
+    if (!cleanText(post.title, 500) || typeof post.summary !== "string" || typeof post.content !== "string") {
+      throw new Error(`Post ${post.slug} 的标题或正文格式无效`);
+    }
+    if (!Array.isArray(post.tags) || !Array.isArray(post.topics)) throw new Error(`Post ${post.slug} 的关联格式无效`);
+    if (!validDate(post.createdAt) || !validDate(post.updatedAt) || (post.publishedAt && !validDate(post.publishedAt))) {
+      throw new Error(`Post ${post.slug} 包含无效时间`);
+    }
+    if (post.translatedAt && !validDate(post.translatedAt)) throw new Error(`Post ${post.slug} 的翻译时间无效`);
+    if (!["DRAFT", "PUBLISHED", "ARCHIVED"].includes(post.status)) throw new Error(`Post ${post.slug} 的状态无效`);
+    if (!["SINGLE_ARTICLE", "DAILY_DIGEST", "WEEKLY_ROUNDUP"].includes(post.kind)) {
+      throw new Error(`Post ${post.slug} 的类型无效`);
+    }
+  }
+
+  const videoIds = new Set<string>();
+  for (const video of bundle.videos) {
+    if (!video || typeof video !== "object" || !cleanId(video.id) || !cleanText(video.title, 500)) {
+      throw new Error("同步包包含无效 Video id/title");
+    }
+    if (videoIds.has(video.id)) throw new Error(`同步包包含重复 Video: ${video.id}`);
+    videoIds.add(video.id);
+    if (!validDate(video.createdAt) || !validDate(video.updatedAt)) throw new Error(`Video ${video.id} 包含无效时间`);
+    if (!Object.values(VideoType).includes(video.type)) throw new Error(`Video ${video.id} 的类型无效`);
+    if (video.localPath) {
+      const rel = video.localPath.replace(/^\/+/, "");
+      if (!/^uploads\/video\/[A-Za-z0-9._-]+$/.test(rel)) throw new Error(`Video ${video.id} 的本地路径不安全`);
+    }
+  }
+}
+
+function cleanId(value: unknown): value is string {
+  return typeof value === "string" && value.length >= 1 && value.length <= 200 && !/[\u0000-\u001f\u007f]/.test(value);
+}
+
+function cleanText(value: unknown, maxLength: number): value is string {
+  return typeof value === "string" && value.trim().length > 0 && value.length <= maxLength;
+}
+
+function validDate(value: unknown): value is string {
+  return typeof value === "string" && !Number.isNaN(new Date(value).getTime());
+}
+
+async function regularFileExists(filePath: string) {
+  try {
+    const stat = await fs.lstat(filePath);
+    return stat.isFile() && !stat.isSymbolicLink();
+  } catch {
+    return false;
+  }
+}
+
 async function upsertPost(payload: SyncPostPayload): Promise<"upserted" | "skipped"> {
   if (!payload?.id || !payload.slug) {
     throw new Error("post payload 缺少 id 或 slug");
@@ -154,6 +261,14 @@ async function upsertPost(payload: SyncPostPayload): Promise<"upserted" | "skipp
     throw new Error("post payload 的 updatedAt 不是合法 ISO 时间");
   }
 
+  // Older peers do not carry the structured publication block. Preserve sync
+  // compatibility while preventing a legacy diagnostic/fallback from becoming
+  // public merely because its payload says PUBLISHED.
+  const publicationBlockedReason = generationPublicationBlockReason({
+    summary: payload.summary,
+    content: payload.content,
+  });
+  const status = payload.status === "PUBLISHED" && publicationBlockedReason ? "DRAFT" : payload.status;
   const baseData = {
     slug: payload.slug,
     title: payload.title,
@@ -162,23 +277,28 @@ async function upsertPost(payload: SyncPostPayload): Promise<"upserted" | "skipp
     summaryEn: payload.summaryEn,
     content: payload.content,
     contentEn: payload.contentEn,
-    status: payload.status,
+    status,
+    publicationBlockedReason,
     kind: payload.kind,
     sourceUrl: payload.sourceUrl,
     sortOrder: payload.sortOrder,
     translatedAt: payload.translatedAt ? new Date(payload.translatedAt) : null,
     createdAt: new Date(payload.createdAt),
     updatedAt: incomingUpdatedAt,
-    publishedAt: payload.publishedAt ? new Date(payload.publishedAt) : null,
+    publishedAt: status === "PUBLISHED" && payload.publishedAt ? new Date(payload.publishedAt) : null,
   };
 
   return retryUniqueConflict(() =>
     prisma.$transaction(async (tx) => {
       const existingPost = await tx.post.findFirst({
         where: { OR: [{ id: payload.id }, { slug: payload.slug }] },
-        select: { id: true, updatedAt: true },
+        select: { id: true, updatedAt: true, pendingRevision: true },
       });
       if (existingPost && incomingUpdatedAt <= existingPost.updatedAt) return "skipped";
+      // A local pending revision is an explicit editorial lock. Applying a
+      // remote live snapshot underneath it would make the later publish action
+      // overwrite a version the editor never reviewed.
+      if (existingPost?.pendingRevision !== null && existingPost?.pendingRevision !== undefined) return "skipped";
 
       // 关联准备和正文写入必须处于同一事务，避免正文成功但关系只写入一半。
       const tagConnects = await Promise.all(

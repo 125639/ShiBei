@@ -60,7 +60,9 @@ export async function loadStats(window: StatsWindow = "week", opts: { publicOnly
   const weekStart = new Date(todayStart.getTime() - 6 * DAY_MS);
 
   const range = window === "today" ? todayStart : window === "week" ? weekStart : new Date(0);
-  const postVisibilityWhere = opts.publicOnly ? { status: "PUBLISHED" as const } : {};
+  const postVisibilityWhere = opts.publicOnly
+    ? { status: "PUBLISHED" as const, publicationBlockedReason: null }
+    : {};
   const videoVisibilityWhere = opts.publicOnly ? publicVideoWhere : {};
 
   const [
@@ -80,7 +82,7 @@ export async function loadStats(window: StatsWindow = "week", opts: { publicOnly
     topicCounts
   ] = await Promise.all([
     prisma.post.count({ where: postVisibilityWhere }),
-    prisma.post.count({ where: { status: "PUBLISHED" } }),
+    prisma.post.count({ where: { status: "PUBLISHED", publicationBlockedReason: null } }),
     opts.publicOnly ? Promise.resolve(0) : prisma.post.count({ where: { status: "DRAFT" } }),
     prisma.video.count({ where: videoVisibilityWhere }),
     prisma.source.count(),

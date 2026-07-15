@@ -5,8 +5,10 @@ import { NextResponse } from "next/server";
 import { requireAdmin } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { redirectTo } from "@/lib/redirect";
+import { rejectCrossOriginMutation } from "@/lib/request-origin";
 import { MUSIC_DIR, ensureUploadDirs } from "@/lib/storage";
 import { writeUploadedFile } from "@/lib/upload-stream";
+import { uploadedMediaSignatureProblem } from "@/lib/upload-signatures";
 import { resolveUploadsPath } from "@/lib/uploads-path";
 
 export const dynamic = "force-dynamic";
@@ -15,6 +17,8 @@ const ALLOWED_EXT = new Set([".mp3", ".m4a", ".aac", ".ogg", ".wav"]);
 const MAX_BYTES = 30 * 1024 * 1024; // 30MB per track
 
 export async function POST(request: Request) {
+  const denied = rejectCrossOriginMutation(request);
+  if (denied) return denied;
   await requireAdmin();
   await ensureUploadDirs();
   const form = await request.formData();
@@ -35,6 +39,8 @@ export async function POST(request: Request) {
   if (!ALLOWED_EXT.has(ext)) {
     return NextResponse.json({ error: `不支持的格式：${ext}` }, { status: 400 });
   }
+  const signatureProblem = await uploadedMediaSignatureProblem(file, ext, "music");
+  if (signatureProblem) return NextResponse.json({ error: signatureProblem }, { status: 400 });
 
   const id = crypto.randomBytes(8).toString("hex");
   const fileName = `${id}${ext}`;
@@ -44,42 +50,43 @@ export async function POST(request: Request) {
   const filePath = `/uploads/music/${fileName}`;
   const finalTitle = title || originalName.replace(/\.[^.]+$/, "");
 
-  await (prisma as unknown as {
-    music: { create: (args: unknown) => Promise<unknown> };
-  }).music.create({
-    data: {
-      title: finalTitle,
-      artist,
-      filePath,
-      fileSizeBytes: bytesWritten,
-      sortOrder: Number.isFinite(sortOrder) ? Math.floor(sortOrder) : 0,
-      isEnabled: true
-    }
-  });
+  try {
+    await prisma.music.create({
+      data: {
+        title: finalTitle,
+        artist,
+        filePath,
+        fileSizeBytes: bytesWritten,
+        sortOrder: Number.isFinite(sortOrder) ? Math.floor(sortOrder) : 0,
+        isEnabled: true
+      }
+    });
+  } catch (error) {
+    // The file is not a durable upload until its metadata row commits.
+    await fs.unlink(abs).catch(() => undefined);
+    throw error;
+  }
 
   return redirectTo("/admin/music");
 }
 
 export async function DELETE(request: Request) {
+  const denied = rejectCrossOriginMutation(request);
+  if (denied) return denied;
   await requireAdmin();
   const url = new URL(request.url);
   const id = url.searchParams.get("id");
   if (!id) return NextResponse.json({ error: "missing id" }, { status: 400 });
 
-  const track = await (prisma as unknown as {
-    music: {
-      findUnique: (args: unknown) => Promise<{ filePath: string } | null>;
-      delete: (args: unknown) => Promise<unknown>;
-    };
-  }).music.findUnique({ where: { id } });
+  const track = await prisma.music.findUnique({ where: { id }, select: { filePath: true } });
   if (!track) return NextResponse.json({ ok: true });
 
+  // Delete metadata first. If unlink then fails, only an inert orphan remains;
+  // never leave a visible track row pointing at a file already removed.
+  await prisma.music.delete({ where: { id } });
   if (track.filePath) {
     const abs = resolveUploadsPath(track.filePath);
     if (abs) await fs.unlink(abs).catch(() => undefined);
   }
-  await (prisma as unknown as {
-    music: { delete: (args: unknown) => Promise<unknown> };
-  }).music.delete({ where: { id } });
   return NextResponse.json({ ok: true });
 }

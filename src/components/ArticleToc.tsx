@@ -38,7 +38,8 @@ export function ArticleToc({
   useEffect(() => {
     didHashScroll.current = false;
     pin.current.release();
-    setActiveId("");
+    const timer = window.setTimeout(() => setActiveId(""), 0);
+    return () => window.clearTimeout(timer);
   }, [pathname]);
 
   // 卸载时释放点击锁定挂在 window 上的监听(pin 对象引用稳定,cleanup 读到的是最新 release)
@@ -78,10 +79,13 @@ export function ArticleToc({
 
   useEffect(() => {
     if (!enabled) {
-      setItems([]);
-      return;
+      const clearTimer = window.setTimeout(
+        () => setItems((current) => (current.length > 0 ? [] : current)),
+        0
+      );
+      return () => window.clearTimeout(clearTimer);
     }
-    scan();
+    const initialScanTimer = window.setTimeout(scan, 0);
     // 容器还没渲染（页面流式到达/尚在列表页）时观察 body 等它出现；
     // 一旦有容器就只观察容器，避免整页级别的无谓回调。
     const container = document.querySelector(containerSelector);
@@ -93,6 +97,7 @@ export function ArticleToc({
     observer.observe(container ?? document.body, { childList: true, subtree: true });
     return () => {
       observer.disconnect();
+      window.clearTimeout(initialScanTimer);
       clearTimeout(timer);
     };
   }, [scan, containerSelector, pathname, enabled]);
@@ -165,7 +170,7 @@ export function ArticleToc({
     let lastY = window.scrollY;
     let still = 0;
     let corrected = false;
-    const deadline = performance.now() + 2600;
+    let deadline: number | null = null;
     const teardown: Array<() => void> = [];
     const release = () => {
       pin.current.id = "";
@@ -189,8 +194,9 @@ export function ArticleToc({
       () => window.removeEventListener("keydown", onKeydown)
     );
 
-    const settle = () => {
-      if (performance.now() > deadline) {
+    const settle = (timestamp: number) => {
+      if (deadline === null) deadline = timestamp + 2600;
+      if (timestamp > deadline) {
         release();
         return;
       }

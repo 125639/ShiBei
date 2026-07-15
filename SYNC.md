@@ -16,7 +16,7 @@ ShiBei 在拆分为「前端 / 后端 / 完整版」三种形态后,后端产出
 APP_MODE              full | backend | frontend
 SYNC_MODE             auto | manual    (frontend 用,默认 auto)
 SYNC_INTERVAL_MINUTES 15                (frontend + auto 模式下 sync-worker 拉取间隔)
-BACKEND_API_URL       http://backend:3000   (frontend 必填)
+BACKEND_API_URL       https://backend.example.com   (frontend 必填；跨机禁止明文 HTTP)
 SYNC_TOKEN            <长随机字符串>          (frontend / backend 双方相同)
 SYNC_MAX_ZIP_MB       同步包大小上限。默认: frontend 128,其他形态 512。
                       ZIP 全量缓冲进内存,上限必须小于容器内存。
@@ -106,5 +106,18 @@ frontend 模式下,以下端点会把请求(含 body 流)透明转发到 `${BACK
   - 用 `openssl rand -hex 32` 生成
   - 在 backend 与 frontend 的 `.env` 各填一份(同一个值)
   - 不要提交到 git
-- backend 应用建议放在内网或反代后,只暴露给 frontend。
+- `BACKEND_API_URL` 同时承载 Bearer `SYNC_TOKEN` 和由后端模型密钥执行的 AI 请求。**跨机不得使用
+  `http://<公网 IP>:3000`**；中间人可直接复制 token 并消耗模型额度。
+- 推荐的 HTTPS 形式：`BACKEND_API_URL=https://backend.example.com`，在 backend 前放 Caddy/Nginx，证书由 ACME 自动续期，
+  防火墙可再只允许 frontend 出口 IP。
+- 不想公开 backend 时，可在 frontend 上建立 SSH 隧道：
+
+  ```bash
+  ssh -NT -L 127.0.0.1:3300:127.0.0.1:3000 backend-user@backend.example.com
+  # frontend .env
+  BACKEND_API_URL=http://127.0.0.1:3300
+  ```
+
+  生产中应用 systemd 保活该隧道，或使用 WireGuard/Tailscale 并配置防火墙只允许两台机器互通。
+- backend 应用应放在 HTTPS 反代或上述私网隧道后，只暴露给 frontend。
 - 前端从 backend 拉到的 ZIP 内容是受信任的(由后端管理员发布),import 流程不做额外内容审计。

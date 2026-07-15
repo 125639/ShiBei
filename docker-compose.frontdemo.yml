@@ -8,6 +8,12 @@
 # 销毁:
 #   docker compose -p video-frontdemo -f docker-compose.frontdemo.yml down -v
 
+x-shibei-logging: &shibei-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "5"
+
 services:
   postgres-fro:
     image: postgres:16-alpine
@@ -24,6 +30,10 @@ services:
       timeout: 5s
       retries: 6
     mem_limit: 192m
+    pids_limit: 150
+    security_opt:
+      - no-new-privileges:true
+    logging: *shibei-logging
     restart: unless-stopped
 
   frontend:
@@ -56,6 +66,10 @@ services:
     volumes:
       - app-uploads-fro:/app/public/uploads
     mem_limit: 384m
+    pids_limit: 384
+    security_opt:
+      - no-new-privileges:true
+    logging: *shibei-logging
     restart: unless-stopped
     networks:
       default:

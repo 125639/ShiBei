@@ -1,12 +1,13 @@
-import { chromium, type Browser, type Page } from "playwright";
+import { chromium, type Browser } from "playwright";
 import TurndownService from "turndown";
 import {
   InvalidSourceMaterialError,
   isRetryableSourceStatus,
   RetryableSourceFetchError
 } from "./source-quality";
-import { assertSafeResolvedFetchUrl, isHttpUrl, isSafeResolvedFetchUrl } from "./url-safety";
+import { assertSafeResolvedFetchUrl } from "./url-safety";
 import { VIDEO_MEDIA_URL_RE } from "./video-policy";
+import { createSafeScrapingContext, SAFE_CHROMIUM_LAUNCH_ARGS } from "./browser-egress";
 
 // 注意 octet-stream 不能无条件算媒体：字体（.woff2/.ttf）、下载文件等也常用
 // 这个 content-type 返回，曾把财新/AP News 的网页字体嗅探成"页面视频流"。
@@ -31,6 +32,7 @@ function sniffedMediaScore(media: SniffedMedia) {
 // 长驻 worker 反复冷启动 Chromium 既慢又费内存：改为模块级懒加载单例，
 // 每次抓取只开独立 context（抓完关 context 不关 browser）。
 let browserPromise: Promise<Browser> | null = null;
+const DEFAULT_SCRAPE_BROWSER_SHUTDOWN_TIMEOUT_MS = 5_000;
 
 async function getBrowser(): Promise<Browser> {
   const existing = browserPromise;
@@ -44,7 +46,7 @@ async function getBrowser(): Promise<Browser> {
   }
   // 首次或浏览器已断开（崩溃）时重新 launch。缓存 launch 的 promise，
   // 让并发抓取复用同一次启动；launch 失败必须清缓存，否则一次失败会永久卡死后续所有抓取。
-  const launchPromise = chromium.launch({ headless: true });
+  const launchPromise = chromium.launch({ headless: true, args: [...SAFE_CHROMIUM_LAUNCH_ARGS] });
   browserPromise = launchPromise;
   try {
     return await launchPromise;
@@ -54,15 +56,53 @@ async function getBrowser(): Promise<Browser> {
   }
 }
 
+/**
+ * Close the module-level browser used by one-shot callers such as maintenance
+ * scripts. Normal workers must not call this after each scrape: clearing the
+ * cached promise first lets any later scrape lazily launch a fresh singleton
+ * without waiting on a stale Playwright connection.
+ */
+export async function shutdownScrapeBrowser(
+  timeoutMs = DEFAULT_SCRAPE_BROWSER_SHUTDOWN_TIMEOUT_MS
+) {
+  const activeBrowser = browserPromise;
+  if (!activeBrowser) return;
+  if (browserPromise === activeBrowser) browserPromise = null;
+
+  const boundedTimeoutMs = Number.isFinite(timeoutMs)
+    ? Math.max(1, Math.floor(timeoutMs))
+    : DEFAULT_SCRAPE_BROWSER_SHUTDOWN_TIMEOUT_MS;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const shutdown = activeBrowser
+    .then(async (browser) => {
+      if (browser.isConnected()) {
+        await browser.close({ reason: "ShiBei one-shot scraper shutdown" });
+      }
+    })
+    // Observe both a late launch rejection and a late close rejection when the
+    // deadline wins the race; neither should become an unhandled rejection.
+    .catch(() => undefined);
+  const timeout = new Promise<void>((resolve) => {
+    timer = setTimeout(() => {
+      console.warn(`[scrape] shared Chromium shutdown exceeded ${boundedTimeoutMs}ms; continuing`);
+      resolve();
+    }, boundedTimeoutMs);
+  });
+  await Promise.race([shutdown, timeout]);
+  if (timer) clearTimeout(timer);
+}
+
 export async function scrapeWebPage(url: string) {
   // 拒绝 file://、loopback、私网、云 metadata 等，避免 SSRF 通过 Playwright 触达内部服务。
   await assertSafeResolvedFetchUrl(url);
   const browser = await getBrowser();
-  const context = await browser.newContext({ viewport: { width: 1440, height: 1200 } });
+  const safeContext = await createSafeScrapingContext(browser, {
+    viewport: { width: 1440, height: 1200 }
+  });
+  const context = safeContext.context;
   const sniffed = new Map<string, SniffedMedia>();
   try {
     const page = await context.newPage();
-    await installSafeRequestGuard(page);
 
     // 被动嗅探网络响应：现代新闻站把视频 URL 放在 JS-注入的播放器配置里,DOM 扫不到。
     // 这里在页面加载过程中收集所有 content-type 是 video/* 或 URL 命中 .mp4/.m3u8 的请求,
@@ -214,6 +254,51 @@ export async function scrapeWebPage(url: string) {
         images: collectImages(cleanRoot)
       };
 
+      /**
+       * og:image / twitter:image 是页面自己的编辑配图，几乎总是与页面主题
+       * 一致，比正文内联图更可信；排在候选首位并带专用标记供打分器加权。
+       */
+      function socialCardImages(): Array<{ src: string; alt: string; width: number | null; height: number | null; domDepth: number; parentMarker: string }> {
+        const out: Array<{ src: string; alt: string; width: number | null; height: number | null; domDepth: number; parentMarker: string }> = [];
+        const seen = new Set<string>();
+        const selectors = [
+          'meta[property="og:image"]',
+          'meta[property="og:image:url"]',
+          'meta[property="og:image:secure_url"]',
+          'meta[name="twitter:image"]',
+          'meta[name="twitter:image:src"]'
+        ];
+        for (const selector of selectors) {
+          for (const meta of Array.from(document.querySelectorAll(selector))) {
+            const raw = (meta.getAttribute("content") || "").trim();
+            if (!raw) continue;
+            let absolute = "";
+            try {
+              absolute = new URL(raw, location.href).toString();
+            } catch {
+              continue;
+            }
+            if (!/^https?:\/\//i.test(absolute) || seen.has(absolute)) continue;
+            seen.add(absolute);
+            out.push({
+              src: absolute,
+              alt: (document.querySelector('meta[property="og:image:alt"], meta[name="twitter:image:alt"]')?.getAttribute("content") || "").replace(/\s+/g, " ").trim(),
+              width: numberFromMeta('meta[property="og:image:width"]'),
+              height: numberFromMeta('meta[property="og:image:height"]'),
+              domDepth: 0,
+              parentMarker: "og-image"
+            });
+            if (out.length >= 2) return out;
+          }
+        }
+        return out;
+      }
+
+      function numberFromMeta(selector: string): number | null {
+        const value = Number(document.querySelector(selector)?.getAttribute("content") || "");
+        return Number.isFinite(value) && value > 0 ? Math.floor(value) : null;
+      }
+
       function pickContentRoot(candidateSelectors: string[]): HTMLElement {
         const seen = new Set<Element>();
         const candidates: HTMLElement[] = [];
@@ -264,6 +349,11 @@ export async function scrapeWebPage(url: string) {
       function collectImages(rootEl: HTMLElement): Array<{ src: string; alt: string; width: number | null; height: number | null; domDepth: number; parentMarker: string }> {
         const out: Array<{ src: string; alt: string; width: number | null; height: number | null; domDepth: number; parentMarker: string }> = [];
         const seen = new Set<string>();
+        for (const card of socialCardImages()) {
+          if (seen.has(card.src)) continue;
+          seen.add(card.src);
+          out.push(card);
+        }
         for (const img of Array.from(rootEl.querySelectorAll("img"))) {
           const src = imageSrc(img);
           if (!src || seen.has(src) || shouldSkipImage(img, src)) continue;
@@ -393,29 +483,6 @@ export async function scrapeWebPage(url: string) {
     };
   } finally {
     // 只关本次 context，保留单例 browser 供后续抓取复用。
-    await context.close().catch(() => undefined);
+    await safeContext.close();
   }
-}
-
-async function installSafeRequestGuard(page: Page) {
-  await page.route("**/*", async (route) => {
-    const requestUrl = route.request().url();
-    try {
-      if (!isHttpUrl(requestUrl)) {
-        if (requestUrl.startsWith("data:") || requestUrl.startsWith("blob:") || requestUrl === "about:blank") {
-          await route.continue();
-        } else {
-          await route.abort("blockedbyclient");
-        }
-        return;
-      }
-      if (await isSafeResolvedFetchUrl(requestUrl)) {
-        await route.continue();
-      } else {
-        await route.abort("blockedbyclient");
-      }
-    } catch {
-      await route.abort("blockedbyclient").catch(() => undefined);
-    }
-  });
 }

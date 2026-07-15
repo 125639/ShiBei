@@ -72,3 +72,30 @@ export const MODEL_PROVIDER_PRESETS: ModelProviderPreset[] = [
 export function providerLabel(provider: string | null | undefined) {
   return MODEL_PROVIDER_PRESETS.find((item) => item.key === provider)?.label || provider || "自定义";
 }
+
+/**
+ * SiliconFlow exposes a provider-specific switch for Qwen3 hybrid-thinking
+ * models. Publication jobs already run separate drafting, fact review and
+ * release-gate stages, so hidden chain-of-thought only consumes latency and
+ * can exhaust the response budget before a complete Markdown article exists.
+ *
+ * Keep the field scoped to the documented provider/model combination. Other
+ * OpenAI-compatible gateways may reject unknown top-level request fields.
+ */
+export function providerThinkingOptions(
+  modelConfig: { baseUrl: string; model: string },
+  disableThinking: boolean
+): { enable_thinking?: false } {
+  if (!disableThinking) return {};
+
+  let hostname: string;
+  try {
+    hostname = new URL(modelConfig.baseUrl).hostname.toLowerCase();
+  } catch {
+    return {};
+  }
+
+  const isSiliconFlow = hostname === "siliconflow.cn" || hostname.endsWith(".siliconflow.cn");
+  const isQwen3 = /^qwen\/qwen3(?:\.5)?(?:$|[-_.])/i.test(modelConfig.model);
+  return isSiliconFlow && isQwen3 ? { enable_thinking: false } : {};
+}

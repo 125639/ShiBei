@@ -36,11 +36,6 @@ export async function POST(request: Request) {
   const contentLanguageMode = isContentLanguageMode(contentLanguageModeRaw) ? contentLanguageModeRaw : "default-language";
   const defaultSettingsUI = isUiStyleKey(defaultSettingsUIRaw) ? defaultSettingsUIRaw : "classic";
 
-  const contentModelConfigId = normalizeOptionalId(form.get("contentModelConfigId"));
-  const assistantModelConfigId = normalizeOptionalId(form.get("assistantModelConfigId"));
-  const writingModelConfigId = normalizeOptionalId(form.get("writingModelConfigId"));
-  const translationModelConfigId = normalizeOptionalId(form.get("translationModelConfigId"));
-
   const maxStorageMb = clamp(Number(form.get("maxStorageMb") || 2048), 64, 1024 * 100);
   const cleanupAfterDays = clamp(Number(form.get("cleanupAfterDays") || 30), 1, 3650);
   const globalPromptPrefix = String(form.get("globalPromptPrefix") || "").slice(0, 4000);
@@ -67,10 +62,6 @@ export async function POST(request: Request) {
     autoImageSearchEnabled,
     exaEnabled,
     musicEnabledDefault,
-    contentModelConfigId,
-    assistantModelConfigId,
-    writingModelConfigId,
-    translationModelConfigId,
     globalPromptPrefix
   };
   if (exaApiKeyEnc) update.exaApiKeyEnc = exaApiKeyEnc;
@@ -83,17 +74,12 @@ export async function POST(request: Request) {
       ...(update as Record<string, never>)
     }
   });
-  revalidateTag("site-settings");
+  revalidateTag("site-settings", { expire: 0 });
   // 语言模式 / 视频开关等设置会影响 ISR 缓存的文章页与列表页，保存时一并失效。
   revalidatePath("/posts/[slug]", "page");
   revalidatePath("/posts");
   revalidatePath("/");
   return redirectTo(`/admin/settings?tab=${settingsTab}&saved=1`);
-}
-
-function normalizeOptionalId(value: FormDataEntryValue | null) {
-  const id = String(value || "").trim();
-  return id || null;
 }
 
 function normalizeSettingsTab(value: FormDataEntryValue | null) {

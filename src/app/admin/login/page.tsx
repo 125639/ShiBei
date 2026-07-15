@@ -1,11 +1,13 @@
 import { redirect } from "next/navigation";
 import { I18nText } from "@/components/I18nText";
+
+export const dynamic = "force-dynamic";
 import { SubmitButton } from "@/components/SubmitButton";
 import { getSession } from "@/lib/auth";
 
 type LoginError = { zh: string; en: string };
 
-export default async function LoginPage({ searchParams }: { searchParams: Promise<{ error?: string }> }) {
+export default async function LoginPage({ searchParams }: { searchParams: Promise<{ error?: string; accountChanged?: string }> }) {
   const params = await searchParams;
   const session = await getSession();
   if (session) redirect("/admin");
@@ -55,6 +57,14 @@ export default async function LoginPage({ searchParams }: { searchParams: Promis
           {error ? (
             <p className="form-error" id="login-error" role="alert">
               <I18nText zh={error.zh} en={error.en} />
+            </p>
+          ) : null}
+          {params.accountChanged === "1" ? (
+            <p className="form-success" role="status">
+              <I18nText
+                zh="管理员账号已更新，所有旧会话均已失效。请使用新凭据重新登录。"
+                en="The administrator account was updated and all old sessions were revoked. Sign in again with the new credentials."
+              />
             </p>
           ) : null}
 

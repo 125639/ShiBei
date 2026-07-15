@@ -1,5 +1,37 @@
 import { NextResponse } from "next/server";
 import { backendFetchInitForConfig, getResolvedSyncConfig } from "@/lib/sync/config";
+import { trustedClientIp } from "@/lib/client-ip";
+
+export function backendProxyHeaders(request: Pick<Request, "headers">) {
+  const forwardHeaders = new Headers();
+  for (const [key, value] of request.headers.entries()) {
+    const lower = key.toLowerCase();
+    if (
+      lower === "host" ||
+      lower === "connection" ||
+      lower === "content-length" ||
+      lower === "cookie" ||
+      lower === "authorization" ||
+      // The next hop is an authenticated server-to-server request, not the
+      // original browser origin. Forwarding browser Fetch Metadata/Origin would
+      // make the backend's CSRF boundary either reject a legitimate split-mode
+      // call or misclassify it as a browser request.
+      lower === "origin" ||
+      lower === "referer" ||
+      lower.startsWith("sec-fetch-") ||
+      lower === "x-shibei-client-ip" ||
+      lower === "x-shibei-client-ip-signature" ||
+      lower === "x-real-ip" ||
+      lower === "x-forwarded-for" ||
+      lower === "x-forwarded-host" ||
+      lower === "x-forwarded-proto"
+    ) {
+      continue;
+    }
+    forwardHeaders.set(key, value);
+  }
+  return forwardHeaders;
+}
 
 /**
  * 前端模式下，把 /api/public/* 中需要 AI 的请求透明转发到 backend。
@@ -21,26 +53,8 @@ export async function proxyToBackend(request: Request, targetPath: string): Prom
   const targetUrl = `${cfg.backendUrl}${targetPath}${incomingUrl.search}`;
 
   // 复制 headers，剔除会让目标失败的 hop-by-hop / 鉴权字段。
-  const forwardHeaders = new Headers();
-  for (const [key, value] of request.headers.entries()) {
-    const lower = key.toLowerCase();
-    if (
-      lower === "host" ||
-      lower === "connection" ||
-      lower === "content-length" ||
-      lower === "cookie" ||
-      lower === "authorization" ||
-      lower === "x-real-ip" ||
-      lower === "x-forwarded-for" ||
-      lower === "x-forwarded-host" ||
-      lower === "x-forwarded-proto"
-    ) {
-      continue;
-    }
-    forwardHeaders.set(key, value);
-  }
-  const clientIp = request.headers.get("x-real-ip")?.trim()
-    || request.headers.get("x-forwarded-for")?.split(",").at(-1)?.trim();
+  const forwardHeaders = backendProxyHeaders(request);
+  const clientIp = trustedClientIp(request);
   if (clientIp) forwardHeaders.set("x-forwarded-for", clientIp);
   forwardHeaders.set("x-forwarded-host", incomingUrl.host);
   forwardHeaders.set("x-forwarded-proto", incomingUrl.protocol.replace(":", ""));

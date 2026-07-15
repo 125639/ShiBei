@@ -6,7 +6,7 @@ set -euo pipefail
 
 cd "$(dirname "${BASH_SOURCE[0]}")/.."
 
-GIT_COMMIT="$(git rev-parse --short HEAD 2>/dev/null || echo unknown)"
+GIT_COMMIT="$(git rev-parse --short HEAD 2>/dev/null || echo source)"
 if ! git diff --quiet HEAD 2>/dev/null; then
   GIT_COMMIT="${GIT_COMMIT}-dirty"
 fi
@@ -16,5 +16,8 @@ export GIT_COMMIT BUILD_TIME
 echo "[deploy] 构建 ${GIT_COMMIT}（${BUILD_TIME}）"
 docker compose build app
 docker compose up -d app worker
-docker compose ps app worker
-echo "[deploy] 完成。验证：curl -s http://localhost:3000/api/health"
+if [ -n "$(docker compose --profile https ps -q proxy 2>/dev/null)" ]; then
+  docker compose --profile https up -d --no-deps --force-recreate proxy
+fi
+docker compose --profile https ps app worker proxy
+echo "[deploy] 完成。验证：curl -s ${NEXT_PUBLIC_SITE_URL:-http://localhost:3000}/api/health"

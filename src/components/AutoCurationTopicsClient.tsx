@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useEffectEvent, useMemo, useRef, useState } from "react";
 import { describeAlarmCron } from "@/lib/alarm-schedule";
 import { ConfirmButton } from "@/components/ConfirmButton";
 import { I18nText } from "@/components/I18nText";
@@ -10,6 +10,12 @@ type StyleOption = {
   id: string;
   name: string;
   tone: string;
+};
+
+type ModuleOption = {
+  id: string;
+  name: string;
+  color: string;
 };
 
 export type AutoTopicItem = {
@@ -25,6 +31,8 @@ export type AutoTopicItem = {
   styleName: string | null;
   isEnabled: boolean;
   useExa: boolean;
+  moduleIds: string[];
+  moduleNames: string[];
   scheduleCron: string;
   lastRunLabel: string;
   nextRunLabel: string;
@@ -33,6 +41,7 @@ export type AutoTopicItem = {
 type Props = {
   topics: AutoTopicItem[];
   styles: StyleOption[];
+  modules: ModuleOption[];
 };
 
 const COMPILE_KIND_LABELS: Record<string, string> = {
@@ -62,7 +71,7 @@ function previewKeywords(value: string, limit = 4) {
     .join(" / ");
 }
 
-export function AutoCurationTopicsClient({ topics, styles }: Props) {
+export function AutoCurationTopicsClient({ topics, styles, modules }: Props) {
   const [selectedId, setSelectedId] = useState(topics[0]?.id ?? null);
   const [editingId, setEditingId] = useState<string | "new" | null>(null);
   const [checkedIds, setCheckedIds] = useState<Set<string>>(new Set());
@@ -252,6 +261,7 @@ export function AutoCurationTopicsClient({ topics, styles }: Props) {
         <TopicSettingsDialog
           topic={editingId === "new" ? null : editingTopic}
           styles={styles}
+          modules={modules}
           onClose={() => setEditingId(null)}
         />
       ) : null}
@@ -262,17 +272,18 @@ export function AutoCurationTopicsClient({ topics, styles }: Props) {
 function TopicSettingsDialog({
   topic,
   styles,
+  modules,
   onClose
 }: {
   topic: AutoTopicItem | null;
   styles: StyleOption[];
+  modules: ModuleOption[];
   onClose: () => void;
 }) {
   const isNew = !topic;
   const formAction = isNew ? "/api/admin/content-topics" : `/api/admin/content-topics/${topic.id}`;
   const dialogRef = useRef<HTMLDivElement | null>(null);
-  const onCloseRef = useRef(onClose);
-  onCloseRef.current = onClose;
+  const closeDialog = useEffectEvent(onClose);
 
   useEffect(() => {
     const previouslyFocused = document.activeElement instanceof HTMLElement ? document.activeElement : null;
@@ -286,7 +297,7 @@ function TopicSettingsDialog({
     const handleEscape = (event: KeyboardEvent) => {
       if (event.key !== "Escape") return;
       event.preventDefault();
-      onCloseRef.current();
+      closeDialog();
     };
     document.addEventListener("keydown", handleEscape);
 
@@ -411,6 +422,32 @@ function TopicSettingsDialog({
               ))}
             </select>
           </div>
+
+          {modules.length ? (
+            <fieldset className="field">
+              <legend><I18nText zh="限定来源模块（可多选）" en="Limit source modules (multiple)" /></legend>
+              <p className="muted">
+                <I18nText
+                  zh="选中后，资料采集只使用这些模块里的来源；不选则使用所有符合地区范围的来源。"
+                  en="When selected, collection only uses sources in these modules; leave empty to use every source matching the region scope."
+                />
+              </p>
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+                {modules.map((module) => (
+                  <label key={module.id} className="tag" style={{ cursor: "pointer", borderColor: module.color }}>
+                    <input
+                      type="checkbox"
+                      name="moduleIds"
+                      value={module.id}
+                      defaultChecked={topic?.moduleIds.includes(module.id) ?? false}
+                      style={{ marginRight: 6 }}
+                    />
+                    {module.name}
+                  </label>
+                ))}
+              </div>
+            </fieldset>
+          ) : null}
 
           <div className="field">
             <label htmlFor="auto-topic-schedule"><I18nText zh="定时" en="Schedule" /></label>

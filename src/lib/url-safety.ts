@@ -11,7 +11,7 @@ type SafeFetchOptions = {
   maxRedirects?: number;
 };
 
-type ResolvedFetchTarget = {
+export type ResolvedFetchTarget = {
   url: URL;
   addresses: LookupAddress[];
 };
@@ -63,7 +63,12 @@ export async function assertSafeResolvedFetchUrl(rawUrl: string): Promise<URL> {
   return (await resolveSafeFetchTarget(rawUrl)).url;
 }
 
-async function resolveSafeFetchTarget(rawUrl: string): Promise<ResolvedFetchTarget> {
+/**
+ * Resolve once, reject the complete answer set when any address is not public,
+ * and return that exact snapshot to the caller.  Low-level egress proxies use
+ * the returned addresses directly instead of asking DNS a second time.
+ */
+export async function resolveSafeFetchTarget(rawUrl: string): Promise<ResolvedFetchTarget> {
   const url = assertSafeFetchUrl(rawUrl);
   const host = url.hostname.toLowerCase().replace(/^\[|\]$/g, "");
   if (net.isIP(host)) {
@@ -187,14 +192,26 @@ function assertPublicIpAddress(address: string) {
     if (parts.length !== 4 || parts.some((part) => !Number.isInteger(part) || part < 0 || part > 255)) {
       throw new Error(`目标 IPv4 无效，已拒绝：${address}`);
     }
-    const [a, b] = parts;
+    const [a, b, c] = parts;
     if (
       a === 0 ||
       a === 10 ||
+      // RFC 6598 carrier-grade NAT. Cloud providers also expose metadata
+      // services inside this range (for example 100.100.100.200).
+      (a === 100 && b >= 64 && b <= 127) ||
       a === 127 ||
       (a === 169 && b === 254) ||
       (a === 172 && b >= 16 && b <= 31) ||
+      // IETF protocol assignments and documentation/reserved networks are not
+      // normal public fetch targets. Denying the whole special blocks avoids
+      // provider-specific control planes hiding behind individual addresses.
+      (a === 192 && b === 0 && c === 0) ||
+      (a === 192 && b === 0 && c === 2) ||
+      (a === 192 && b === 88 && c === 99) ||
       (a === 192 && b === 168) ||
+      (a === 198 && (b === 18 || b === 19)) ||
+      (a === 198 && b === 51 && c === 100) ||
+      (a === 203 && b === 0 && c === 113) ||
       a >= 224
     ) {
       throw new Error(`目标 IP 在内网/保留段，已拒绝：${address}`);
@@ -207,11 +224,13 @@ function assertPublicIpAddress(address: string) {
     if (normalized === "::" || normalized === "::1") {
       throw new Error(`目标 IPv6 在回环段，已拒绝：${address}`);
     }
-    if (normalized.startsWith("fe80:") || /^f[cd][0-9a-f]{2}:/i.test(normalized)) {
-      throw new Error(`目标 IPv6 在内网/链路本地段，已拒绝：${address}`);
-    }
+    // IPv4-mapped/compatible literals are canonicalized by URL/net in several
+    // textual forms. Validate the embedded IPv4 with the same deny list first.
     const mappedV4 = normalized.match(/^::(?:ffff:)?(\d+\.\d+\.\d+\.\d+)$/);
-    if (mappedV4) assertPublicIpAddress(mappedV4[1]);
+    if (mappedV4) {
+      assertPublicIpAddress(mappedV4[1]);
+      return;
+    }
     const mappedHex = normalized.match(/^::(?:ffff:)?([0-9a-f]{1,4}):([0-9a-f]{1,4})$/);
     if (mappedHex) {
       const high = Number.parseInt(mappedHex[1], 16);
@@ -222,6 +241,29 @@ function assertPublicIpAddress(address: string) {
         (low >>> 8) & 0xff,
         low & 0xff
       ].join("."));
+      return;
+    }
+
+    // Public IPv6 global unicast is currently 2000::/3. An allow boundary is
+    // safer than chasing every internal/reserved block (fc00/fd00, fe80/fec0,
+    // ff00 multicast, discard-only prefixes, and future special-use ranges).
+    const groups = normalized.split(":");
+    const firstGroup = Number.parseInt(groups[0] || "0", 16);
+    const secondGroup = Number.parseInt(groups[1] || "0", 16);
+    if (firstGroup < 0x2000 || firstGroup > 0x3fff) {
+      throw new Error(`目标 IPv6 不属于公网单播地址，已拒绝：${address}`);
+    }
+
+    // Special-use blocks embedded inside 2000::/3: IETF protocol assignments,
+    // benchmarking/ORCHID, documentation, deprecated 6to4, and the newer 3fff
+    // documentation allocation. None is a normal public HTTP destination.
+    if (
+      (firstGroup === 0x2001 && secondGroup <= 0x01ff) ||
+      (firstGroup === 0x2001 && secondGroup === 0x0db8) ||
+      firstGroup === 0x2002 ||
+      (firstGroup === 0x3fff && secondGroup <= 0x0fff)
+    ) {
+      throw new Error(`目标 IPv6 在协议/保留段，已拒绝：${address}`);
     }
     return;
   }

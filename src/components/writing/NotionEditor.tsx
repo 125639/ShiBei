@@ -1,10 +1,11 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useEffect, useLayoutEffect, useState } from "react";
 import { EditorContent, useEditor, type Editor } from "@tiptap/react";
 import { BubbleMenu } from "@tiptap/react/menus";
 import StarterKit from "@tiptap/starter-kit";
 import { Placeholder } from "@tiptap/extensions";
+import { exitSuggestion } from "@tiptap/suggestion";
 import { Markdown } from "tiptap-markdown";
 import { SlashCommand } from "./slash-menu";
 
@@ -25,6 +26,43 @@ const AI_ACTIONS: Array<{ kind: AiSelectionKind; label: string }> = [
   { kind: "translate", label: "译英" }
 ];
 
+type EditorRuntimeCallbacks = {
+  aiEnabled: boolean;
+  onAiContinue: () => void;
+  onMarkdownChange: (docId: string, markdown: string) => void;
+};
+
+/**
+ * Tiptap keeps the original extension instance for the lifetime of an editor.
+ * This stable bridge lets that instance call the latest React callbacks without
+ * reading a React ref during render or recreating the editor when props change.
+ */
+function createEditorRuntime(initialDocId: string, initialCallbacks: EditorRuntimeCallbacks) {
+  let loadedDocId = initialDocId;
+  let callbacks = initialCallbacks;
+
+  return {
+    updateCallbacks(next: EditorRuntimeCallbacks) {
+      callbacks = next;
+    },
+    runAiContinue() {
+      callbacks.onAiContinue();
+    },
+    isAiEnabled() {
+      return callbacks.aiEnabled;
+    },
+    emitMarkdown(markdown: string) {
+      callbacks.onMarkdownChange(loadedDocId, markdown);
+    },
+    getLoadedDocId() {
+      return loadedDocId;
+    },
+    setLoadedDocId(nextDocId: string) {
+      loadedDocId = nextDocId;
+    }
+  };
+}
+
 /**
  * Notion 式块编辑器:
  * - "/" 唤起块命令菜单(标题/列表/引用/代码块/分割线/AI 续写)
@@ -35,6 +73,8 @@ const AI_ACTIONS: Array<{ kind: AiSelectionKind; label: string }> = [
 export function NotionEditor({
   docId,
   initialMarkdown,
+  editable = true,
+  aiEnabled = false,
   placeholder = "输入 / 唤起命令，或直接开始写…",
   onMarkdownChange,
   onAiSelection,
@@ -43,20 +83,23 @@ export function NotionEditor({
 }: {
   docId: string;
   initialMarkdown: string;
+  editable?: boolean;
+  aiEnabled?: boolean;
   placeholder?: string;
-  onMarkdownChange: (markdown: string) => void;
+  onMarkdownChange: (docId: string, markdown: string) => void;
   onAiSelection: (request: AiSelectionRequest) => void;
   onAiContinue: () => void;
   onReady?: (editor: Editor) => void;
 }) {
-  // 回调走 ref,避免把易变函数塞进 extension 配置导致编辑器重建
-  const aiContinueRef = useRef(onAiContinue);
-  aiContinueRef.current = onAiContinue;
-  const changeRef = useRef(onMarkdownChange);
-  changeRef.current = onMarkdownChange;
+  const [runtime] = useState(() => createEditorRuntime(docId, {
+    aiEnabled,
+    onAiContinue,
+    onMarkdownChange
+  }));
 
   const editor = useEditor({
     immediatelyRender: false,
+    editable,
     editorProps: {
       attributes: {
         "aria-label": "文稿正文编辑器"
@@ -81,12 +124,15 @@ export function NotionEditor({
         transformPastedText: true,
         transformCopiedText: true
       }),
-      SlashCommand.configure({ onAiContinue: () => aiContinueRef.current() })
+      SlashCommand.configure({
+        onAiContinue: () => runtime.runAiContinue(),
+        isAiEnabled: () => runtime.isAiEnabled()
+      })
     ],
     content: initialMarkdown,
     onUpdate: ({ editor: current }) => {
       const storage = current.storage as unknown as { markdown: { getMarkdown(): string } };
-      changeRef.current(storage.markdown.getMarkdown());
+      runtime.emitMarkdown(storage.markdown.getMarkdown());
     }
   });
 
@@ -94,20 +140,31 @@ export function NotionEditor({
     if (editor && onReady) onReady(editor);
   }, [editor, onReady]);
 
-  // 切换文档时替换内容(setContent 会经 markdown 解析)
-  const lastDocRef = useRef(docId);
-  useEffect(() => {
-    if (!editor || lastDocRef.current === docId) return;
-    lastDocRef.current = docId;
-    editor.commands.setContent(initialMarkdown, { emitUpdate: false });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [docId, editor]);
+  // A document switch must replace ProseMirror content before editing is
+  // re-enabled. A layout effect closes the render→passive-effect window in
+  // which the new docId could otherwise still display and mutate the old body.
+  useLayoutEffect(() => {
+    runtime.updateCallbacks({ aiEnabled, onAiContinue, onMarkdownChange });
+    if (!editor || editor.isDestroyed) return;
+    const switchingDocument = runtime.getLoadedDocId() !== docId;
+    if (switchingDocument || !editable) {
+      editor.setEditable(false, false);
+      exitSuggestion(editor.view);
+      editor.commands.blur();
+    }
+    if (switchingDocument) {
+      editor.commands.setContent(initialMarkdown, { emitUpdate: false });
+      runtime.setLoadedDocId(docId);
+    }
+    editor.setEditable(editable, false);
+  }, [aiEnabled, docId, editable, editor, initialMarkdown, onAiContinue, onMarkdownChange, runtime]);
 
   if (!editor) {
     return <div className="notion-editor notion-editor-loading" aria-busy="true" />;
   }
 
   const askAi = (kind: AiSelectionKind) => {
+    if (editor.isDestroyed || !editor.isEditable) return;
     const { from, to } = editor.state.selection;
     if (from === to) return;
     const text = editor.state.doc.textBetween(from, to, "\n");
@@ -116,9 +173,11 @@ export function NotionEditor({
   };
 
   const setLink = () => {
+    if (editor.isDestroyed || !editor.isEditable) return;
     const existing = editor.getAttributes("link").href as string | undefined;
     const url = window.prompt("链接地址（留空移除链接）", existing || "https://");
     if (url === null) return;
+    if (editor.isDestroyed || !editor.isEditable) return;
     if (!url.trim() || url.trim() === "https://") {
       editor.chain().focus().unsetLink().run();
       return;
@@ -138,25 +197,29 @@ export function NotionEditor({
           return !current.isActive("codeBlock");
         }}
       >
-        <div className="bubble-toolbar" role="toolbar" aria-label="格式与 AI">
-          <button type="button" className={editor.isActive("bold") ? "active" : ""} aria-label="加粗" title="加粗" onMouseDown={(e) => e.preventDefault()} onClick={() => editor.chain().focus().toggleBold().run()}><strong>B</strong></button>
-          <button type="button" className={editor.isActive("italic") ? "active" : ""} aria-label="斜体" title="斜体" onMouseDown={(e) => e.preventDefault()} onClick={() => editor.chain().focus().toggleItalic().run()}><em>I</em></button>
-          <button type="button" className={editor.isActive("strike") ? "active" : ""} aria-label="删除线" title="删除线" onMouseDown={(e) => e.preventDefault()} onClick={() => editor.chain().focus().toggleStrike().run()}><s>S</s></button>
-          <button type="button" className={editor.isActive("code") ? "active" : ""} aria-label="行内代码" title="行内代码" onMouseDown={(e) => e.preventDefault()} onClick={() => editor.chain().focus().toggleCode().run()}>{"<>"}</button>
+        <div className="bubble-toolbar" role="toolbar" aria-label={aiEnabled ? "格式与 AI" : "文字格式"}>
+          <button type="button" className={editor.isActive("bold") ? "active" : ""} aria-label="加粗" title="加粗" onMouseDown={(e) => e.preventDefault()} onClick={() => { if (editor.isEditable) editor.chain().focus().toggleBold().run(); }}><strong>B</strong></button>
+          <button type="button" className={editor.isActive("italic") ? "active" : ""} aria-label="斜体" title="斜体" onMouseDown={(e) => e.preventDefault()} onClick={() => { if (editor.isEditable) editor.chain().focus().toggleItalic().run(); }}><em>I</em></button>
+          <button type="button" className={editor.isActive("strike") ? "active" : ""} aria-label="删除线" title="删除线" onMouseDown={(e) => e.preventDefault()} onClick={() => { if (editor.isEditable) editor.chain().focus().toggleStrike().run(); }}><s>S</s></button>
+          <button type="button" className={editor.isActive("code") ? "active" : ""} aria-label="行内代码" title="行内代码" onMouseDown={(e) => e.preventDefault()} onClick={() => { if (editor.isEditable) editor.chain().focus().toggleCode().run(); }}>{"<>"}</button>
           <button type="button" className={editor.isActive("link") ? "active" : ""} aria-label="编辑链接" title="链接" onMouseDown={(e) => e.preventDefault()} onClick={setLink}>🔗</button>
-          <span className="bubble-divider" aria-hidden="true" />
-          <span className="bubble-ai-label" aria-hidden="true">AI</span>
-          {AI_ACTIONS.map((action) => (
-            <button
-              key={action.kind}
-              type="button"
-              className="bubble-ai"
-              onMouseDown={(e) => e.preventDefault()}
-              onClick={() => askAi(action.kind)}
-            >
-              {action.label}
-            </button>
-          ))}
+          {aiEnabled ? (
+            <>
+              <span className="bubble-divider" aria-hidden="true" />
+              <span className="bubble-ai-label" aria-hidden="true">AI</span>
+              {AI_ACTIONS.map((action) => (
+                <button
+                  key={action.kind}
+                  type="button"
+                  className="bubble-ai"
+                  onMouseDown={(e) => e.preventDefault()}
+                  onClick={() => askAi(action.kind)}
+                >
+                  {action.label}
+                </button>
+              ))}
+            </>
+          ) : null}
         </div>
       </BubbleMenu>
       <EditorContent editor={editor} />

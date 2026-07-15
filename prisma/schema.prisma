@@ -52,13 +52,14 @@ enum CompilationKind {
 }
 
 model AdminUser {
-  id           String   @id @default(cuid())
-  username     String   @unique
-  passwordHash String
+  id                      String                   @id @default(cuid())
+  username                String                   @unique
+  passwordHash            String
   // 登出/改密时 +1，使已签发的 JWT 全部失效（JWT 无状态，本身无法吊销）
-  tokenVersion Int      @default(0)
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  tokenVersion            Int                      @default(0)
+  createdAt               DateTime                 @default(now())
+  updatedAt               DateTime                 @updatedAt
+  communityModerationLogs CommunityModerationLog[]
 }
 
 model SiteSettings {
@@ -106,12 +107,16 @@ model ModelConfig {
   apiKeyEnc   String
   temperature Float    @default(0.3)
   maxTokens   Int      @default(8000)
+  // Deprecated compatibility column. Runtime requests are non-streaming and
+  // the admin no longer exposes a switch that previously had no effect.
   stream      Boolean  @default(false)
+  isEnabled   Boolean  @default(true)
   isDefault   Boolean  @default(false)
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
   @@index([isDefault])
+  @@index([isEnabled, isDefault])
 }
 
 model ContentStyle {
@@ -214,6 +219,7 @@ model RawItem {
   url         String
   content     String    @db.Text
   markdown    String    @db.Text
+  artifactKind String?  @db.VarChar(32)
   sourceId    String?
   source      Source?   @relation(fields: [sourceId], references: [id], onDelete: SetNull)
   fetchJobId  String?
@@ -241,6 +247,11 @@ model Post {
   sourceUrl    String?
   sortOrder    Int             @default(0)
   translatedAt DateTime?
+  // 非空表示该条只是生成失败/门禁未通过的研究草稿，任何发布入口都必须拒绝。
+  publicationBlockedReason String? @db.Text
+  // 已发布文章的修改若未通过门禁，保留线上版本并把本次编辑暂存于此，
+  // 避免管理员丢稿或因一次校验失败让原文章意外下线。
+  pendingRevision Json?
   rawItemId    String?         @unique
   rawItem      RawItem?        @relation(fields: [rawItemId], references: [id], onDelete: SetNull)
   videos       Video[]
@@ -352,11 +363,12 @@ model AutoSchedule {
 enum CreationMode {
   VOICE_FIRST // 读者的话为主：AI 只补结构和连接
   AI_FIRST // AI 的话为主：读者回答作为素材
+  MANUAL // 创作者纯手写：不经访谈或 AI 成稿
 }
 
 enum CreationDepth {
-  SHORT // 3 个问题 → 短评
-  FULL // 8-10 个问题 → 完整文章
+  SHORT // 兼容历史枚举名：2-3 个问题 → 快速成文
+  FULL // 8-10 个问题 → 深度成文
 }
 
 enum CreationStatus {
@@ -365,42 +377,64 @@ enum CreationStatus {
   SHARED
 }
 
+enum CommunityModerationAction {
+  UNPUBLISH
+  DELETE
+}
+
+enum CommunitySurfaceAlgorithm {
+  TITLE_CONTENT_V1
+  TITLE_SUMMARY_CONTENT_V2
+}
+
+enum MemberCredentialState {
+  ACTIVE
+  LEGACY_INVITE_UPGRADE_REQUIRED
+}
+
 model MemberUser {
-  id           String         @id @default(cuid())
+  id              String                @id @default(cuid())
   // 邮箱注册与邀请码注册二选一:邮箱会员 email 非空,邀请码会员 username 非空。
-  // 邀请码会员的 passwordHash = bcrypt(邀请码),登录凭据就是邀请码本身。
-  email        String?        @unique
-  username     String?        @unique
-  passwordHash String
-  displayName  String?
-  createdAt    DateTime       @default(now())
-  updatedAt    DateTime       @updatedAt
-  works        CreativeWork[]
-  inviteCode   InviteCode?
-  comments     Comment[]
-  writingDocs  WritingDoc[]
+  // 邀请码只负责一次性开户，会员始终用自己设置的 passwordHash 登录。
+  email           String?               @unique
+  username        String?               @unique
+  passwordHash    String
+  credentialState MemberCredentialState @default(ACTIVE)
+  // JWT 携带签发时的版本；登出、改密或旧凭据升级时递增以吊销旧会话。
+  tokenVersion    Int                   @default(0)
+  displayName     String?
+  createdAt       DateTime              @default(now())
+  updatedAt       DateTime              @updatedAt
+  works           CreativeWork[]
+  inviteCode      InviteCode?
+  comments        Comment[]
+  writingDocs     WritingDoc[]
 }
 
 // 写作台文档:真正「自己写」的地方,内容是 markdown。
-// 所有权与 CreativeWork 同款:登录会员挂 ownerId,匿名挂 anonId cookie,
-// 登录时由 claimAnonWorks 一并认领。
+// 所有权与 CreativeWork 同款且严格二选一：登录会员挂 ownerId，匿名挂 anonId；
+// 登录/注册不会在两种身份之间迁移内容。
 model WritingDoc {
-  id        String      @id @default(cuid())
-  title     String      @default("")
-  content   String      @default("") @db.Text
-  ownerId   String?
-  owner     MemberUser? @relation(fields: [ownerId], references: [id], onDelete: Cascade)
-  anonId    String?
-  createdAt DateTime    @default(now())
-  updatedAt DateTime    @updatedAt
+  id                   String        @id @default(cuid())
+  title                String        @default("")
+  content              String        @default("") @db.Text
+  ownerId              String?
+  owner                MemberUser?   @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  anonId               String?
+  completedAt          DateTime?
+  // 公开副本被治理永久删除后保留私有原稿，但锁定这份原稿的再次社区交接。
+  publicationBlockedAt DateTime?
+  creativeWorkId       String?       @unique
+  creativeWork         CreativeWork? @relation(fields: [creativeWorkId], references: [id], onDelete: SetNull)
+  createdAt            DateTime      @default(now())
+  updatedAt            DateTime      @updatedAt
 
   @@index([ownerId, updatedAt])
   @@index([anonId, updatedAt])
 }
 
-// 邀请码由管理员批量生成、手动发放。code 明文存储:它同时是发放物料
-// (管理员要能随时查看复制)与会员登录凭据(校验走 MemberUser.passwordHash
-// 的 bcrypt,本表明文只作展示;评论权限低价值,可接受)。
+// 邀请码由管理员批量生成、手动发放。仅 UNUSED 码保留原文供发放；
+// 一旦使用或作废，code 会替换成不可还原的内部占位值，且 API 永不返回原码。
 model InviteCode {
   id        String      @id @default(cuid())
   code      String      @unique
@@ -458,39 +492,97 @@ model CreationGenre {
 
 // 读者与 AI 共创的作品。默认私有：只有 status=SHARED 才对外可见。
 // 匿名创作用 anonId(cookie) 标识所有权、clientIp 做未登录生成配额；
-// scoredHash 记录评分时的内容哈希，发布时哈希不一致必须重新评分。
+// scoredHash 记录评分时的标题+公开摘要+正文快照哈希，发布时不一致必须重新评分。
 model CreativeWork {
-  id               String         @id @default(cuid())
-  slug             String?        @unique
-  ownerId          String?
-  owner            MemberUser?    @relation(fields: [ownerId], references: [id], onDelete: Cascade)
-  anonId           String?
-  clientIp         String?
-  genreId          String
-  genre            CreationGenre  @relation(fields: [genreId], references: [id], onDelete: Restrict)
-  mode             CreationMode
-  depth            CreationDepth
-  status           CreationStatus @default(INTERVIEWING)
-  topic            String
-  interview        String         @default("[]") @db.Text
-  pendingQuestion  String?        @db.Text
-  title            String         @default("")
-  summary          String         @default("") @db.Text
-  content          String         @default("") @db.Text
-  draftGeneratedAt DateTime?
-  score            Float?
-  scoreDetail      String?        @db.Text
-  scoredAt         DateTime?
-  scoredHash       String?
-  publishedAt      DateTime?
-  createdAt        DateTime       @default(now())
-  updatedAt        DateTime       @updatedAt
+  id                String                      @id @default(cuid())
+  slug              String?                     @unique
+  ownerId           String?
+  owner             MemberUser?                 @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  anonId            String?
+  clientIp          String?
+  // 匿名首次 AI 成稿的短时配额预留。长模型调用开始前先原子占位，
+  // 防止多个并发 compose 都在旧 count 下穿透单 IP 上限。
+  composeReservedAt DateTime?
+  genreId           String
+  genre             CreationGenre               @relation(fields: [genreId], references: [id], onDelete: Restrict)
+  mode              CreationMode
+  depth             CreationDepth
+  status            CreationStatus              @default(INTERVIEWING)
+  topic             String
+  interview         String                      @default("[]") @db.Text
+  pendingQuestion   String?                     @db.Text
+  title             String                      @default("")
+  summary           String                      @default("") @db.Text
+  content           String                      @default("") @db.Text
+  draftGeneratedAt  DateTime?
+  score             Float?
+  scoreDetail       String?                     @db.Text
+  scoredAt          DateTime?
+  scoredHash        String?
+  // 评分同时绑定题材名称、维度、门槛和篇幅档位；标尺变化后旧分不可发布。
+  scoredRubricHash  String?
+  publishedAt       DateTime?
+  // 首次公开的不可逆事实。管理员下架只清 publishedAt，不得让匿名作品重新获得删除权。
+  publishedOnceAt   DateTime?
+  createdAt         DateTime                    @default(now())
+  updatedAt         DateTime                    @updatedAt
+  sourceWritingDoc  WritingDoc?
+  moderatedSurfaces CommunityModeratedSurface[]
 
   @@index([status, publishedAt])
   @@index([ownerId, updatedAt])
   @@index([anonId, updatedAt])
   @@index([clientIp, draftGeneratedAt])
+  @@index([clientIp, composeReservedAt])
   @@index([genreId])
+}
+
+// 匿名首次 AI 成稿的不可删除用量账本。不能继续用“当前还存在的作品数”当
+// 终身额度，否则用户删掉草稿后即可无限恢复名额。workId 只作事件标识，故意
+// 不设外键：CreativeWork 删除后，用量事实仍必须保留。
+model AnonymousComposeUsage {
+  id        String   @id @default(cuid())
+  clientIp  String
+  workId    String   @unique
+  createdAt DateTime @default(now())
+
+  @@index([clientIp, createdAt])
+}
+
+// 社区治理日志只保存公开时的必要快照，不关联 CreativeWork 外键：永久删除作品后
+// targetWorkId/title/slug 仍必须完整保留，形成可追溯、不可随目标级联消失的记录。
+model CommunityModerationLog {
+  id              String                    @id @default(cuid())
+  adminId         String
+  admin           AdminUser                 @relation(fields: [adminId], references: [id], onDelete: Restrict)
+  action          CommunityModerationAction
+  reason          String                    @db.Text
+  targetWorkId    String
+  titleSnapshot   String
+  summarySnapshot String?                   @db.Text
+  slugSnapshot    String?
+  wasAnonymous    Boolean
+  createdAt       DateTime                  @default(now())
+
+  @@index([createdAt])
+  @@index([adminId, createdAt])
+  @@index([targetWorkId, createdAt])
+}
+
+// 同一作品每次被下架的公开表面指纹都不可覆盖。V1 兼容旧标题+正文记录，
+// V2 绑定标题+公开摘要+正文。记录随作品永久删除而级联删除：
+// 作品已不存在时不再有重发入口，长期追溯由不设作品外键的 CommunityModerationLog 保留。
+model CommunityModeratedSurface {
+  id          String                    @id @default(cuid())
+  workId      String
+  work        CreativeWork              @relation(fields: [workId], references: [id], onDelete: Cascade)
+  algorithm   CommunitySurfaceAlgorithm @default(TITLE_SUMMARY_CONTENT_V2)
+  surfaceHash String
+  reason      String                    @db.Text
+  createdAt   DateTime                  @default(now())
+
+  @@unique([workId, algorithm, surfaceHash])
+  @@index([workId, createdAt])
 }
 
 // Frontend / backend / full 间的同步状态。仅一行（id="sync"）。
