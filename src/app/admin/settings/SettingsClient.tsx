@@ -430,6 +430,12 @@ export function SettingsClient({
               <label htmlFor="exaApiKey"><I18nText zh="Exa API Key（留空不修改）" en="Exa API Key (leave blank to keep)" /></label>
               <input id="exaApiKey" name="exaApiKey" type="password" placeholder={s?.exaConfigured ? "已配置（输入新值覆盖）" : ""} />
             </div>
+            <small className="muted">
+              <I18nText
+                zh="Exa 是可选项。未配置时，研究与核验会改用 Google News + Bing News 搜索发现链接并抓取原网页正文：新闻/时事类选题效果接近；但博客、文档、论文类来源基本搜不到，技术深挖选题的资料明显变薄，事实核验也更容易要求补充来源。配置 Exa（神经网络全网搜索）可以覆盖这类来源并跳过逐页抓取，研究更快更全。"
+                en="Exa is optional. Without it, research and verification fall back to Google News + Bing News discovery plus fetching each page body: news-style topics work almost as well, but blogs, docs, and papers are largely invisible, so deep technical topics get much thinner material and fact-checks ask for sources more often. Configuring Exa (neural web search) covers those sources and skips per-page scraping, making research faster and broader."
+              />
+            </small>
           </section>
 
           <SubmitButton pendingLabel={<I18nText zh="保存中…" en="Saving…" />}>

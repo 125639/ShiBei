@@ -331,7 +331,7 @@ async function collectFromSearchFeeds(
           summary: item.summary || item.title,
           publishedAt: item.date,
           materialKind: "excerpt" as const,
-          discoveryMethod: "google-news" as const
+          discoveryMethod: feed.kind || ("google-news" as const)
         });
         if (evidence.length >= 10) return evidence;
       }
@@ -382,7 +382,7 @@ export function buildSearchFeeds(queries: string[], scope: ResearchScope) {
   const cleanedQueries = normalizeSearchQueries(queries, "").slice(0, 3);
   const freshnessQueries = cleanedQueries.length ? [cleanedQueries[0], `${cleanedQueries[0]} when:365d`] : [];
   const feedQueries = normalizeSearchQueries([...cleanedQueries, ...freshnessQueries], "");
-  const feeds: Array<{ name: string; url: string }> = [];
+  const feeds: Array<{ name: string; url: string; kind?: "google-news" | "bing-news" }> = [];
 
   if (scope !== "international") {
     for (const query of feedQueries) {
@@ -427,6 +427,18 @@ export function buildSearchFeeds(queries: string[], scope: ResearchScope) {
         url: `https://news.google.com/rss/search?q=${encodeURIComponent(`${query} site:${site}`)}&hl=en-US&gl=US&ceid=US:en`
       });
     }
+  }
+
+  // Bing News 追加在队尾，作为 Google News 的独立兜底通道：collectFromSearchFeeds
+  // 顺序消费且集满即停，Google 正常时这些请求根本不会发出；Google 被限流/无结果时
+  // （尤其未配置 Exa 的部署里它是唯一发现通道）Bing 能顶上。中英文查询都可用同一
+  // 端点（setmkt 参数反而会让 Bing 返回非 RSS 响应，勿加）。
+  for (const query of cleanedQueries.slice(0, 2)) {
+    feeds.push({
+      name: "[搜索] Bing News",
+      url: `https://www.bing.com/news/search?q=${encodeURIComponent(query)}&format=rss`,
+      kind: "bing-news"
+    });
   }
 
   return feeds;

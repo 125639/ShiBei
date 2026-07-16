@@ -242,7 +242,7 @@ export function isBodyLevelEvidence(
 export function selectSubstantiveEvidenceItems<
   T extends Pick<EvidenceItem, "title" | "summary" | "url"> & {
     materialKind?: "fulltext" | "excerpt";
-    discoveryMethod?: "exa" | "rss" | "google-news";
+    discoveryMethod?: "exa" | "rss" | "google-news" | "bing-news";
   }
 >(items: T[], options: { minItemInformationChars?: number } = {}): T[] {
   const minItem = options.minItemInformationChars ?? 140;
@@ -272,7 +272,7 @@ export function selectSubstantiveEvidenceItems<
 export function assessEvidenceSufficiency<
   T extends Pick<EvidenceItem, "title" | "summary" | "url"> & {
     materialKind?: "fulltext" | "excerpt";
-    discoveryMethod?: "exa" | "rss" | "google-news";
+    discoveryMethod?: "exa" | "rss" | "google-news" | "bing-news";
   }
 >(
   items: T[],

@@ -146,7 +146,7 @@ export type EvidenceItem = {
   summary: string;
   publishedAt?: Date | null;
   materialKind?: "fulltext" | "excerpt";
-  discoveryMethod?: "exa" | "rss" | "google-news";
+  discoveryMethod?: "exa" | "rss" | "google-news" | "bing-news";
 };
 
 /**
