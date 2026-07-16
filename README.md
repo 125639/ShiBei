@@ -276,7 +276,7 @@ docker compose logs -f app worker
    #   [2/6] 站点 URL → https://shibei.example.com
    #   [5/6] 同步参数：
    #         Backend 入口 URL → https://api.example.com
-   #         同步模式 → auto（默认 15 分钟）
+   #         同步模式 → auto（新内容约 1 分钟内到达；15 分钟全量对账）
    #   [6/6] 确认写入
 
    docker compose -f docker-compose.frontend.yml up -d

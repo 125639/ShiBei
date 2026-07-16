@@ -8,14 +8,25 @@ import { getResolvedSyncConfig } from "@/lib/sync/config";
 
 export const dynamic = "force-dynamic";
 
+function formatAgo(from: Date, to: Date): { zh: string; en: string } {
+  const seconds = Math.max(0, Math.round((to.getTime() - from.getTime()) / 1000));
+  if (seconds < 90) return { zh: `${seconds} 秒前`, en: `${seconds}s ago` };
+  const minutes = Math.round(seconds / 60);
+  if (minutes < 90) return { zh: `${minutes} 分钟前`, en: `${minutes} min ago` };
+  const hours = Math.round(minutes / 60);
+  if (hours < 48) return { zh: `${hours} 小时前`, en: `${hours}h ago` };
+  return { zh: from.toLocaleString("zh-CN"), en: from.toLocaleString("zh-CN") };
+}
+
 export default async function SyncAdminPage({
   searchParams,
 }: {
-  searchParams?: Promise<{ imported?: string; videos?: string; files?: string; errors?: string; pulled?: string; configError?: string }>;
+  searchParams?: Promise<{ imported?: string; videos?: string; files?: string; errors?: string; pulled?: string; configError?: string; test?: string; latency?: string; detail?: string }>;
 }) {
   await requireAdmin();
   const sp = (await searchParams) || {};
   const mode = getAppMode();
+  const now = new Date();
   const [cfg, state, settings] = await Promise.all([
     getResolvedSyncConfig(),
     prisma.syncState.findUnique({ where: { id: "sync" } }).catch(() => null),
@@ -77,6 +88,44 @@ export default async function SyncAdminPage({
           <strong><I18nText zh="立即同步成功:" en="Sync succeeded: " />{sp.pulled}</strong>
         </div>
       ) : null}
+      {sp.test === "ok" ? (
+        <div className="form-card" style={{ maxWidth: 720, borderColor: "var(--color-success, #2a8)", background: "rgba(42,170,136,0.06)" }}>
+          <strong><I18nText zh="测试连接成功" en="Connection test passed" /></strong>
+          <p style={{ margin: "6px 0 0" }}>
+            <I18nText
+              zh={`backend 可达且共享密钥有效${sp.latency ? `,往返 ${sp.latency} ms` : ""}。自动同步将在数秒到 1 分钟内跟进。`}
+              en={`Backend reachable, shared token valid${sp.latency ? `, round trip ${sp.latency} ms` : ""}. Auto sync follows within seconds to a minute.`}
+            />
+          </p>
+        </div>
+      ) : null}
+      {sp.test === "legacy" ? (
+        <div className="form-card" style={{ maxWidth: 720, borderColor: "var(--color-success, #2a8)", background: "rgba(42,170,136,0.06)" }}>
+          <strong><I18nText zh="连接成功（旧版 backend）" en="Connected (older backend)" /></strong>
+          <p style={{ margin: "6px 0 0" }}>
+            <I18nText
+              zh={`backend 可达且共享密钥有效${sp.latency ? `,往返 ${sp.latency} ms` : ""},但对端版本较旧、没有 probe 端点:同步会按固定间隔进行。更新 backend 后可获得分钟级同步。`}
+              en={`Backend reachable and the token works${sp.latency ? ` (round trip ${sp.latency} ms)` : ""}, but it predates the probe endpoint, so syncs stay interval-based. Update the backend for minute-level sync.`}
+            />
+          </p>
+        </div>
+      ) : null}
+      {sp.test === "fail" ? (
+        <div className="form-card" style={{ maxWidth: 720, borderColor: "var(--color-danger, #c44)", background: "rgba(204,68,68,0.06)" }}>
+          <strong><I18nText zh="测试连接失败" en="Connection test failed" /></strong>
+          <p style={{ margin: "6px 0 0", overflowWrap: "anywhere", fontFamily: "var(--font-mono, monospace)", fontSize: 13 }}>
+            {sp.detail || ""}
+          </p>
+          <p style={{ margin: "6px 0 0" }}>
+            <I18nText zh="常见原因:backend 入口拼写错误、对端未运行、防火墙未放行、两端共享密钥不一致。" en="Common causes: a mistyped backend URL, the backend being down, a firewall in the way, or mismatched shared tokens." />
+          </p>
+        </div>
+      ) : null}
+      {sp.test === "unconfigured" ? (
+        <div className="form-card" style={{ maxWidth: 720, borderColor: "var(--color-warning, #c80)" }}>
+          <strong><I18nText zh="请先保存 backend 入口与共享密钥,再测试连接。" en="Save the backend URL and shared token before testing." /></strong>
+        </div>
+      ) : null}
       {sp.configError === "unsafe-backend-url" ? (
         <div className="form-card" style={{ maxWidth: 720, borderColor: "var(--color-danger, #c44)" }}>
           <strong><I18nText zh="Backend 入口未保存" en="Backend URL was not saved" /></strong>
@@ -101,7 +150,7 @@ export default async function SyncAdminPage({
           <div>
             <code>{cfg.mode}</code>
             {mode === "frontend" && cfg.mode === "auto"
-              ? <I18nText zh={`（每 ${cfg.intervalMinutes} 分钟自动拉取）`} en={` (auto pull every ${cfg.intervalMinutes} min)`} />
+              ? <I18nText zh={`（配置保存后数秒生效;新内容约 1 分钟内到达,每 ${cfg.intervalMinutes} 分钟全量对账）`} en={` (config applies within seconds; new content lands in ~1 min, full reconcile every ${cfg.intervalMinutes} min)`} />
               : ""}
           </div>
           <div><I18nText zh="Backend 入口" en="Backend URL" /></div>
@@ -120,6 +169,76 @@ export default async function SyncAdminPage({
               <div style={{ color: "var(--color-danger, #c44)" }}>
                 <I18nText zh="数据库中的密钥无法解密，请重新保存共享密钥。" en="The stored token cannot be decrypted — save the shared token again." />
               </div>
+            </>
+          ) : null}
+          {mode === "frontend" ? (
+            <>
+              <div><I18nText zh="同步进程" en="Sync worker" /></div>
+              <div>
+                {(() => {
+                  const alive = state?.workerAliveAt && now.getTime() - state.workerAliveAt.getTime() < 45_000;
+                  if (alive) {
+                    const ago = formatAgo(state!.workerAliveAt!, now);
+                    return (
+                      <span style={{ color: "var(--color-success, #2a8)" }}>
+                        <I18nText zh={`运行中（心跳 ${ago.zh}）`} en={`running (heartbeat ${ago.en})`} />
+                      </span>
+                    );
+                  }
+                  if (state?.workerAliveAt) {
+                    const ago = formatAgo(state.workerAliveAt, now);
+                    return (
+                      <span style={{ color: "var(--color-danger, #c44)" }}>
+                        <I18nText zh={`未检测到心跳（上次 ${ago.zh}）,请重启前端容器`} en={`no heartbeat (last ${ago.en}) — restart the frontend container`} />
+                      </span>
+                    );
+                  }
+                  return (
+                    <span style={{ color: "var(--color-danger, #c44)" }}>
+                      <I18nText zh="从未上报心跳(旧版本镜像或进程未启动)" en="never reported (old image or process not started)" />
+                    </span>
+                  );
+                })()}
+              </div>
+            </>
+          ) : null}
+          {(mode === "frontend" || mode === "full") && cfg.backendUrl ? (
+            <>
+              <div><I18nText zh="Backend 连通" en="Backend link" /></div>
+              <div>
+                {(() => {
+                  const judged = mode === "frontend" && cfg.mode === "auto";
+                  if (!state?.backendReachableAt) {
+                    return (
+                      <span style={{ color: judged ? "var(--color-danger, #c44)" : undefined }}>
+                        <I18nText zh="从未连通成功" en="never reached" />
+                      </span>
+                    );
+                  }
+                  const ago = formatAgo(state.backendReachableAt, now);
+                  // 自动模式下 probe 每分钟一轮,失败退避最长 5 分钟:
+                  // 超过 ~6 分钟没有成功记录即视为断开。
+                  const fresh = now.getTime() - state.backendReachableAt.getTime() < 6.5 * 60 * 1000;
+                  if (!judged) {
+                    return <I18nText zh={`最近连通成功:${ago.zh}`} en={`last reached ${ago.en}`} />;
+                  }
+                  return fresh ? (
+                    <span style={{ color: "var(--color-success, #2a8)" }}>
+                      <I18nText zh={`已连通（${ago.zh}确认）`} en={`connected (verified ${ago.en})`} />
+                    </span>
+                  ) : (
+                    <span style={{ color: "var(--color-danger, #c44)" }}>
+                      <I18nText zh={`已断开（上次成功 ${ago.zh}）`} en={`disconnected (last success ${ago.en})`} />
+                    </span>
+                  );
+                })()}
+              </div>
+            </>
+          ) : null}
+          {(mode === "frontend" || mode === "full") && state?.lastAttemptAt ? (
+            <>
+              <div><I18nText zh="上次拉取尝试" en="Last pull attempt" /></div>
+              <div>{formatAgo(state.lastAttemptAt, now).zh}</div>
             </>
           ) : null}
           <div><I18nText zh="本端文章总数" en="Local posts" /></div>
@@ -228,11 +347,16 @@ export default async function SyncAdminPage({
           {cfg.backendUrl && cfg.syncToken ? (
             <>
               <p>
-                <I18nText zh="立即从 " en="Pull increments now from " /><code>{cfg.backendUrl}</code><I18nText zh=" 拉取增量（更新于上次导入之后的文章 + 视频）。" en=" (posts + videos updated since the last import)." />
+                <I18nText zh="立即从 " en="Pull increments now from " /><code>{cfg.backendUrl}</code><I18nText zh=" 拉取增量（更新于上次导入之后的文章 + 视频）。「测试连接」只验证可达性与密钥，不拉数据。" en=" (posts + videos updated since the last import). “Test connection” only verifies reachability and the token, without pulling data." />
               </p>
-              <form action="/api/admin/sync/pull" method="post">
-                <SubmitButton pendingLabel={<I18nText zh="正在拉取，可能需要几十秒…" en="Pulling, may take a while…" />}><I18nText zh="立即同步" en="Sync Now" /></SubmitButton>
-              </form>
+              <div className="meta-row" style={{ gap: 12, flexWrap: "wrap" }}>
+                <form action="/api/admin/sync/pull" method="post">
+                  <SubmitButton pendingLabel={<I18nText zh="正在拉取，可能需要几十秒…" en="Pulling, may take a while…" />}><I18nText zh="立即同步" en="Sync Now" /></SubmitButton>
+                </form>
+                <form action="/api/admin/sync/test" method="post">
+                  <SubmitButton pendingLabel={<I18nText zh="正在测试…" en="Testing…" />}><I18nText zh="测试连接" en="Test Connection" /></SubmitButton>
+                </form>
+              </div>
             </>
           ) : (
             <p className="muted-block">
