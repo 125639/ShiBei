@@ -375,8 +375,8 @@ docker compose -f docker-compose.frontend.yml up -d
 SSH 隧道可连接 frontend 上的本地端口（例如 `http://127.0.0.1:3300`）。完整示例见 [SYNC.md](./SYNC.md)。
 
 前端起来后:
-- `/admin/sync` 显示当前模式 / 上次同步 / 立即同步按钮 / 手动 ZIP 上传
-- 容器内的 `sync-worker` 进程每 `SYNC_INTERVAL_MINUTES` 分钟拉一次增量
+- `/admin/sync` 显示当前模式 / 进程心跳 / backend 连通状态 / 上次同步，提供「立即同步」「测试连接」按钮和手动 ZIP 上传
+- 容器内的 `sync-worker` 进程每 15 秒复查配置（网页保存后数秒内生效），每分钟轻量探测 backend，有新内容立即拉增量；`SYNC_INTERVAL_MINUTES` 只是无条件对账周期
 - AI 公开端点（站内助手 / 翻译 / 写作助手）透明转发到 backend
 - 镜像不含 Playwright/yt-dlp/ffmpeg/python3，体积约 700-800MB（对比完整版 ~2GB）
 

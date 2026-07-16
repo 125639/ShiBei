@@ -48,7 +48,9 @@ export async function POST(request: Request) {
       { status: 400 }
     );
   }
-  revalidatePublicContent();
+  // 列表/首页走 public-content 标签失效；被覆盖的文章详情页是 ISR(300s),
+  // 必须按 slug 精准失效,否则更新后的正文要等最多 5 分钟才可见。
+  revalidatePublicContent(result.upsertedPostSlugs.slice(0, 90).map((slug) => `/posts/${slug}`));
 
   // 如果调用者要 JSON,直接返回 JSON;否则跳回页面。
   const accept = request.headers.get("accept") || "";

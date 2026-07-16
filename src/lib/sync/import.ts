@@ -20,6 +20,8 @@ export type ImportResult = {
   filesWritten: number;
   filesSkipped: number;
   errors: string[];
+  /** 实际写入(新增或覆盖)的文章 slug；供调用方精准失效 /posts/<slug> 缓存。 */
+  upsertedPostSlugs: string[];
 };
 
 /**
@@ -38,6 +40,7 @@ export async function importFromZip(buffer: Buffer): Promise<ImportResult> {
     filesWritten: 0,
     filesSkipped: 0,
     errors: [],
+    upsertedPostSlugs: [],
   };
 
   await ensureUploadDirs();
@@ -145,7 +148,10 @@ export async function importFromZip(buffer: Buffer): Promise<ImportResult> {
   for (const incoming of bundle.posts) {
     try {
       const action = await upsertPost(incoming);
-      if (action === "upserted") result.postsUpserted += 1;
+      if (action === "upserted") {
+        result.postsUpserted += 1;
+        result.upsertedPostSlugs.push(incoming.slug);
+      }
       else result.postsSkipped += 1;
     } catch (err) {
       result.errors.push(`Post ${incoming.slug} 失败: ${err instanceof Error ? err.message : String(err)}`);

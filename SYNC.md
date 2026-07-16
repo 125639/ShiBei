@@ -25,7 +25,10 @@ curl http://127.0.0.1:3000/api/health
 ```text
 APP_MODE              full | backend | frontend
 SYNC_MODE             auto | manual    (frontend 用,默认 auto)
-SYNC_INTERVAL_MINUTES 15                (frontend + auto 模式下 sync-worker 拉取间隔)
+SYNC_INTERVAL_MINUTES 15                (frontend + auto 模式下无条件增量拉取的对账周期)
+SYNC_PROBE_SECONDS    60                (frontend + auto 模式下轻量探测间隔,15–3600;
+                                        探测发现新内容会立即拉增量,不必等对账周期)
+SYNC_PULL_TIMEOUT_MS  600000            (单次 ZIP 拉取的整体超时,30s–60min,防连接悬挂)
 PUBLIC_URL            该实例的浏览器公开起源（运行时配置）
 APP_BIND_IP           0.0.0.0（直连 HTTP）| 127.0.0.1（同机外置反代）
 APP_PORT              HTTP 应用端口，默认 3000
@@ -44,13 +47,26 @@ SYNC_MAX_FILE_MB      ZIP 内单文件上限。默认: frontend 96,其他形态 
 
 ```
 前端容器内 sync-worker 进程
-  ↓ 每 SYNC_INTERVAL_MINUTES 分钟
-  GET ${BACKEND_API_URL}/api/admin/sync/export?since=<lastImportedAt>
-  Authorization: Bearer ${SYNC_TOKEN}
-  ↓ 200 application/zip
-  → importFromZip() → DB upsert + uploads/video/* 写盘
-  → SyncState.lastImportedAt = now
+  ├─ 每 15s 重读一次同步配置(数据库单行) → /admin/sync 保存后数秒内生效
+  ├─ 每 SYNC_PROBE_SECONDS(默认 60s):
+  │    GET ${BACKEND_API_URL}/api/admin/sync/probe        (Bearer ${SYNC_TOKEN})
+  │    ↓ 200 { ok, schemaVersion, latestContentAt, ... }   ← 纯元数据,不含 ZIP
+  │    latestContentAt > SyncState.lastImportedAt ⇒ 立即拉增量
+  └─ 每 SYNC_INTERVAL_MINUTES 分钟无条件对账一次:
+       GET ${BACKEND_API_URL}/api/admin/sync/export?since=<lastImportedAt>
+       Authorization: Bearer ${SYNC_TOKEN}
+       ↓ 200 application/zip
+       → importFromZip() → DB upsert + uploads/video/* 写盘
+       → SyncState.lastImportedAt = manifest.exportedAt
 ```
+
+时序结论：保存配置后 ≤15s 建立首次同步；backend 有新内容后前端约 1 分钟内可见；
+连接失败按 60s → 120s → 240s → 封顶 5 分钟退避重试。backend 是旧版本（没有
+`/api/admin/sync/probe`，返回 404）时自动退回「仅按对账周期拉取」的老行为。
+sync-worker 每轮写 `SyncState.workerAliveAt` 心跳；probe / 拉取成功写
+`SyncState.backendReachableAt`。/admin/sync 页面据此显示进程存活与连通状态，
+并提供「测试连接」按钮（POST `/api/admin/sync/test`，管理员 session）即时验证
+可达性与共享密钥。
 
 ### 手动模式
 
@@ -78,7 +94,7 @@ uploads/
 
 ## 鉴权
 
-`/api/admin/sync/export` 接受两种鉴权，任一即可：
+`/api/admin/sync/export` 与 `/api/admin/sync/probe` 接受两种鉴权，任一即可：
 
 - `Authorization: Bearer ${SYNC_TOKEN}`（机机调用，sync-worker 用）
 - 管理员 session cookie（管理员手点导出）
