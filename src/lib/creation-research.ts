@@ -109,13 +109,18 @@ export function buildCreationGoogleNewsFeeds(queries: string[]) {
   const feeds: Array<{ name: string; url: string }> = [];
   for (const query of normalized) {
     const encoded = encodeURIComponent(query);
+    // Bing News 与 Google News 并行发现,互为兜底:未配置 Exa 的部署里这是
+    // 唯一的公开资料通道,单点故障(限流/无结果)会直接把成稿逼进"请补充
+    // 来源"分支。两家结果按 interleave 交错回源,仍逐条过正文充分性门槛。
     const locales = containsCjk(query)
       ? [
           ["Google News 中文", `https://news.google.com/rss/search?q=${encoded}&hl=zh-CN&gl=CN&ceid=CN:zh-Hans`],
-          ["Google News Global", `https://news.google.com/rss/search?q=${encoded}&hl=en-US&gl=US&ceid=US:en`]
+          ["Google News Global", `https://news.google.com/rss/search?q=${encoded}&hl=en-US&gl=US&ceid=US:en`],
+          ["Bing News", `https://www.bing.com/news/search?q=${encoded}&format=rss`]
         ]
       : [
-          ["Google News Global", `https://news.google.com/rss/search?q=${encoded}&hl=en-US&gl=US&ceid=US:en`]
+          ["Google News Global", `https://news.google.com/rss/search?q=${encoded}&hl=en-US&gl=US&ceid=US:en`],
+          ["Bing News", `https://www.bing.com/news/search?q=${encoded}&format=rss`]
         ];
     for (const [name, url] of locales) feeds.push({ name, url });
   }

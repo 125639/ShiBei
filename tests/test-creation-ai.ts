@@ -101,7 +101,7 @@ test("exa disabled skips verification with a note instead of blocking compose", 
   assert.match(result.notes[0], /没有可用的联网搜索通道/);
 });
 
-test("creation Google News feeds cover Chinese and global results with bounded queries", () => {
+test("creation news feeds cover Chinese, global and Bing results with bounded queries", () => {
   const feeds = buildCreationGoogleNewsFeeds([
     "欧洲 AI 初创融资 美国差距",
     "Europe AI startup venture funding gap",
@@ -109,12 +109,17 @@ test("creation Google News feeds cover Chinese and global results with bounded q
     "Europe AI startup venture funding gap"
   ]);
 
-  assert.equal(feeds.length, 3);
+  // 中文查询 → Google zh + Google en + Bing；英文查询 → Google en + Bing。
+  assert.equal(feeds.length, 5);
   assert.match(feeds[0].url, /^https:\/\/news\.google\.com\/rss\/search\?/);
   assert.match(decodeURIComponent(feeds[0].url), /欧洲 AI 初创融资 美国差距/);
   assert.match(feeds[0].url, /hl=zh-CN/);
   assert.match(feeds[1].url, /hl=en-US/);
-  assert.match(feeds[2].url, /hl=en-US/);
+  assert.match(feeds[2].url, /^https:\/\/www\.bing\.com\/news\/search\?/);
+  assert.match(feeds[3].url, /hl=en-US/);
+  assert.match(feeds[4].url, /^https:\/\/www\.bing\.com\/news\/search\?/);
+  // Bing 端点不得携带 setmkt(实测会让 Bing 返回非 RSS 响应)。
+  assert.ok(feeds.every((feed) => !feed.url.includes("setmkt")));
 });
 
 test("Google News fallback only returns scraped full text, never RSS summaries", async () => {

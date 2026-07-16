@@ -175,7 +175,7 @@ type SerializedEvidenceItem = {
   summary: string;
   publishedAt: string | null;
   materialKind: "fulltext" | "excerpt" | null;
-  discoveryMethod: "exa" | "rss" | "google-news" | null;
+  discoveryMethod: "exa" | "rss" | "google-news" | "bing-news" | null;
 };
 
 /**
@@ -240,7 +240,7 @@ export function extractTrustedEvidenceManifest(markdown?: string | null): Eviden
         typeof item.sourceName !== "string" || !item.sourceName.trim() || item.sourceName.length > 300 ||
         typeof item.summary !== "string" || !item.summary.trim() || item.summary.length > 6000 ||
         (item.materialKind !== null && item.materialKind !== "fulltext" && item.materialKind !== "excerpt") ||
-        (item.discoveryMethod !== null && item.discoveryMethod !== "exa" && item.discoveryMethod !== "rss" && item.discoveryMethod !== "google-news") ||
+        (item.discoveryMethod !== null && item.discoveryMethod !== "exa" && item.discoveryMethod !== "rss" && item.discoveryMethod !== "google-news" && item.discoveryMethod !== "bing-news") ||
         (item.publishedAt !== null && typeof item.publishedAt !== "string")
       ) return [];
 
@@ -554,7 +554,9 @@ function parseEvidenceInventorySection(
       ? "exa" as const
       : /news\.google\./i.test(url)
         ? "google-news" as const
-        : undefined;
+        : /bing\.com\/news/i.test(url)
+          ? "bing-news" as const
+          : undefined;
     const publishedAt = published ? new Date(published) : null;
     evidence.push({
       title: match[2].trim(),
@@ -563,7 +565,7 @@ function parseEvidenceInventorySection(
       summary,
       materialKind: alreadyTrusted
         ? "fulltext"
-        : discoveryMethod === "exa" || discoveryMethod === "google-news" || informationLength(summary) < 500
+        : discoveryMethod === "exa" || discoveryMethod === "google-news" || discoveryMethod === "bing-news" || informationLength(summary) < 500
           ? "excerpt"
           : "fulltext",
       discoveryMethod,
