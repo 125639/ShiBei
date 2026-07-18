@@ -29,7 +29,8 @@ export const DEFAULT_MODULES: DefaultModule[] = [
       { name: "央视新闻", url: "https://news.cctv.com/", type: "WEB", region: "DOMESTIC" },
       { name: "The Guardian World", url: "https://www.theguardian.com/world/rss", type: "RSS", region: "INTERNATIONAL" },
       { name: "BBC News", url: "https://feeds.bbci.co.uk/news/rss.xml", type: "RSS", region: "INTERNATIONAL" },
-      { name: "NHK World", url: "https://www3.nhk.or.jp/nhkworld/en/news/rss/", type: "RSS", region: "INTERNATIONAL" }
+      // NHK World 英文版已停止提供 RSS（2026-07 确认），改用 NHK 日文"国際"频道 feed。
+      { name: "NHK 国际新闻（日文）", url: "https://www3.nhk.or.jp/rss/news/cat6.xml", type: "RSS", region: "INTERNATIONAL" }
     ]
   },
   {
@@ -55,7 +56,8 @@ export const DEFAULT_MODULES: DefaultModule[] = [
     sortOrder: 30,
     sources: [
       { name: "36氪", url: "https://36kr.com/feed", type: "RSS", region: "DOMESTIC" },
-      { name: "虎嗅", url: "https://www.huxiu.com/rss/0.xml", type: "RSS", region: "DOMESTIC" },
+      // www.huxiu.com 主站从服务器网络不可达，官方 RSS 子域可用。
+      { name: "虎嗅", url: "https://rss.huxiu.com/", type: "RSS", region: "DOMESTIC" },
       { name: "少数派", url: "https://sspai.com/feed", type: "RSS", region: "DOMESTIC" },
       { name: "爱范儿", url: "https://www.ifanr.com/feed", type: "RSS", region: "DOMESTIC" },
       { name: "The Verge", url: "https://www.theverge.com/rss/index.xml", type: "RSS", region: "INTERNATIONAL" },
@@ -115,7 +117,7 @@ export const DEFAULT_MODULES: DefaultModule[] = [
     sources: [
       { name: "Smashing Magazine", url: "https://www.smashingmagazine.com/feed/", type: "RSS", region: "INTERNATIONAL" },
       { name: "A List Apart", url: "https://alistapart.com/main/feed/", type: "RSS", region: "INTERNATIONAL" },
-      { name: "It's Nice That", url: "https://www.itsnicethat.com/feed", type: "RSS", region: "INTERNATIONAL" },
+      { name: "It's Nice That", url: "https://feeds.feedburner.com/itsnicethat/SlXC", type: "RSS", region: "INTERNATIONAL" },
       { name: "Sidebar", url: "https://sidebar.io/feed.xml", type: "RSS", region: "INTERNATIONAL" }
     ]
   },
