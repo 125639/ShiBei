@@ -21,6 +21,7 @@
 import { NextResponse } from "next/server";
 import { isBackend } from "@/lib/app-mode";
 import { getResolvedSyncConfig } from "@/lib/sync/config";
+import { bearerTokenMatches } from "@/lib/sync/token";
 
 /**
  * 校验对 backend 公开端点的访问。frontend / full 模式直接放行，
@@ -44,7 +45,7 @@ export async function ensureBackendCallerAllowed(request: Request): Promise<Resp
   }
 
   const auth = request.headers.get("authorization") || "";
-  if (auth === `Bearer ${cfg.syncToken}`) return null;
+  if (bearerTokenMatches(auth, cfg.syncToken)) return null;
 
   return NextResponse.json(
     { error: "未授权：本路由仅允许已配置共享密钥的前端代理调用。" },

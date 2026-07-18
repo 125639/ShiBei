@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { exportToZip } from "@/lib/sync/export";
 import { getResolvedSyncConfig } from "@/lib/sync/config";
 import { getSession } from "@/lib/auth";
+import { bearerTokenMatches } from "@/lib/sync/token";
 
 // GET /api/admin/sync/export?since=<ISO>
 //
@@ -15,7 +16,7 @@ export async function GET(request: Request) {
   const cfg = await getResolvedSyncConfig();
   const auth = request.headers.get("authorization") || "";
   let authorized = false;
-  if (cfg.syncToken && auth === `Bearer ${cfg.syncToken}`) {
+  if (bearerTokenMatches(auth, cfg.syncToken)) {
     authorized = true;
   } else {
     const session = await getSession().catch(() => null);
