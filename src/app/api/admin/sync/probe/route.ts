@@ -4,6 +4,7 @@ import { getAppMode } from "@/lib/app-mode";
 import { getResolvedSyncConfig } from "@/lib/sync/config";
 import { getSession } from "@/lib/auth";
 import { SYNC_SCHEMA_VERSION } from "@/lib/sync/types";
+import { bearerTokenMatches } from "@/lib/sync/token";
 
 // GET /api/admin/sync/probe
 //
@@ -19,7 +20,7 @@ export async function GET(request: Request) {
   const cfg = await getResolvedSyncConfig();
   const auth = request.headers.get("authorization") || "";
   let authorized = false;
-  if (cfg.syncToken && auth === `Bearer ${cfg.syncToken}`) {
+  if (bearerTokenMatches(auth, cfg.syncToken)) {
     authorized = true;
   } else {
     const session = await getSession().catch(() => null);
@@ -38,7 +39,15 @@ export async function GET(request: Request) {
       })
       .catch(() => null),
     prisma.video
-      .findFirst({ orderBy: { updatedAt: "desc" }, select: { updatedAt: true } })
+      .findFirst({
+        // 必须与 export.ts 的 changedVideos 过滤保持一致：只有挂在
+        // 已发布且未被门禁拦截文章下的视频才会进增量包。否则草稿文章下的
+        // 视频、或文章删除后被置空 postId 的孤儿视频会把 latestContentAt
+        // 抬到导出永远够不到的时间点，让前端每分钟空拉一次。
+        where: { post: { is: { status: "PUBLISHED", publicationBlockedReason: null } } },
+        orderBy: { updatedAt: "desc" },
+        select: { updatedAt: true },
+      })
       .catch(() => null),
     prisma.post
       .count({ where: { status: "PUBLISHED", publicationBlockedReason: null } })
