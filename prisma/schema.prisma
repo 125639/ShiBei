@@ -78,6 +78,12 @@ model SiteSettings {
   videosEnabled            Boolean  @default(false)
   // YouTube 相关视频搜索独立开关：墙内部署 YouTube 不可达时,关掉可省去每篇≤25s 的白等。
   youtubeSearchEnabled     Boolean  @default(true)
+  // Bilibili 相关视频搜索开关：B 站 iframe 墙内直连可嵌，国内受众部署的首选视频源。
+  bilibiliSearchEnabled    Boolean  @default(true)
+  // yt-dlp 下载用 cookies.txt（Netscape 格式，加密存储）：解 YouTube 对数据中心 IP
+  // 的取流登录墙。仅下载用，搜索不需要。
+  ytDlpCookiesEnc          String?  @db.Text
+  ytDlpCookiesUpdatedAt    DateTime?
   // 自动挂载视频的站点默认模式：embed 外链嵌入 / link 链接卡片 / download 下载本地 / off 不挂。
   videoAttachMode          String   @default("embed")
   maxStorageMb             Int      @default(2048)

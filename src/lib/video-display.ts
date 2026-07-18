@@ -337,7 +337,14 @@ export function normalizeEmbedUrl(url: string) {
   const youtube = url.match(/(?:youtube\.com\/watch\?v=|youtu\.be\/)([A-Za-z0-9_-]+)/);
   if (youtube) return `https://www.youtube.com/embed/${youtube[1]}`;
   const bilibili = url.match(/bilibili\.com\/video\/([A-Za-z0-9]+)/);
-  if (bilibili) return `https://player.bilibili.com/player.html?bvid=${bilibili[1]}`;
+  if (bilibili) {
+    const id = bilibili[1];
+    // av 号必须走 aid= 参数；塞进 bvid= 播放器会加载失败（曾经的真 bug）。
+    const av = id.match(/^av(\d+)$/i);
+    return av
+      ? `https://player.bilibili.com/player.html?aid=${av[1]}`
+      : `https://player.bilibili.com/player.html?bvid=${id}`;
+  }
   return url;
 }
 

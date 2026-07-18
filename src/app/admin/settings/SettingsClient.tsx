@@ -109,6 +109,7 @@ type SettingsSite = Partial<Pick<
   | "textOnlyMode"
   | "videosEnabled"
   | "youtubeSearchEnabled"
+  | "bilibiliSearchEnabled"
   | "videoAttachMode"
   | "commentsEnabled"
   | "musicEnabledDefault"
@@ -376,8 +377,12 @@ export function SettingsClient({
                 <I18nText zh="启用视频功能（默认关闭：前台不展示任何视频，自动抓取也不收集视频链接）" en="Enable videos (off by default: nothing renders publicly and crawls skip video links)" />
               </label>
               <label>
+                <input type="checkbox" name="bilibiliSearchEnabled" value="true" defaultChecked={s?.bilibiliSearchEnabled !== false} />{" "}
+                <I18nText zh="自动搜索 Bilibili 相关视频（默认开启；B 站播放器国内可直连，优先于 YouTube 使用）" en="Auto-search related Bilibili videos (on by default; the Bilibili player loads directly in mainland China and is preferred over YouTube)" />
+              </label>
+              <label>
                 <input type="checkbox" name="youtubeSearchEnabled" value="true" defaultChecked={s?.youtubeSearchEnabled !== false} />{" "}
-                <I18nText zh="自动搜索 YouTube 相关视频（默认开启；服务器无法访问 YouTube 时请关闭，避免每篇文章白等搜索超时）" en="Auto-search related YouTube videos (on by default; turn off if the server cannot reach YouTube to avoid a per-article search timeout)" />
+                <I18nText zh="自动搜索 YouTube 相关视频（默认开启，作为 Bilibili 无结果时的兜底；服务器无法访问 YouTube 时请关闭，避免每篇文章白等搜索超时）" en="Auto-search related YouTube videos (on by default as the fallback when Bilibili has no match; turn off if the server cannot reach YouTube to avoid a per-article search timeout)" />
               </label>
             </div>
             <div className="field" style={{ marginTop: 12, maxWidth: 520 }}>
