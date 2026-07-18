@@ -108,6 +108,7 @@ type SettingsSite = Partial<Pick<
   | "autoImageSearchEnabled"
   | "textOnlyMode"
   | "videosEnabled"
+  | "youtubeSearchEnabled"
   | "commentsEnabled"
   | "musicEnabledDefault"
   | "maxStorageMb"
@@ -372,6 +373,10 @@ export function SettingsClient({
               <label>
                 <input type="checkbox" name="videosEnabled" value="true" defaultChecked={Boolean(s?.videosEnabled)} />{" "}
                 <I18nText zh="启用视频功能（默认关闭：前台不展示任何视频，自动抓取也不收集视频链接）" en="Enable videos (off by default: nothing renders publicly and crawls skip video links)" />
+              </label>
+              <label>
+                <input type="checkbox" name="youtubeSearchEnabled" value="true" defaultChecked={s?.youtubeSearchEnabled !== false} />{" "}
+                <I18nText zh="自动搜索 YouTube 相关视频（默认开启；服务器无法访问 YouTube 时请关闭，避免每篇文章白等搜索超时）" en="Auto-search related YouTube videos (on by default; turn off if the server cannot reach YouTube to avoid a per-article search timeout)" />
               </label>
               <label>
                 <input type="checkbox" name="commentsEnabled" value="true" defaultChecked={Boolean(s?.commentsEnabled)} />{" "}

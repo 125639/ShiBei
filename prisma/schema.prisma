@@ -76,6 +76,8 @@ model SiteSettings {
   defaultFont              String   @default("sans-cjk")
   textOnlyMode             Boolean  @default(false)
   videosEnabled            Boolean  @default(false)
+  // YouTube 相关视频搜索独立开关：墙内部署 YouTube 不可达时,关掉可省去每篇≤25s 的白等。
+  youtubeSearchEnabled     Boolean  @default(true)
   maxStorageMb             Int      @default(2048)
   cleanupAfterDays         Int      @default(30)
   cleanupCustomEnabled     Boolean  @default(false)

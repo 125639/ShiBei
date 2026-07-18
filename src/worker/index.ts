@@ -40,8 +40,7 @@ import {
 } from "../lib/research";
 import { parseAudienceEstimateUrl } from "../lib/audience";
 import { scrapeWebPage } from "../lib/scrape";
-import { stripNulBytes } from "../lib/strip-nul";
-import { searchTopYouTubeVideos } from "../lib/youtube-search";
+import { extractSalientTokens, pickTopRelevantVideo, searchTopYouTubeVideos } from "../lib/youtube-search";
 import { scrapeAudienceData } from "../lib/scrape-audience";
 import {
   getModelConfigForUse,
@@ -366,13 +365,14 @@ async function upsertResearchRawItem(
   ].join("\n");
 
   const rawItemId = artifactRawItemId(fetchJobId, `keyword:${index}`);
-  const researchData = stripNulBytes({
+  // NUL(0x00) 由 Prisma 客户端扩展统一剥离（src/lib/prisma.ts），无需手工包裹。
+  const researchData = {
     title: `关键词研究：${keyword}`,
     url: sourceUrl,
     content: evidence.map((item) => `${item.title}\n${item.summary}`).join("\n\n"),
     markdown,
     fetchJobId
-  });
+  };
   return prisma.rawItem.upsert({
     where: { id: rawItemId },
     create: { id: rawItemId, ...researchData },
@@ -425,14 +425,14 @@ async function processWeb(fetchJobId: string) {
     content: result.content,
     markdown: result.markdown
   });
-  const webData = stripNulBytes({
+  const webData = {
     title: result.title,
     url: sourcePageUrl,
     content: result.content,
     markdown: result.markdown,
     sourceId: fetchJob.sourceId,
     fetchJobId: fetchJob.id
-  });
+  };
   const rawItem = await prisma.rawItem.upsert({
     where: { id: rawItemId },
     create: { id: rawItemId, ...webData },
@@ -519,6 +519,14 @@ function autoImageSearchEnabled(settings: unknown) {
 /** 视频功能总开关（后台 设置→媒体）。默认关闭：不勾选就不收集、不展示任何视频。 */
 function videosFeatureEnabled(settings: unknown) {
   return (settings as { videosEnabled?: boolean } | null)?.videosEnabled === true;
+}
+
+/**
+ * YouTube 相关视频搜索的独立开关（后台 设置→媒体）。默认开启；墙内部署 YouTube
+ * 不可达时关掉，省去每篇文章 ≤25s 的搜索超时白等。仅约束主题搜索，不影响证据链视频。
+ */
+function youtubeSearchFeatureEnabled(settings: unknown) {
+  return (settings as { youtubeSearchEnabled?: boolean } | null)?.youtubeSearchEnabled !== false;
 }
 
 async function attachImagesFromEvidence(postId: string, evidence: EvidenceItem[]) {
@@ -760,7 +768,7 @@ async function processRss(fetchJobId: string) {
         };
       }
 
-      const rawItemData = stripNulBytes({
+      const rawItemData = {
         title: material.title,
         url: material.url,
         content: material.content,
@@ -768,7 +776,7 @@ async function processRss(fetchJobId: string) {
         sourceId: fetchJob.sourceId,
         fetchJobId: fetchJob.id,
         publishedAt: item.date
-      });
+      };
       const rawItem = await prisma.rawItem.upsert({
         where: { id: rawItemId },
         create: { id: rawItemId, ...rawItemData },
@@ -819,7 +827,7 @@ async function processVideo(fetchJobId: string) {
   const title = fetchJob.source?.name || "视频资源";
   const originalUrl = fetchJob.sourceUrl;
   const summary = "管理员添加的视频资源。";
-  const videoData = stripNulBytes({
+  const videoData = {
     title,
     url: originalUrl,
     content: `${title}\n${originalUrl}`,
@@ -827,7 +835,7 @@ async function processVideo(fetchJobId: string) {
     artifactKind: "VIDEO",
     sourceId: fetchJob.sourceId,
     fetchJobId: fetchJob.id
-  });
+  };
   const rawItem = await prisma.rawItem.upsert({
     where: { id: rawItemId },
     create: { id: rawItemId, ...videoData },
@@ -1298,17 +1306,27 @@ function youtubeVideoIdOf(url: string): string | null {
  * 只在带 yt-dlp 的 full/backend 镜像内有意义（frontend 模式不跑 worker）。
  */
 async function attachTopYouTubeVideo(postId: string, queryHint: string): Promise<string | null> {
+  const settings = await prisma.siteSettings.findUnique({ where: { id: "site" } });
+  if (!youtubeSearchFeatureEnabled(settings)) return null;
+
   // 优先用驱动文章的关键词/主题当搜索词；实测成稿后的花体标题（带引号、冒号、
   // 比喻）在 YouTube 上常常一条都搜不到，仅在无关键词时回退到清洗后的标题。
-  let query = cleanYouTubeQuery(queryHint);
-  if (!query) {
-    const post = await prisma.post.findUnique({ where: { id: postId }, select: { title: true } });
-    query = cleanYouTubeQuery(post?.title || "");
-  }
+  const post = await prisma.post.findUnique({ where: { id: postId }, select: { title: true } });
+  const title = post?.title || "";
+  let query = cleanYouTubeQuery(queryHint) || cleanYouTubeQuery(title);
   if (!query) return null;
 
-  const picks = await searchTopYouTubeVideos(query, { limit: 1 });
-  const pick = picks[0];
+  // 标题里的型号词（L03/SU7/Mate70…）区分度最高：拼进搜索词缩小范围，并对结果
+  // 做相关性分层。实测教训：只搜"小鹏汽车 最新车型"时，L03 首发文章挂上了播放量
+  // 更高的 P7+ 测评——泛词搜索永远偏向品牌最热门车型而不是文章主角。
+  const salientTokens = extractSalientTokens(`${title} ${queryHint}`);
+  for (const token of salientTokens) {
+    if (!query.toUpperCase().includes(token)) query = `${query} ${token}`;
+  }
+  query = query.slice(0, 100);
+
+  const picks = await searchTopYouTubeVideos(query, { limit: 5 });
+  const pick = pickTopRelevantVideo(picks, salientTokens);
   if (!pick) return null;
 
   // 去重：证据链里可能已抓到同一支 YouTube，避免同一文章重复挂。

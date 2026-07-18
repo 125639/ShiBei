@@ -1,6 +1,11 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
-import { parseYouTubeSearchResults } from "../src/lib/youtube-search";
+import {
+  extractSalientTokens,
+  parseYouTubeSearchResults,
+  pickTopRelevantVideo,
+  type YouTubeSearchResult
+} from "../src/lib/youtube-search";
 
 function fixture(entries: unknown[]) {
   return JSON.stringify({ entries });
@@ -61,5 +66,52 @@ describe("parseYouTubeSearchResults", () => {
     assert.deepEqual(parseYouTubeSearchResults(JSON.stringify({}), 5), []);
     assert.deepEqual(parseYouTubeSearchResults(JSON.stringify({ entries: "x" }), 5), []);
     assert.deepEqual(parseYouTubeSearchResults(fixture([]), 5), []);
+  });
+
+  test("filters out Shorts by duration but keeps unknown durations", () => {
+    const out = parseYouTubeSearchResults(
+      fixture([
+        { id: "aaaaaaaaaaa", title: "short 45s", view_count: 9_000_000, duration: 45 },
+        { id: "bbbbbbbbbbb", title: "full 300s", view_count: 100, duration: 300 },
+        { id: "ccccccccccc", title: "no duration", view_count: 50 },
+      ]),
+      10
+    );
+    assert.deepEqual(out.map((r) => r.title), ["full 300s", "no duration"]);
+  });
+});
+
+describe("extractSalientTokens", () => {
+  test("pulls model-like tokens from mixed CJK/ASCII titles", () => {
+    assert.deepEqual(extractSalientTokens("小鹏L03慕尼黑首发：以“物理AI”切入全球大众市场"), ["L03"]);
+    assert.deepEqual(extractSalientTokens("开了3000公里的小米SU7 Ultra 与 Mate70 Pro+"), ["SU7", "MATE70"]);
+  });
+
+  test("ignores pure numbers, years, and plain words; dedupes; caps at 4", () => {
+    assert.deepEqual(extractSalientTokens("2027 年新能源展望，与 9020 无关"), []);
+    assert.deepEqual(extractSalientTokens("SU7 su7 P7+ M9x K50 G6 extra A1 B2"), ["SU7", "P7+", "M9X", "K50"]);
+  });
+});
+
+describe("pickTopRelevantVideo", () => {
+  const mk = (title: string, viewCount: number): YouTubeSearchResult => ({
+    watchUrl: `https://www.youtube.com/watch?v=${title.replace(/\W/g, "").padEnd(11, "x").slice(0, 11)}`,
+    title,
+    viewCount,
+    durationSec: 300,
+    channel: null
+  });
+
+  test("prefers a lower-view candidate whose title hits a salient token (L03 case)", () => {
+    const results = [mk("XPENG小鹏P7+，汽车年度卷王来了", 990_000), mk("小鹏L03慕尼黑实拍", 12_000)];
+    const pick = pickTopRelevantVideo(results, ["L03"]);
+    assert.equal(pick?.title, "小鹏L03慕尼黑实拍");
+  });
+
+  test("falls back to view ranking when no candidate hits and when no tokens", () => {
+    const results = [mk("hot but unrelated", 990_000), mk("also unrelated", 12_000)];
+    assert.equal(pickTopRelevantVideo(results, ["L03"])?.title, "hot but unrelated");
+    assert.equal(pickTopRelevantVideo(results, [])?.title, "hot but unrelated");
+    assert.equal(pickTopRelevantVideo([], ["L03"]), null);
   });
 });
