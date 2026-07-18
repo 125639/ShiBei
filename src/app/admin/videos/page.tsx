@@ -33,9 +33,17 @@ export default async function VideosAdminPage() {
       orderBy: { updatedAt: "desc" },
       take: 200,
     }),
-    prisma.siteSettings.findUnique({ where: { id: "site" }, select: { videosEnabled: true } }),
+    prisma.siteSettings.findUnique({
+      where: { id: "site" },
+      // ytDlpCookiesEnc 只用于推导"是否已配置"，密文绝不进浏览器载荷。
+      select: { videosEnabled: true, ytDlpCookiesEnc: true, ytDlpCookiesUpdatedAt: true }
+    }),
   ]);
   const videosEnabled = settings?.videosEnabled === true;
+  const cookiesConfigured = Boolean(settings?.ytDlpCookiesEnc);
+  const cookiesUpdatedAt = settings?.ytDlpCookiesUpdatedAt
+    ? settings.ytDlpCookiesUpdatedAt.toISOString().slice(0, 16).replace("T", " ") + " UTC"
+    : null;
 
   const videoRows = videos.map((video) => ({
     id: video.id,
@@ -75,6 +83,35 @@ export default async function VideosAdminPage() {
           en={<>Upload local files (MP4 / WebM / MOV / M4V, ≤300 MB) or add YouTube / Bilibili embeds and links. Videos have no standalone page — they only embed in posts via <code>[[video:ID]]</code> shortcodes. By default they render as links/players from the original platform; “Download locally” makes the worker fetch the file so the post plays it with a local player. Videos within a post support drag reordering and three preset placements.</>}
         />
       </p>
+
+      <section className="form-card form-stack" style={{ maxWidth: 720 }}>
+        <h2 style={{ marginTop: 0 }}><I18nText zh="YouTube 下载 Cookies" en="YouTube Download Cookies" /></h2>
+        <p className="muted-block" style={{ margin: 0 }}>
+          <I18nText
+            zh={<>YouTube 对服务器机房 IP 的<strong>下载</strong>有「Sign in to confirm you’re not a bot」登录墙（搜索不受影响）。上传你浏览器导出的 Netscape 格式 <code>cookies.txt</code>（如扩展 “Get cookies.txt LOCALLY”）后，下载会带上它。文件加密存储、仅下载瞬间解密到临时文件并即刻删除。<strong>注意：使用个人账号 cookies 有账号风控风险，建议使用小号。</strong></>}
+            en={<>YouTube gates <strong>downloads</strong> from datacenter IPs behind a “Sign in to confirm you’re not a bot” wall (search is unaffected). Upload a Netscape-format <code>cookies.txt</code> exported from your browser (e.g. the “Get cookies.txt LOCALLY” extension) and downloads will use it. It is stored encrypted and only decrypted into a transient file during a download. <strong>Using personal-account cookies carries account risk — prefer a spare account.</strong></>}
+          />
+        </p>
+        <p style={{ margin: 0 }}>
+          {cookiesConfigured ? (
+            <I18nText zh={<>状态：<strong>已配置</strong>{cookiesUpdatedAt ? `（更新于 ${cookiesUpdatedAt}）` : ""}</>} en={<>Status: <strong>configured</strong>{cookiesUpdatedAt ? ` (updated ${cookiesUpdatedAt})` : ""}</>} />
+          ) : (
+            <I18nText zh={<>状态：<strong>未配置</strong>（YouTube 下载大概率被登录墙拒绝）</>} en={<>Status: <strong>not configured</strong> (YouTube downloads will likely be rejected)</>} />
+          )}
+        </p>
+        <div className="meta-row" style={{ gap: 12, alignItems: "center", flexWrap: "wrap" }}>
+          <form action="/api/admin/videos/cookies" method="post" encType="multipart/form-data" className="meta-row" style={{ gap: 8, alignItems: "center" }}>
+            <input type="file" name="cookiesFile" accept=".txt,text/plain" required />
+            <button className="button" type="submit"><I18nText zh="上传 cookies" en="Upload cookies" /></button>
+          </form>
+          {cookiesConfigured ? (
+            <form action="/api/admin/videos/cookies" method="post">
+              <input type="hidden" name="action" value="clear" />
+              <button className="button button-danger" type="submit"><I18nText zh="删除已存 cookies" en="Remove stored cookies" /></button>
+            </form>
+          ) : null}
+        </div>
+      </section>
 
       <form
         className="form-card form-stack"

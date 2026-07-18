@@ -12,6 +12,7 @@ import {
   trustedVideoDownloadTarget,
   type TrustedVideoDownloadTarget
 } from "./video-download-policy";
+import { loadYtDlpCookiesFile } from "./ytdlp-cookies";
 
 const execFileAsync = promisify(execFile);
 
@@ -129,6 +130,9 @@ function sanitizedYtDlpEnvironment() {
 }
 
 async function runYtDlp(target: TrustedVideoDownloadTarget, videoId: string, maxFileBytes: number) {
+  // 管理员上传过 cookies.txt 时带上（解 YouTube 数据中心 IP 登录墙）；cookie jar
+  // 按域匹配，对其它平台无副作用。临时文件 0600、用完即删。
+  const cookies = await loadYtDlpCookiesFile();
   const proxy = await startPinnedEgressProxy({
     allowedHostSuffixes: target.allowedHostSuffixes,
     maxConnections: 24
@@ -153,6 +157,7 @@ async function runYtDlp(target: TrustedVideoDownloadTarget, videoId: string, max
     "--max-filesize", String(maxFileBytes),
     "-S", "res:480,ext",
     "--remux-video", "mp4",
+    ...(cookies ? ["--cookies", cookies.path] : []),
     "-o", path.join(VIDEO_DIR, `dl-${videoId}.%(ext)s`),
     target.url
   ];
@@ -173,6 +178,7 @@ async function runYtDlp(target: TrustedVideoDownloadTarget, videoId: string, max
     throw error;
   } finally {
     await proxy.close().catch(() => undefined);
+    await cookies?.cleanup();
   }
 }
 
