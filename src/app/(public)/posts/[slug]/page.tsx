@@ -1,7 +1,6 @@
 import { notFound } from "next/navigation";
 import Link from "next/link";
 import type { Metadata } from "next";
-import { AiAssistant } from "@/components/AiAssistant";
 import { ArticleToc } from "@/components/ArticleToc";
 import { LanguageAwarePost } from "@/components/LanguageAwarePost";
 import { PostComments } from "@/components/PostComments";
@@ -203,7 +202,7 @@ export default async function PostDetailPage({ params }: { params: Promise<{ slu
           {
             title: <I18nText zh="读这篇文章" en="About this article" />,
             prompts: [
-              "概括这篇文章的重点",
+              "用三句话概括这篇文章",
               "列出文中的事实、观点和不确定信息",
               "用更通俗的话解释给我听"
             ]
@@ -211,9 +210,9 @@ export default async function PostDetailPage({ params }: { params: Promise<{ slu
           {
             title: <I18nText zh="继续思考" en="Go further" />,
             prompts: [
+              "这件事的争议点是什么？",
               "这件事可能带来什么影响？",
-              "有哪些值得继续追问的问题？",
-              "帮我拟一个评论角度"
+              "有哪些值得继续追问的问题？"
             ]
           }
         ]}
@@ -295,29 +294,6 @@ export default async function PostDetailPage({ params }: { params: Promise<{ slu
         </div>
         <ArticleToc variant="rail" />
       </div>
-
-      <AiAssistant
-        contextLabel={<I18nText zh="当前文章" en="Current Post" />}
-        suggestionGroups={[
-          {
-            title: <I18nText zh="核心要点" en="Key Points" />,
-            prompts: [
-              "用三句话概括这篇文章",
-              "这篇文章最重要的事实是什么？",
-              "哪些背景信息需要补充？"
-            ]
-          },
-          {
-            title: <I18nText zh="深入阅读" en="Go Deeper" />,
-            prompts: [
-              "这件事的争议点是什么？",
-              "列出事实、观点和推测的区别",
-              "这件事可能带来什么影响？"
-            ]
-          }
-        ]}
-        context={[post.title, post.summary, post.content.slice(0, 8000)].join("\n\n")}
-      />
 
       <div className="prose article-related-stack">
         {trailingVideos.length ? (
