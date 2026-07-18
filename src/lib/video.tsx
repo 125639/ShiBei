@@ -4,6 +4,7 @@ import {
   EMBED_IFRAME_SANDBOX,
   formatVideoDuration,
   isAllowedEmbedUrl,
+  safeHttpHref,
   shouldRenderVideoAsLink
 } from "./video-display";
 
@@ -25,16 +26,20 @@ export function VideoEmbed({ video }: { video: VideoAttribution }) {
 
   return (
     <div className="video-embed">
-      {renderAsLink && (
-        linkHref ? (
-          <a className="video-link-card" href={linkHref} target="_blank" rel="noreferrer">
+      {renderAsLink && (() => {
+        // EMBED 型视频以卡片展示时，人点出去应到平台观看页（sourcePageUrl，如
+        // youtube.com/watch），而不是 /embed/ 裸播放器 URL；LINK 型的 url 本身
+        // 就是可播放资源，维持原值。
+        const cardHref = (video.type === "EMBED" ? sourceHref : null) ?? linkHref;
+        return cardHref ? (
+          <a className="video-link-card" href={cardHref} target="_blank" rel="noreferrer">
             <span>{video.title}</span>
             <strong>打开视频</strong>
           </a>
         ) : (
           <div className="video-link-card"><span>{video.title}</span></div>
-        )
-      )}
+        );
+      })()}
       {!renderAsLink && video.type === "LOCAL" && <video controls src={video.url} className="video-frame" preload="metadata" />}
       {!renderAsLink && video.type === "EMBED" && (
         <iframe
@@ -91,19 +96,6 @@ export function VideoEmbed({ video }: { video: VideoAttribution }) {
       )}
     </div>
   );
-}
-
-/** http/https 或站内绝对路径(/…，排除协议相对 //host)才可作 href；其余返回 null。 */
-function safeHttpHref(url: string | null | undefined): string | null {
-  const raw = (url || "").trim();
-  if (!raw) return null;
-  if (raw.startsWith("/") && !raw.startsWith("//")) return raw;
-  try {
-    const parsed = new URL(raw);
-    return parsed.protocol === "http:" || parsed.protocol === "https:" ? raw : null;
-  } catch {
-    return null;
-  }
 }
 
 function hostFromUrl(url: string) {
