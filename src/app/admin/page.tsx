@@ -7,6 +7,7 @@ import { MetricCard } from "@/components/MetricCard";
 import { RelativeTime } from "@/components/RelativeTime";
 import { StatusPill } from "@/components/StatusPill";
 import { SubmitButton } from "@/components/SubmitButton";
+import { VideoAttachModeSelect } from "@/components/VideoAttachModeSelect";
 import { requireAdmin } from "@/lib/auth";
 import { hasLocalWorker } from "@/lib/app-mode";
 import { getBuildInfo } from "@/lib/build-info";
@@ -121,6 +122,7 @@ export default async function AdminDashboardPage() {
               </select>
             </div>
             <ContentStyleSelect styles={contentStyles} id="keywordContentStyleId" />
+            <VideoAttachModeSelect id="keywordVideoAttachMode" />
             <SubmitButton pendingLabel={<I18nText zh="正在创建任务…" en="Creating jobs…" />}><I18nText zh="生成草稿" en="Generate Draft" /></SubmitButton>
           </form>
         </section>

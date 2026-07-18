@@ -27,6 +27,8 @@ import {
 } from "../lib/queue";
 import { reconcileWorkerQueues, type QueueRecoveryStore } from "../lib/queue-recovery";
 import { downloadVideoToLocal } from "../lib/video-download";
+import { trustedVideoDownloadTarget } from "../lib/video-download-policy";
+import { resolveVideoAttachMode, type VideoAttachMode } from "../lib/video-attach-mode";
 import { fetchRss } from "../lib/rss";
 import {
   digestWindowLabel,
@@ -449,6 +451,8 @@ async function processWeb(fetchJobId: string) {
     // 纯文本模式或视频功能未开启：完全跳过视频收集。
     return;
   }
+  const videoMode = resolveVideoAttachMode(fetchJob.videoAttachMode, siteVideoAttachMode(settings));
+  if (videoMode === "off") return;
 
   const createdVideoIds: string[] = [];
 
@@ -470,6 +474,7 @@ async function processWeb(fetchJobId: string) {
       select: { id: true }
     });
     createdVideoIds.push(created.id);
+    await maybeEnqueueAutoDownload(created.id, url, videoMode);
   }
 
   if (createdVideoIds.length) {
@@ -527,6 +532,44 @@ function videosFeatureEnabled(settings: unknown) {
  */
 function youtubeSearchFeatureEnabled(settings: unknown) {
   return (settings as { youtubeSearchEnabled?: boolean } | null)?.youtubeSearchEnabled !== false;
+}
+
+function siteVideoAttachMode(settings: unknown): string | null {
+  return (settings as { videoAttachMode?: string | null } | null)?.videoAttachMode ?? null;
+}
+
+/**
+ * download 模式：自动流程挂上的视频随即排入 480p 本地化队列（与后台「下载到本地」
+ * 按钮完全同一条链路），完成后 Video 转 LOCAL、文章内直接用本站播放器播放——这是
+ * 观众无法直连外网平台（墙内访客看 YouTube iframe 一片空白）时唯一"看得了"的形态。
+ * 仅对 yt-dlp 支持且过 SSRF 白名单的平台观看页入队；其余 URL 保持外链不动。
+ * 入队失败只记日志，不拖垮文章生成。
+ */
+async function maybeEnqueueAutoDownload(videoId: string, url: string, mode: VideoAttachMode) {
+  if (mode !== "download") return;
+  if (!trustedVideoDownloadTarget(url)) return;
+  try {
+    await prisma.video.update({
+      where: { id: videoId },
+      data: { downloadStatus: "queued", downloadError: null }
+    });
+    const queue = getVideoDownloadQueue();
+    try {
+      await queue.add("video-download", { videoId }, {
+        jobId: `video-download-${videoId}`,
+        removeOnComplete: true,
+        removeOnFail: true
+      });
+    } finally {
+      await queue.close().catch(() => undefined);
+    }
+  } catch (error) {
+    console.error(`[video-attach] 自动下载入队失败 ${videoId}:`, error);
+    await prisma.video.update({
+      where: { id: videoId },
+      data: { downloadStatus: "failed", downloadError: "自动下载入队失败，可在后台手动重试" }
+    }).catch(() => undefined);
+  }
 }
 
 async function attachImagesFromEvidence(postId: string, evidence: EvidenceItem[]) {
@@ -864,6 +907,9 @@ async function processVideo(fetchJobId: string) {
 
   // 视频功能关闭时只保留文字版 Post（内容里已有"视频来源"链接），不建 Video 行。
   if (!videosFeatureEnabled(settings)) return;
+  // off 模式同理：管理员明确要求这单不挂视频。
+  const videoMode = resolveVideoAttachMode(fetchJob.videoAttachMode, siteVideoAttachMode(settings));
+  if (videoMode === "off") return;
 
   // A retry may arrive after RawItem/Post were committed but before the Video
   // row or shortcode was written. Reconcile every stage instead of treating the
@@ -877,7 +923,7 @@ async function processVideo(fetchJobId: string) {
       title,
       type: detectVideoType(originalUrl),
       url: normalizeEmbedUrl(originalUrl),
-      displayMode: textOnly ? "link" : "embed",
+      displayMode: textOnly || videoMode === "link" ? "link" : "embed",
       summary,
       postId: post.id,
       region: isDomesticVideoCandidate(originalUrl, originalUrl) ? "DOMESTIC" : "INTERNATIONAL",
@@ -887,6 +933,7 @@ async function processVideo(fetchJobId: string) {
     },
     select: { id: true }
   });
+  await maybeEnqueueAutoDownload(video.id, originalUrl, videoMode);
   await prisma.post.update({
     where: { id: post.id },
     data: {
@@ -1108,7 +1155,7 @@ async function processKeywordResearch(fetchJobId: string, keyword: string, scope
     );
     if (publishable) {
       await attachImagesFromEvidence(post.id, articleEvidence);
-      await attachVideosFromEvidence(post.id, articleEvidence, `关键词「${keyword}」`, keyword);
+      await attachVideosFromEvidence(post.id, articleEvidence, `关键词「${keyword}」`, keyword, fetchJob.videoAttachMode);
     } else if (generationFailure) {
       // RawItem + blocked Post are durable for diagnosis, but the task itself is
       // not a successful article generation and must remain retryable/visible as failed.
@@ -1228,10 +1275,19 @@ function extractVideoUrlsFromText(text: string): string[] {
  * postId。任何单条创建失败都吞掉(console.error),避免拖垮整个 worker job
  * ——视频附挂只是锦上添花,不该让 Post 本身变成 FAILED。
  */
-async function attachVideosFromEvidence(postId: string, evidence: EvidenceItem[], contextLabel: string, searchQuery: string) {
+async function attachVideosFromEvidence(
+  postId: string,
+  evidence: EvidenceItem[],
+  contextLabel: string,
+  searchQuery: string,
+  jobVideoMode: string | null = null
+) {
   const settings = await prisma.siteSettings.findUnique({ where: { id: "site" } });
   if ((settings as { textOnlyMode?: boolean } | null)?.textOnlyMode === true) return;
   if (!videosFeatureEnabled(settings)) return;
+  // 任务级模式覆盖优先，其次站点默认（后台 设置→媒体），双空回落 embed。
+  const mode = resolveVideoAttachMode(jobVideoMode, siteVideoAttachMode(settings));
+  if (mode === "off") return;
 
   // 注意：不能在「证据里没抓到视频」时提前返回——YouTube 主题搜索是独立的视频源，
   // 证据视频为空时（外站封锁抓取很常见）它仍应照常补一支相关视频。
@@ -1257,12 +1313,13 @@ async function attachVideosFromEvidence(postId: string, evidence: EvidenceItem[]
         select: { id: true }
       });
       createdIds.push(created.id);
+      await maybeEnqueueAutoDownload(created.id, v.url, mode);
     } catch (error) {
       console.error(`[video-attach] failed for ${v.url}:`, error);
     }
   }
 
-  const youtubeId = await attachTopYouTubeVideo(postId, searchQuery).catch((error) => {
+  const youtubeId = await attachTopYouTubeVideo(postId, searchQuery, mode).catch((error) => {
     console.error(`[youtube-search] attach failed for post ${postId}:`, error);
     return null;
   });
@@ -1305,7 +1362,11 @@ function youtubeVideoIdOf(url: string): string | null {
  * 后台一键下载为 480p 低码率存档。YouTube 不可达/搜索失败一律静默跳过，不影响成稿。
  * 只在带 yt-dlp 的 full/backend 镜像内有意义（frontend 模式不跑 worker）。
  */
-async function attachTopYouTubeVideo(postId: string, queryHint: string): Promise<string | null> {
+async function attachTopYouTubeVideo(
+  postId: string,
+  queryHint: string,
+  mode: VideoAttachMode = "embed"
+): Promise<string | null> {
   const settings = await prisma.siteSettings.findUnique({ where: { id: "site" } });
   if (!youtubeSearchFeatureEnabled(settings)) return null;
 
@@ -1346,7 +1407,8 @@ async function attachTopYouTubeVideo(postId: string, queryHint: string): Promise
       title: pick.title || "相关 YouTube 视频",
       type: "EMBED",
       url: normalizeEmbedUrl(pick.watchUrl),
-      displayMode: "embed",
+      // link 模式：不内嵌 iframe，只给来源链接卡片（观众自行决定是否跳转平台）。
+      displayMode: mode === "link" ? "link" : "embed",
       summary: `按文章主题在 YouTube 上自动匹配、优先选取播放量最高者（约 ${viewsLabel} 次观看）。`,
       postId,
       region: "INTERNATIONAL",
@@ -1359,6 +1421,8 @@ async function attachTopYouTubeVideo(postId: string, queryHint: string): Promise
     },
     select: { id: true }
   });
+  // download 模式：用规范 watch 页（而非 /embed/ URL）入下载队列。
+  await maybeEnqueueAutoDownload(created.id, pick.watchUrl, mode);
   return created.id;
 }
 
@@ -1624,7 +1688,7 @@ async function processDigest(fetchJobId: string, topicId: string, digestKind: "D
   );
   if (publishable) {
     await attachImagesFromEvidence(post.id, digestWritingEvidence);
-    await attachVideosFromEvidence(post.id, digestWritingEvidence, `${topic.name} ${windowLabel}`, topic.name);
+    await attachVideosFromEvidence(post.id, digestWritingEvidence, `${topic.name} ${windowLabel}`, topic.name, fetchJob.videoAttachMode);
   } else if (generationFailure) {
     throw generationFailure;
   }

@@ -78,6 +78,8 @@ model SiteSettings {
   videosEnabled            Boolean  @default(false)
   // YouTube 相关视频搜索独立开关：墙内部署 YouTube 不可达时,关掉可省去每篇≤25s 的白等。
   youtubeSearchEnabled     Boolean  @default(true)
+  // 自动挂载视频的站点默认模式：embed 外链嵌入 / link 链接卡片 / download 下载本地 / off 不挂。
+  videoAttachMode          String   @default("embed")
   maxStorageMb             Int      @default(2048)
   cleanupAfterDays         Int      @default(30)
   cleanupCustomEnabled     Boolean  @default(false)
@@ -181,6 +183,8 @@ model FetchJob {
   sourceType     SourceType
   modelConfigId  String?
   contentStyleId String?
+  // 本次任务的视频挂载模式覆盖（embed/link/download/off）；空=跟随站点默认。
+  videoAttachMode String?
   contentTopicId String?
   contentTopic   ContentTopic? @relation(fields: [contentTopicId], references: [id], onDelete: SetNull)
   adminAiBatchId String?

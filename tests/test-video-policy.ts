@@ -75,6 +75,26 @@ describe("video candidate selection", () => {
     );
   });
 
+  test("rejects YouTube channel/user/playlist/subscribe pages but keeps watch forms", () => {
+    // 实测混进过文章的垃圾形态：频道页 + ?sub_confirmation=1 订阅链接 + /c/ 别名页。
+    const selected = selectVideoLinksForPost([
+      { text: "sub", href: "https://www.youtube.com/channel/UCcOIZzJgLCyMPILY7-1Vsdg?sub_confirmation=1" },
+      { text: "alias", href: "https://youtube.com/c/electrekco" },
+      { text: "user", href: "https://www.youtube.com/user/HuaweiEnterprise" },
+      { text: "handle", href: "https://www.youtube.com/@somecreator" },
+      { text: "playlist", href: "https://www.youtube.com/playlist?list=PLxyz" },
+      { text: "bare-watch", href: "https://www.youtube.com/watch" },
+      { text: "watch", href: "https://www.youtube.com/watch?v=d6uZiYlb9NE" },
+      { text: "embed", href: "https://www.youtube.com/embed/g7Wf9hW9d3Q?playlist=a,b" },
+      { text: "short-link", href: "https://youtu.be/ddddddddddd" }
+    ]);
+
+    assert.deepEqual(
+      selected.map((item) => item.text),
+      ["watch", "embed", "short-link"]
+    );
+  });
+
   test("skips browser-only blob video URLs", () => {
     const selected = selectVideoLinksForPost([
       { text: "blob", href: "blob:https://m.news.cntv.cn/player-token" },

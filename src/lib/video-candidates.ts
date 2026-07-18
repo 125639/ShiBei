@@ -27,6 +27,27 @@ export function isHlsSegmentUrl(url: string) {
 // 单条视频就挂在单段路径上的短链域：对它们套"单段路径=索引页"会误杀正常视频。
 const SHORTLINK_HOST_RE = /(^|\.)(youtu\.be|b23\.tv)$/i;
 
+// YouTube 域上只有观看页形态才是"一支视频"。频道页(/channel/、/c/、/user/、/@)、
+// 播放列表、搜索结果、订阅按钮链接(?sub_confirmation=1)统统不是——实测它们靠
+// PLATFORM_RE 的 600 分混进过文章("打开视频"点开是频道首页，观感即"视频看不了")。
+const YOUTUBE_HOST_RE = /(^|\.)(youtube\.com|youtube-nocookie\.com|music\.youtube\.com)$/i;
+const YOUTUBE_WATCH_PATH_RE = /^\/(?:watch$|embed\/|shorts\/|live\/|v\/)/i;
+
+function isYouTubeNonVideoPage(url: string): boolean {
+  try {
+    const parsed = new URL(url);
+    if (!YOUTUBE_HOST_RE.test(parsed.hostname.toLowerCase())) return false;
+    const pathname = parsed.pathname;
+    if (YOUTUBE_WATCH_PATH_RE.test(pathname)) {
+      // /watch 必须真带视频 id；/embed/、/shorts/ 等路径段里就是 id。
+      return pathname.toLowerCase() === "/watch" && !parsed.searchParams.get("v");
+    }
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 function looksLikeIndexPage(url: string): boolean {
   if (HLS_RE.test(url) || DIRECT_VIDEO_RE.test(url)) return false;
   try {
@@ -47,6 +68,7 @@ export function selectVideoLinksForPost<T extends VideoLinkCandidate>(links: rea
     const link = links[index];
     const href = link.href?.trim();
     if (!href || !isHttpUrl(href) || isHlsSegmentUrl(href)) continue;
+    if (isYouTubeNonVideoPage(href)) continue;
     // 嗅探流已用 content-type 验证过是真媒体：URL 无扩展名、路径像栏目页
     // 都不影响其资格，按直链媒体保底计分；其余候选先过索引页启发式再打分。
     if (!link.sniffed && looksLikeIndexPage(href)) continue;
@@ -77,6 +99,7 @@ export function selectVideoLinksForPost<T extends VideoLinkCandidate>(links: rea
 export function isAutoAttachableVideoUrl(url: string): boolean {
   const href = (url || "").trim();
   if (!href || !isHttpUrl(href) || isHlsSegmentUrl(href) || looksLikeIndexPage(href)) return false;
+  if (isYouTubeNonVideoPage(href)) return false;
   return candidateScore(href) >= MIN_AUTO_ATTACH_SCORE;
 }
 
