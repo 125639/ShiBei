@@ -129,8 +129,9 @@ export const DEFAULT_MODULES: DefaultModule[] = [
       { name: "三联生活周刊", url: "https://www.lifeweek.com.cn/", type: "WEB", region: "DOMESTIC" },
       { name: "单向街", url: "https://www.owspace.com/", type: "WEB", region: "DOMESTIC" },
       { name: "The New Yorker · Culture", url: "https://www.newyorker.com/feed/culture", type: "RSS", region: "INTERNATIONAL" },
-      { name: "Aeon", url: "https://aeon.co/feed.rss", type: "RSS", region: "INTERNATIONAL" },
-      { name: "Los Angeles Review of Books", url: "https://lareviewofbooks.org/feed/", type: "RSS", region: "INTERNATIONAL" }
+      // Los Angeles Review of Books 已移除：2026-07 改版为 Next.js 站后不再提供文章 RSS
+      // （/feed/、feed.xml、api/rss 均 404；FeedBurner 只剩播客源）。
+      { name: "Aeon", url: "https://aeon.co/feed.rss", type: "RSS", region: "INTERNATIONAL" }
     ]
   },
   {
@@ -141,7 +142,8 @@ export const DEFAULT_MODULES: DefaultModule[] = [
     sortOrder: 90,
     sources: [
       { name: "Stratechery (Ben Thompson)", url: "https://stratechery.com/feed/", type: "RSS", region: "INTERNATIONAL" },
-      { name: "Paul Graham · Essays", url: "https://www.aaronsw.com/2002/feeds/pgessays.rss", type: "RSS", region: "INTERNATIONAL" },
+      // aaronsw.com 的 TLS 配置过旧（所有 TLS 版本握手均失败），只能走纯 HTTP。
+      { name: "Paul Graham · Essays", url: "http://www.aaronsw.com/2002/feeds/pgessays.rss", type: "RSS", region: "INTERNATIONAL" },
       { name: "Marginal Revolution", url: "https://marginalrevolution.com/feed", type: "RSS", region: "INTERNATIONAL" },
       { name: "The Pragmatic Engineer", url: "https://newsletter.pragmaticengineer.com/feed", type: "RSS", region: "INTERNATIONAL" },
       { name: "One Useful Thing (Ethan Mollick)", url: "https://www.oneusefulthing.org/feed", type: "RSS", region: "INTERNATIONAL" },
@@ -157,7 +159,7 @@ export const DEFAULT_MODULES: DefaultModule[] = [
     sources: [
       { name: "知乎日报", url: "https://daily.zhihu.com/", type: "WEB", region: "DOMESTIC" },
       { name: "果壳", url: "https://www.guokr.com/", type: "WEB", region: "DOMESTIC" },
-      { name: "Scientific American", url: "https://www.scientificamerican.com/feed/", type: "RSS", region: "INTERNATIONAL" },
+      { name: "Scientific American", url: "https://www.scientificamerican.com/platform/syndication/rss/", type: "RSS", region: "INTERNATIONAL" },
       { name: "Astral Codex Ten", url: "https://www.astralcodexten.com/feed", type: "RSS", region: "INTERNATIONAL" },
       { name: "LessWrong", url: "https://www.lesswrong.com/feed.xml", type: "RSS", region: "INTERNATIONAL" }
     ]
