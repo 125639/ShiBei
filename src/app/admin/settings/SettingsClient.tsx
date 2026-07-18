@@ -109,6 +109,7 @@ type SettingsSite = Partial<Pick<
   | "textOnlyMode"
   | "videosEnabled"
   | "youtubeSearchEnabled"
+  | "videoAttachMode"
   | "commentsEnabled"
   | "musicEnabledDefault"
   | "maxStorageMb"
@@ -378,6 +379,23 @@ export function SettingsClient({
                 <input type="checkbox" name="youtubeSearchEnabled" value="true" defaultChecked={s?.youtubeSearchEnabled !== false} />{" "}
                 <I18nText zh="自动搜索 YouTube 相关视频（默认开启；服务器无法访问 YouTube 时请关闭，避免每篇文章白等搜索超时）" en="Auto-search related YouTube videos (on by default; turn off if the server cannot reach YouTube to avoid a per-article search timeout)" />
               </label>
+            </div>
+            <div className="field" style={{ marginTop: 12, maxWidth: 520 }}>
+              <label htmlFor="videoAttachMode"><I18nText zh="自动挂载视频的默认模式" en="Default video attach mode" /></label>
+              <select id="videoAttachMode" name="videoAttachMode" defaultValue={s?.videoAttachMode || "embed"}>
+                <option value="embed">外链嵌入播放器 / Embed external player</option>
+                <option value="link">仅链接卡片 / Link card only</option>
+                <option value="download">下载到本地（480p）/ Download locally (480p)</option>
+                <option value="off">不自动挂视频 / No automatic videos</option>
+              </select>
+              <small className="muted">
+                <I18nText
+                  zh="读者无法直连 YouTube 等平台时选「下载到本地」：自动挂载的视频随即缓存为 480p 本地副本，用本站播放器播放。每次生成任务可在表单里按单覆盖。"
+                  en="Pick “Download locally” when readers cannot reach YouTube etc.: attached videos are cached as 480p local copies and play from this site. Each generation form can override per job."
+                />
+              </small>
+            </div>
+            <div className="settings-check-list" style={{ marginTop: 12 }}>
               <label>
                 <input type="checkbox" name="commentsEnabled" value="true" defaultChecked={Boolean(s?.commentsEnabled)} />{" "}
                 <I18nText zh="启用评论功能（默认关闭；开启后仅注册会员可评论，注册凭邀请码）" en="Enable comments (off by default; only registered members can comment, registration by invite code)" />

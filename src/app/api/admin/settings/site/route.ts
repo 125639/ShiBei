@@ -5,6 +5,7 @@ import { isLanguageKey, isContentLanguageMode } from "@/lib/language";
 import { prisma } from "@/lib/prisma";
 import { redirectTo } from "@/lib/redirect";
 import { isFontKey, isThemeKey, isUiStyleKey } from "@/lib/themes";
+import { normalizeVideoAttachMode } from "@/lib/video-attach-mode";
 
 function clamp(value: number, min: number, max: number) {
   if (!Number.isFinite(value)) return min;
@@ -20,6 +21,7 @@ export async function POST(request: Request) {
   const textOnlyMode = form.get("textOnlyMode") === "true";
   const videosEnabled = form.get("videosEnabled") === "true";
   const youtubeSearchEnabled = form.get("youtubeSearchEnabled") === "true";
+  const videoAttachMode = normalizeVideoAttachMode(form.get("videoAttachMode")) ?? "embed";
   const commentsEnabled = form.get("commentsEnabled") === "true";
   const exaEnabled = form.get("exaEnabled") === "true";
   const autoImageSearchEnabled = form.getAll("autoImageSearchEnabled").map(String).includes("true");
@@ -52,6 +54,7 @@ export async function POST(request: Request) {
     textOnlyMode,
     videosEnabled,
     youtubeSearchEnabled,
+    videoAttachMode,
     commentsEnabled,
     defaultTheme,
     defaultFont,

@@ -6,6 +6,7 @@ import { getFetchQueue, getResearchQueue } from "@/lib/queue";
 import { prisma } from "@/lib/prisma";
 import { redirectTo } from "@/lib/redirect";
 import { buildKeywordResearchUrl, type ResearchDepth, type ResearchScope } from "@/lib/research";
+import { normalizeVideoAttachMode } from "@/lib/video-attach-mode";
 
 // 包装 fn,确保 fn 抛错时 queue.close() 也会被执行。否则一次失败的入队会泄漏
 // 一个 BullMQ 连接(短期内不可见,但反复触发或 OOM 后会拖垮 Redis)。
@@ -28,6 +29,8 @@ export async function POST(request: Request) {
   const tempUrl = String(form.get("tempUrl") || "");
   const redirectTarget = normalizeRedirect(String(form.get("redirectTo") || "/admin/jobs"));
   const contentStyleId = String(form.get("contentStyleId") || "").trim();
+  // 本单的视频挂载模式覆盖；表单留空（"跟随站点默认"）时存 NULL，由 worker 回落站点设置。
+  const videoAttachMode = normalizeVideoAttachMode(form.get("videoAttachMode"));
   const modelConfig = await getModelConfigForUse("content");
   const style = contentStyleId
     ? await prisma.contentStyle.findUnique({ where: { id: contentStyleId } })
@@ -42,7 +45,8 @@ export async function POST(request: Request) {
           sourceUrl: buildKeywordResearchUrl(keyword, keywordScope, articleCount, articleDepth),
           sourceType: "WEB",
           modelConfigId: modelConfig?.id,
-          contentStyleId: style?.id
+          contentStyleId: style?.id,
+          videoAttachMode
         }
       });
       await queue.add("fetch", { fetchJobId: job.id }, { priority: 1 });
@@ -64,7 +68,8 @@ export async function POST(request: Request) {
           sourceUrl: tempUrl,
           sourceType: type,
           modelConfigId: modelConfig?.id,
-          contentStyleId: style?.id
+          contentStyleId: style?.id,
+          videoAttachMode
         }
       });
       await queue.add("fetch", { fetchJobId: job.id });
@@ -79,7 +84,8 @@ export async function POST(request: Request) {
           sourceUrl: source.url,
           sourceType: source.type,
           modelConfigId: modelConfig?.id,
-          contentStyleId: style?.id
+          contentStyleId: style?.id,
+          videoAttachMode
         }
       });
       await queue.add("fetch", { fetchJobId: job.id });
@@ -95,7 +101,8 @@ export async function POST(request: Request) {
             sourceUrl: source.url,
             sourceType: source.type,
             modelConfigId: modelConfig?.id,
-            contentStyleId: style?.id
+            contentStyleId: style?.id,
+            videoAttachMode
           }
         });
         await queue.add("fetch", { fetchJobId: job.id });

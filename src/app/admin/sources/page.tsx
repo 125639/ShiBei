@@ -4,6 +4,7 @@ import { BulkSourceActions, type ListSource } from "@/components/BulkSourceActio
 import { ContentStyleSelect } from "@/components/ContentStyleSelect";
 import { I18nText } from "@/components/I18nText";
 import { SubmitButton } from "@/components/SubmitButton";
+import { VideoAttachModeSelect } from "@/components/VideoAttachModeSelect";
 import { requireAdmin } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 
@@ -199,6 +200,7 @@ export default async function SourcesPage({
           </div>
           <label><input type="checkbox" name="saveTemp" value="true" /> <I18nText zh="保存为默认来源" en="Save as default source" /></label>
           <ContentStyleSelect styles={contentStyles} id="tempContentStyleId" />
+          <VideoAttachModeSelect id="tempVideoAttachMode" />
           <SubmitButton pendingLabel={<I18nText zh="正在创建任务…" en="Creating job…" />}><I18nText zh="抓取临时来源" en="Fetch Temporary Source" /></SubmitButton>
         </form>
 
@@ -230,6 +232,7 @@ export default async function SourcesPage({
             </select>
           </div>
           <ContentStyleSelect styles={contentStyles} id="sourceKeywordContentStyleId" />
+          <VideoAttachModeSelect id="sourceKeywordVideoAttachMode" />
           <SubmitButton pendingLabel={<I18nText zh="正在创建任务…" en="Creating job…" />}><I18nText zh="搜索资料并生成文章草稿" en="Search & Generate Draft" /></SubmitButton>
         </form>
       </div>
