@@ -4,7 +4,7 @@ import { encryptSecret } from "../src/lib/crypto";
 import { seedDefaultTopics } from "../src/lib/topics";
 import { seedDefaultModules } from "../src/lib/source-modules";
 import { seedDefaultCreationGenres } from "../src/lib/creation";
-import { DEFAULT_BLOG_STYLE, isLegacyBundledStyle } from "../src/lib/content-style";
+import { BUNDLED_STYLE_PRESETS, DEFAULT_BLOG_STYLE, isLegacyBundledStyle } from "../src/lib/content-style";
 import { normalizeModelBaseUrl } from "../src/lib/model-config-input";
 import {
   adminUsernameFromEnv,
@@ -60,6 +60,15 @@ async function main() {
       data: DEFAULT_BLOG_STYLE
     });
     console.log("[seed] 已将旧版新闻摘要风格升级为专业博客风格");
+  }
+
+  // 内置风格预设：按固定 id 补齐缺失项。已存在的行（含用户改过的）绝不覆盖。
+  for (const { id, ...preset } of BUNDLED_STYLE_PRESETS) {
+    const existing = await prisma.contentStyle.findUnique({ where: { id } });
+    if (!existing) {
+      await prisma.contentStyle.create({ data: { id, ...preset, isDefault: false } });
+      console.log(`[seed] 已创建内置风格预设「${preset.name}」`);
+    }
   }
 
   await seedDefaultTopics(prisma);

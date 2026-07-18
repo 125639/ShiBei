@@ -20,6 +20,103 @@ export const DEFAULT_BLOG_STYLE = {
   ].join("")
 } as const;
 
+/**
+ * 内置风格预设（除默认深度博客外的可选风格）。
+ *
+ * 目标是让不同主题的产出有明显不同的"腔调"，而不是同一模板换标题。
+ * seed 按固定 id 创建缺失项，绝不覆盖已存在的行——管理员的编辑永远保留。
+ * 每个预设的 customInstructions 都必须服从更高优先级的事实与发布规则。
+ */
+export const BUNDLED_STYLE_PRESETS: Array<{
+  id: string;
+  name: string;
+  contentMode: ContentMode;
+  tone: string;
+  length: string;
+  focus: string;
+  outputStructure: string;
+  customInstructions: string;
+}> = [
+  {
+    id: "preset-news-brief",
+    name: "新闻快报",
+    contentMode: "report",
+    tone: "干净利落，只把发生了什么讲清楚，不渲染不注水",
+    length: "短",
+    focus: "已确认事实, 时间线, 直接影响, 待确认事项",
+    outputStructure: "单刀直入的标题 → 一段话讲清事件全貌 → 关键细节与数字 → 接下来值得盯什么",
+    customInstructions: [
+      "句子要短，信息密度要高；删掉一切空洞背景和套话。",
+      "把「已确认」与「尚待确认」明确分开；没有新信息就不硬拉长度。"
+    ].join("")
+  },
+  {
+    id: "preset-explainer",
+    name: "通俗科普",
+    contentMode: "explainer",
+    tone: "亲切耐心，像把事情讲给一个聪明但外行的朋友",
+    length: "中",
+    focus: "核心概念, 工作机制, 常见误解, 对普通人的现实意义",
+    outputStructure: "用一个具体场景或问题开头 → 拆解原理 → 澄清常见误区 → 回到现实意义",
+    customInstructions: [
+      "多用类比和具体例子；每引入一个术语，立刻用大白话解释一遍。",
+      "类比只帮助理解，不能替代准确表述；简化不得歪曲机制本身。"
+    ].join("")
+  },
+  {
+    id: "preset-column",
+    name: "专栏评论",
+    contentMode: "opinion",
+    tone: "观点鲜明、笔锋利落，但讲道理、不扣帽子",
+    length: "中",
+    focus: "争议焦点, 论证与反驳, 各方利益格局, 判断的依据与边界",
+    outputStructure: "亮明立场的标题 → 开门见山给出判断 → 层层论证并处理反对意见 → 有力收尾",
+    customInstructions: [
+      "必须清楚区分事实陈述与作者观点；观点要有论据支撑。",
+      "至少正面处理一个最强的反对意见，而不是挑软柿子。"
+    ].join("")
+  },
+  {
+    id: "preset-feature",
+    name: "特写叙事",
+    contentMode: "essay",
+    tone: "有画面感和节奏，像一篇杂志特写",
+    length: "长",
+    focus: "人物与场景, 冲突与转折, 具体细节, 事件在大背景中的位置",
+    outputStructure: "从一个场景或细节切入 → 沿时间线或冲突推进 → 拉远到大图景 → 留有余味地收束",
+    customInstructions: [
+      "用具体细节替代形容词堆砌；叙事顺序服务于理解。",
+      "所有场景与细节都必须来自证据材料，绝不虚构、不合成人物。"
+    ].join("")
+  },
+  {
+    id: "preset-casual",
+    name: "轻松杂谈",
+    contentMode: "roundup",
+    tone: "轻快、幽默、口语化，但不油腻不刻薄",
+    length: "中",
+    focus: "有趣的点, 反差与冷知识, 与读者日常生活的连接",
+    outputStructure: "抓人的开头 → 几个小节各讲透一个点 → 轻巧的收尾",
+    customInstructions: [
+      "幽默来自事实本身的反差与巧合，不靠贬损任何人；事实必须准确。",
+      "口语化不等于啰嗦，每个小节仍要有真信息量。"
+    ].join("")
+  },
+  {
+    id: "preset-howto",
+    name: "实操指南",
+    contentMode: "tutorial",
+    tone: "可靠的老手带新手，直接给可执行的建议",
+    length: "中",
+    focus: "步骤, 前提条件, 常见的坑, 如何验证做对了",
+    outputStructure: "目标与前提 → 分步操作 → 常见问题与排查 → 完成检查清单",
+    customInstructions: [
+      "每个关键步骤都给出「怎么确认这一步成功了」。",
+      "明确适用范围与不适用的情况，不过度承诺。"
+    ].join("")
+  }
+];
+
 type BundledStyleSignature = {
   name: string;
   contentMode: string;
