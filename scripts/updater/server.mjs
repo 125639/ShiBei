@@ -286,6 +286,16 @@ async function doUpdate() {
     });
     if (r.code !== 0) throw new Error(`docker compose up 失败（exit ${r.code}）`);
 
+    // 每次构建都会留下一个约 3.5GB 的悬空旧镜像，几次更新不清就写满磁盘
+    // （2026-07-18 实测：5 个悬空镜像 + 缓存把 49G 盘顶到 89%）。dangling
+    // prune 只删被顶掉的旧构建；build cache 保留 4GB 热层维持后续构建速度。
+    // 清理失败绝不影响更新结果：只记日志。
+    logLine("清理被替换的旧镜像与多余构建缓存…");
+    r = await run("docker", ["image", "prune", "-f"], { timeoutMs: 5 * 60_000 });
+    if (r.code !== 0) logLine(`! 旧镜像清理未完成（exit ${r.code}），不影响本次更新。`);
+    r = await run("docker", ["builder", "prune", "-f", "--keep-storage", "4GB"], { timeoutMs: 10 * 60_000 });
+    if (r.code !== 0) logLine(`! 构建缓存清理未完成（exit ${r.code}），不影响本次更新。`);
+
     state.phase = "done";
     state.ok = true;
     logLine(`更新完成：现在运行 ${gitCommit}。应用容器可能还需要几十秒完成迁移与预热。`);
