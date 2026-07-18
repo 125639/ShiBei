@@ -34,4 +34,25 @@ describe("stripNulBytes (guards Postgres text columns against 0x00 / error 22021
     assert.equal(out.empty, null);
     assert.equal(out.u, undefined);
   });
+
+  // 该函数现在挂在 Prisma 扩展上跑每一条查询：干净输入必须 === 原对象（零分配），
+  // 且只有含 NUL 的分支被拷贝、干净的兄弟分支保持原引用。
+  test("returns the exact same reference when input is already clean", () => {
+    const clean = { where: { id: "x" }, data: { title: "ok", list: ["a", "b"], at: new Date() } };
+    assert.equal(stripNulBytes(clean), clean);
+    assert.equal(stripNulBytes(clean.data.list), clean.data.list);
+    const cleanArr = [{ a: "1" }, { b: "2" }];
+    assert.equal(stripNulBytes(cleanArr), cleanArr);
+  });
+
+  test("copies only the dirty branches and keeps clean siblings by reference", () => {
+    const cleanSibling = { keep: "me" };
+    const input = { dirty: `a${NUL}b`, cleanSibling };
+    const out = stripNulBytes(input);
+    assert.notEqual(out, input);
+    assert.equal(out.dirty, "ab");
+    assert.equal(out.cleanSibling, cleanSibling);
+    // 原对象不被就地修改
+    assert.equal(input.dirty, `a${NUL}b`);
+  });
 });
