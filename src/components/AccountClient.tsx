@@ -336,11 +336,12 @@ export function AccountClient() {
                 : "凭管理员发放的邀请码开户，并设置你自己的强密码。邀请码仅使用一次，注册后不能再用于登录。"}
           </p>
           {notice ? <p className="muted-block" role="status">{notice}</p> : null}
-          {!upgradeRequired ? <div className="row-actions" role="group" aria-label="登录或注册">
+          {!upgradeRequired ? <div className="auth-tabs" role="tablist" aria-label="登录或注册">
             <button
-              className={`button ${tab === "login" ? "" : "secondary"}`}
+              className={`auth-tab${tab === "login" ? " active" : ""}`}
               type="button"
-              aria-pressed={tab === "login"}
+              role="tab"
+              aria-selected={tab === "login"}
               onClick={() => {
                 setTab("login");
                 setError("");
@@ -350,16 +351,17 @@ export function AccountClient() {
               登录
             </button>
             <button
-              className={`button ${tab === "register" ? "" : "secondary"}`}
+              className={`auth-tab${tab === "register" ? " active" : ""}`}
               type="button"
-              aria-pressed={tab === "register"}
+              role="tab"
+              aria-selected={tab === "register"}
               onClick={() => {
                 setTab("register");
                 setError("");
                 setNotice("");
               }}
             >
-              注册
+              邀请码注册
             </button>
           </div> : null}
           {upgradeRequired ? (
