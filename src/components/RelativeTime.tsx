@@ -45,18 +45,28 @@ function subscribeTick(fn: () => void) {
 export function RelativeTime({ value }: { value: Date | string }) {
   const date = useMemo(() => (typeof value === "string" ? new Date(value) : value), [value]);
   const iso = date.toISOString();
-  const absolute = date.toLocaleString("zh-CN");
+  // 服务端与首次水合渲染必须逐字节一致。toLocaleString 的结果取决于
+  // 运行环境的时区与 ICU（Node/UTC vs 各家浏览器），直接用会触发
+  // React #418 文本水合错误；初始只渲染确定性的 UTC 日期，挂载后
+  // 在 effect 里换成相对时间 / 本地格式。
+  const fallback = iso.slice(0, 10);
 
-  const [label, setLabel] = useState<{ zh: string; en: string }>({ zh: absolute, en: absolute });
+  const [label, setLabel] = useState<{ zh: string; en: string; title: string }>({
+    zh: fallback,
+    en: fallback,
+    title: fallback
+  });
 
   useEffect(() => {
+    const absolute = date.toLocaleString("zh-CN");
     const update = () => {
       const diff = Date.now() - date.getTime();
-      setLabel(Math.abs(diff) < ONE_WEEK_MS ? formatRelative(diff) : { zh: absolute, en: absolute });
+      const relative = Math.abs(diff) < ONE_WEEK_MS ? formatRelative(diff) : { zh: absolute, en: absolute };
+      setLabel({ ...relative, title: absolute });
     };
     update();
     return subscribeTick(update);
-  }, [date, absolute]);
+  }, [date]);
 
-  return <time dateTime={iso} title={absolute}><I18nText zh={label.zh} en={label.en} /></time>;
+  return <time dateTime={iso} title={label.title}><I18nText zh={label.zh} en={label.en} /></time>;
 }
