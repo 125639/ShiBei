@@ -24,6 +24,9 @@ const PLATFORM_EGRESS_HOSTS: Record<TrustedVideoPlatform, readonly string[]> = {
   dailymotion: ["dailymotion.com", "dai.ly", "dmcdn.net"]
 };
 
+/** YouTube 及其 CDN 的出站白名单，供 yt-dlp 搜索/下载固定出站用。 */
+export const YOUTUBE_EGRESS_HOSTS = PLATFORM_EGRESS_HOSTS.youtube;
+
 function normalizedHost(url: URL) {
   return url.hostname.toLowerCase().replace(/\.$/, "");
 }

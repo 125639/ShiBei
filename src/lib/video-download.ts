@@ -15,11 +15,15 @@ import {
 
 const execFileAsync = promisify(execFile);
 
-/** 与后台手动上传的单文件上限保持一致（见 api/admin/videos/route.ts）。 */
-const PER_FILE_MAX_BYTES = 300 * 1024 * 1024;
+/**
+ * 自动下载(低码率存档副本)的单文件上限。刻意远低于后台手动上传的 300MB
+ * (见 api/admin/videos/route.ts 的独立 MAX_BYTES)：缓存副本只是给网络较差用户
+ * 的低清晰度备用，不该占用过多存储/带宽；超出的长视频直接跳过，让用户走原站看高清。
+ */
+const PER_FILE_MAX_BYTES = 150 * 1024 * 1024;
 /** 低于这个余量就没必要开始下载了。 */
 const MIN_BUDGET_BYTES = 20 * 1024 * 1024;
-/** yt-dlp 整体超时。B 站/YouTube 720p 一般几分钟内完成；超时视为失败并清理残件。 */
+/** yt-dlp 整体超时。B 站/YouTube 480p 一般几分钟内完成；超时视为失败并清理残件。 */
 const DOWNLOAD_TIMEOUT_MS = 15 * 60 * 1000;
 
 const YT_DLP_BIN = process.env.YT_DLP_PATH || "yt-dlp";
@@ -132,7 +136,8 @@ async function runYtDlp(target: TrustedVideoDownloadTarget, videoId: string, max
   const proxyUrl = new URL(proxy.serverUrl);
   proxyUrl.username = proxy.username;
   proxyUrl.password = proxy.password;
-  // -S "res:720,ext" — 优先 ≤720p、mp4 系格式，兼顾清晰度与文件体积；
+  // -S "res:480,ext" — 优先 ≤480p、mp4 系格式：缓存副本定位是「网络差用户的
+  //   低码率备用」，清晰度刻意压低以省存储与带宽，高清完整版走原站链接；
   // --remux-video mp4 — 容器统一转成 mp4（无重编码），浏览器 <video> 直接可播；
   // --max-filesize — 超出预算的视频直接跳过，不落盘半个大文件。
   const args = [
@@ -146,7 +151,7 @@ async function runYtDlp(target: TrustedVideoDownloadTarget, videoId: string, max
     "--socket-timeout", "30",
     "--retries", "3",
     "--max-filesize", String(maxFileBytes),
-    "-S", "res:720,ext",
+    "-S", "res:480,ext",
     "--remux-video", "mp4",
     "-o", path.join(VIDEO_DIR, `dl-${videoId}.%(ext)s`),
     target.url
@@ -238,7 +243,7 @@ export async function downloadVideoToLocal(videoId: string): Promise<VideoDownlo
       downloaded = await findDownloadedFile(videoId);
       if (downloaded) break;
       // yt-dlp 正常退出但没有产物：多为 --max-filesize 跳过。
-      lastError = new Error("视频超出单文件大小限制（300MB / 剩余存储空间），未下载");
+      lastError = new Error("视频超出低码率存档的单文件上限（150MB / 剩余存储空间），未下载；可在原站观看高清完整版");
     }
 
     if (!downloaded) {

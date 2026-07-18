@@ -17,14 +17,23 @@ type VideoAttribution = Pick<Video, "title" | "type" | "url"> & {
 
 export function VideoEmbed({ video }: { video: VideoAttribution }) {
   const renderAsLink = shouldRenderVideoAsLink(video) || (video.type === "EMBED" && !isAllowedEmbedUrl(video.url));
+  // 只有 http/https 与站内相对路径能成为可点击 href。视频 url / sourcePageUrl 可能来自
+  // 同步包或抓取，未必都做过 scheme 校验；javascript:/data:/vbscript: 等落到 <a href>
+  // 就是点击型 XSS，这里在渲染处统一收口，非安全值一律降级为不可点击文本。
+  const linkHref = safeHttpHref(video.url);
+  const sourceHref = safeHttpHref(video.sourcePageUrl);
 
   return (
     <div className="video-embed">
       {renderAsLink && (
-        <a className="video-link-card" href={video.url} target="_blank" rel="noreferrer">
-          <span>{video.title}</span>
-          <strong>打开视频</strong>
-        </a>
+        linkHref ? (
+          <a className="video-link-card" href={linkHref} target="_blank" rel="noreferrer">
+            <span>{video.title}</span>
+            <strong>打开视频</strong>
+          </a>
+        ) : (
+          <div className="video-link-card"><span>{video.title}</span></div>
+        )
       )}
       {!renderAsLink && video.type === "LOCAL" && <video controls src={video.url} className="video-frame" preload="metadata" />}
       {!renderAsLink && video.type === "EMBED" && (
@@ -37,14 +46,21 @@ export function VideoEmbed({ video }: { video: VideoAttribution }) {
           allowFullScreen
         />
       )}
-      {!renderAsLink && video.type === "LINK" && (
-        <a className="text-link" href={video.url} target="_blank" rel="noreferrer">
+      {!renderAsLink && video.type === "LINK" && linkHref && (
+        <a className="text-link" href={linkHref} target="_blank" rel="noreferrer">
           打开视频资源
         </a>
       )}
       <div className="article-media-caption video-caption"><span>{video.title}</span></div>
 
-      {(video.sourcePageUrl || video.attribution || video.sourcePlatform) && (
+      {!renderAsLink && video.type === "LOCAL" && sourceHref && (
+        <a className="video-hd-cta" href={sourceHref} target="_blank" rel="noreferrer">
+          <span>本站仅为低码率存档副本，供网络受限时观看</span>
+          <strong>到源站看高清完整报道 →</strong>
+        </a>
+      )}
+
+      {(sourceHref || video.attribution || video.sourcePlatform) && (
         <div className="video-attribution">
           {video.sourcePlatform && (
             <div>
@@ -54,11 +70,11 @@ export function VideoEmbed({ video }: { video: VideoAttribution }) {
                 : ""}
             </div>
           )}
-          {video.sourcePageUrl && (
+          {sourceHref && (
             <div>
               <strong>来源页面</strong>：{" "}
-              <a className="text-link" href={video.sourcePageUrl} target="_blank" rel="noreferrer">
-                {hostFromUrl(video.sourcePageUrl)}
+              <a className="text-link" href={sourceHref} target="_blank" rel="noreferrer">
+                {hostFromUrl(sourceHref)}
               </a>
             </div>
           )}
@@ -75,6 +91,19 @@ export function VideoEmbed({ video }: { video: VideoAttribution }) {
       )}
     </div>
   );
+}
+
+/** http/https 或站内绝对路径(/…，排除协议相对 //host)才可作 href；其余返回 null。 */
+function safeHttpHref(url: string | null | undefined): string | null {
+  const raw = (url || "").trim();
+  if (!raw) return null;
+  if (raw.startsWith("/") && !raw.startsWith("//")) return raw;
+  try {
+    const parsed = new URL(raw);
+    return parsed.protocol === "http:" || parsed.protocol === "https:" ? raw : null;
+  } catch {
+    return null;
+  }
 }
 
 function hostFromUrl(url: string) {
