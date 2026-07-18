@@ -3,6 +3,7 @@ import { type EvidenceItem } from "../lib/ai";
 import { fetchRss } from "../lib/rss";
 import { type ResearchDepth, type ResearchScope } from "../lib/research";
 import { prisma } from "../lib/prisma";
+import { recordSourceFailure, recordSourceSuccess } from "./source-health";
 import { searchWithExa, type ExaResult } from "../lib/exa";
 import {
   assessSourceSufficiency,
@@ -352,9 +353,14 @@ function splitGoogleNewsTitle(title: string) {
 
 async function safeFetchSourceItems(source: Source, onTransientFailure?: (error: unknown) => void) {
   try {
-    return await fetchRss(source.url);
+    const items = await fetchRss(source.url);
+    await recordSourceSuccess(source.id);
+    return items;
   } catch (error) {
     console.error(`Source RSS failed ${source.name}:`, error);
+    // 列表抓取失败必须在这里单独记账：聚合流程靠其余来源照常成功，任务
+    // 不会失败，failStreak 走不到任务级记账，死源就永远不会被自动暂停。
+    await recordSourceFailure(source.id);
     onTransientFailure?.(error);
     return [];
   }
