@@ -115,6 +115,25 @@ async function installRequestBoundary(context: BrowserContext) {
   });
 }
 
+/**
+ * Headless Chromium 的默认 UA 带 "HeadlessChrome" 字样，且默认不带 Accept-Language，
+ * 是主流媒体站（Bloomberg/Reuters/InsideEVs…）最先拦下的两个特征——大量证据抓取因此
+ * 403，最终卡死发布门禁（"精确事实段落缺就近来源链接"）。这里把 UA 换成**同版本**
+ * 真实 Chrome 的字符串（渲染引擎本来就是这个版本的 Chromium，仅去掉 Headless 标记）
+ * 并补上正常浏览器都会发的语言头。不做任何验证码/JS 挑战绕过：站点明确拒绝时仍按
+ * 4xx 正常失败并走既有的错误分类。
+ */
+function defaultBrowserIdentity(browser: Browser): BrowserContextOptions {
+  const chromiumVersion = browser.version(); // 形如 "139.0.7258.5"
+  return {
+    userAgent:
+      `Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) ` +
+      `Chrome/${chromiumVersion} Safari/537.36`,
+    locale: "zh-CN",
+    extraHTTPHeaders: { "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8" }
+  };
+}
+
 export async function createSafeScrapingContext(
   browser: Browser,
   options: BrowserContextOptions = {}
@@ -123,6 +142,7 @@ export async function createSafeScrapingContext(
   let context: BrowserContext | null = null;
   try {
     context = await browser.newContext({
+      ...defaultBrowserIdentity(browser),
       ...options,
       serviceWorkers: "block",
       proxy: {
