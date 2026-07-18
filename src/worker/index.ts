@@ -40,6 +40,8 @@ import {
 } from "../lib/research";
 import { parseAudienceEstimateUrl } from "../lib/audience";
 import { scrapeWebPage } from "../lib/scrape";
+import { stripNulBytes } from "../lib/strip-nul";
+import { searchTopYouTubeVideos } from "../lib/youtube-search";
 import { scrapeAudienceData } from "../lib/scrape-audience";
 import {
   getModelConfigForUse,
@@ -364,13 +366,13 @@ async function upsertResearchRawItem(
   ].join("\n");
 
   const rawItemId = artifactRawItemId(fetchJobId, `keyword:${index}`);
-  const researchData = {
+  const researchData = stripNulBytes({
     title: `关键词研究：${keyword}`,
     url: sourceUrl,
     content: evidence.map((item) => `${item.title}\n${item.summary}`).join("\n\n"),
     markdown,
     fetchJobId
-  };
+  });
   return prisma.rawItem.upsert({
     where: { id: rawItemId },
     create: { id: rawItemId, ...researchData },
@@ -423,14 +425,14 @@ async function processWeb(fetchJobId: string) {
     content: result.content,
     markdown: result.markdown
   });
-  const webData = {
+  const webData = stripNulBytes({
     title: result.title,
     url: sourcePageUrl,
     content: result.content,
     markdown: result.markdown,
     sourceId: fetchJob.sourceId,
     fetchJobId: fetchJob.id
-  };
+  });
   const rawItem = await prisma.rawItem.upsert({
     where: { id: rawItemId },
     create: { id: rawItemId, ...webData },
@@ -758,7 +760,7 @@ async function processRss(fetchJobId: string) {
         };
       }
 
-      const rawItemData = {
+      const rawItemData = stripNulBytes({
         title: material.title,
         url: material.url,
         content: material.content,
@@ -766,7 +768,7 @@ async function processRss(fetchJobId: string) {
         sourceId: fetchJob.sourceId,
         fetchJobId: fetchJob.id,
         publishedAt: item.date
-      };
+      });
       const rawItem = await prisma.rawItem.upsert({
         where: { id: rawItemId },
         create: { id: rawItemId, ...rawItemData },
@@ -817,7 +819,7 @@ async function processVideo(fetchJobId: string) {
   const title = fetchJob.source?.name || "视频资源";
   const originalUrl = fetchJob.sourceUrl;
   const summary = "管理员添加的视频资源。";
-  const videoData = {
+  const videoData = stripNulBytes({
     title,
     url: originalUrl,
     content: `${title}\n${originalUrl}`,
@@ -825,7 +827,7 @@ async function processVideo(fetchJobId: string) {
     artifactKind: "VIDEO",
     sourceId: fetchJob.sourceId,
     fetchJobId: fetchJob.id
-  };
+  });
   const rawItem = await prisma.rawItem.upsert({
     where: { id: rawItemId },
     create: { id: rawItemId, ...videoData },
@@ -1098,7 +1100,7 @@ async function processKeywordResearch(fetchJobId: string, keyword: string, scope
     );
     if (publishable) {
       await attachImagesFromEvidence(post.id, articleEvidence);
-      await attachVideosFromEvidence(post.id, articleEvidence, `关键词「${keyword}」`);
+      await attachVideosFromEvidence(post.id, articleEvidence, `关键词「${keyword}」`, keyword);
     } else if (generationFailure) {
       // RawItem + blocked Post are durable for diagnosis, but the task itself is
       // not a successful article generation and must remain retryable/visible as failed.
@@ -1218,14 +1220,15 @@ function extractVideoUrlsFromText(text: string): string[] {
  * postId。任何单条创建失败都吞掉(console.error),避免拖垮整个 worker job
  * ——视频附挂只是锦上添花,不该让 Post 本身变成 FAILED。
  */
-async function attachVideosFromEvidence(postId: string, evidence: EvidenceItem[], contextLabel: string) {
+async function attachVideosFromEvidence(postId: string, evidence: EvidenceItem[], contextLabel: string, searchQuery: string) {
   const settings = await prisma.siteSettings.findUnique({ where: { id: "site" } });
   if ((settings as { textOnlyMode?: boolean } | null)?.textOnlyMode === true) return;
   if (!videosFeatureEnabled(settings)) return;
-  const picks = await collectEvidenceVideoPicks(evidence, 6);
-  if (!picks.length) return;
 
+  // 注意：不能在「证据里没抓到视频」时提前返回——YouTube 主题搜索是独立的视频源，
+  // 证据视频为空时（外站封锁抓取很常见）它仍应照常补一支相关视频。
   const createdIds: string[] = [];
+  const picks = await collectEvidenceVideoPicks(evidence, 6);
   for (const v of picks) {
     // sourceName 可能带 "[Exa]" / "[搜索]" 之类的内部渠道标记，展示文案里去掉。
     const sourceLabel = v.sourceName.replace(/^\[[^\]]+\]\s*/, "").trim() || "来源页面";
@@ -1251,9 +1254,94 @@ async function attachVideosFromEvidence(postId: string, evidence: EvidenceItem[]
     }
   }
 
+  const youtubeId = await attachTopYouTubeVideo(postId, searchQuery).catch((error) => {
+    console.error(`[youtube-search] attach failed for post ${postId}:`, error);
+    return null;
+  });
+  if (youtubeId) createdIds.push(youtubeId);
+
   if (createdIds.length) {
     await embedVideosInPostContent(postId, createdIds);
   }
+}
+
+function formatViewCount(count: number): string {
+  if (count >= 10000) return `${(count / 10000).toFixed(1)}万`;
+  return String(count);
+}
+
+/**
+ * 把关键词/主题/标题清洗成适合 YouTube 搜索的查询：去掉引号、书名号、冒号、
+ * 破折号等花体标点（成稿标题常见「"外资撤离"与"散户接盘"：…」这类，直接拿去搜
+ * 往往零结果），压缩空白并截断。
+ */
+function cleanYouTubeQuery(raw: string): string {
+  return (raw || "")
+    .replace(/[“”"'‘’《》〈〉「」『』【】\[\]()（）:：、，,。.!！?？|｜~～—-]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 100);
+}
+
+function youtubeVideoIdOf(url: string): string | null {
+  try {
+    return new URL(url).searchParams.get("v");
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * 按文章主题在 YouTube 上搜相关视频，取播放量最高的一支，默认以外链 EMBED 挂到
+ * 文末（不下载）。原视频链接与频道保留在 sourcePageUrl/attribution，管理员可在
+ * 后台一键下载为 480p 低码率存档。YouTube 不可达/搜索失败一律静默跳过，不影响成稿。
+ * 只在带 yt-dlp 的 full/backend 镜像内有意义（frontend 模式不跑 worker）。
+ */
+async function attachTopYouTubeVideo(postId: string, queryHint: string): Promise<string | null> {
+  // 优先用驱动文章的关键词/主题当搜索词；实测成稿后的花体标题（带引号、冒号、
+  // 比喻）在 YouTube 上常常一条都搜不到，仅在无关键词时回退到清洗后的标题。
+  let query = cleanYouTubeQuery(queryHint);
+  if (!query) {
+    const post = await prisma.post.findUnique({ where: { id: postId }, select: { title: true } });
+    query = cleanYouTubeQuery(post?.title || "");
+  }
+  if (!query) return null;
+
+  const picks = await searchTopYouTubeVideos(query, { limit: 1 });
+  const pick = picks[0];
+  if (!pick) return null;
+
+  // 去重：证据链里可能已抓到同一支 YouTube，避免同一文章重复挂。
+  const videoId = youtubeVideoIdOf(pick.watchUrl);
+  if (videoId) {
+    const existing = await prisma.video.findMany({ where: { postId }, select: { url: true, sourcePageUrl: true } });
+    const already = existing.some(
+      (v) => (v.url && v.url.includes(videoId)) || (v.sourcePageUrl && v.sourcePageUrl.includes(videoId))
+    );
+    if (already) return null;
+  }
+
+  const viewsLabel = formatViewCount(pick.viewCount);
+  const channelSuffix = pick.channel ? `，频道：${pick.channel}` : "";
+  const created = await prisma.video.create({
+    data: {
+      title: pick.title || "相关 YouTube 视频",
+      type: "EMBED",
+      url: normalizeEmbedUrl(pick.watchUrl),
+      displayMode: "embed",
+      summary: `按文章主题在 YouTube 上自动匹配、优先选取播放量最高者（约 ${viewsLabel} 次观看）。`,
+      postId,
+      region: "INTERNATIONAL",
+      durationSec: pick.durationSec ?? undefined,
+      sourcePageUrl: pick.watchUrl,
+      sourcePlatform: "YouTube",
+      attribution:
+        `YouTube 搜索自动匹配，按播放量优先（约 ${viewsLabel} 次观看${channelSuffix}）。\n` +
+        `原视频：${pick.watchUrl}\n默认外链播放、未下载；管理员可在后台下载为 480p 低码率存档。`
+    },
+    select: { id: true }
+  });
+  return created.id;
 }
 
 type EvidenceVideoPick = { url: string; title: string; sourceName: string; sourcePageUrl: string };
@@ -1518,7 +1606,7 @@ async function processDigest(fetchJobId: string, topicId: string, digestKind: "D
   );
   if (publishable) {
     await attachImagesFromEvidence(post.id, digestWritingEvidence);
-    await attachVideosFromEvidence(post.id, digestWritingEvidence, `${topic.name} ${windowLabel}`);
+    await attachVideosFromEvidence(post.id, digestWritingEvidence, `${topic.name} ${windowLabel}`, topic.name);
   } else if (generationFailure) {
     throw generationFailure;
   }
