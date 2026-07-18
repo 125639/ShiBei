@@ -21,6 +21,7 @@ export async function POST(request: Request) {
   const textOnlyMode = form.get("textOnlyMode") === "true";
   const videosEnabled = form.get("videosEnabled") === "true";
   const youtubeSearchEnabled = form.get("youtubeSearchEnabled") === "true";
+  const bilibiliSearchEnabled = form.get("bilibiliSearchEnabled") === "true";
   const videoAttachMode = normalizeVideoAttachMode(form.get("videoAttachMode")) ?? "embed";
   const commentsEnabled = form.get("commentsEnabled") === "true";
   const exaEnabled = form.get("exaEnabled") === "true";
@@ -54,6 +55,7 @@ export async function POST(request: Request) {
     textOnlyMode,
     videosEnabled,
     youtubeSearchEnabled,
+    bilibiliSearchEnabled,
     videoAttachMode,
     commentsEnabled,
     defaultTheme,

@@ -43,6 +43,7 @@ import {
 import { parseAudienceEstimateUrl } from "../lib/audience";
 import { scrapeWebPage } from "../lib/scrape";
 import { extractSalientTokens, pickTopRelevantVideo, searchTopYouTubeVideos } from "../lib/youtube-search";
+import { searchTopBilibiliVideos } from "../lib/bilibili-search";
 import { scrapeAudienceData } from "../lib/scrape-audience";
 import {
   getModelConfigForUse,
@@ -532,6 +533,11 @@ function videosFeatureEnabled(settings: unknown) {
  */
 function youtubeSearchFeatureEnabled(settings: unknown) {
   return (settings as { youtubeSearchEnabled?: boolean } | null)?.youtubeSearchEnabled !== false;
+}
+
+/** Bilibili 相关视频搜索开关（设置→媒体）。默认开启；语义与 YouTube 开关一致。 */
+function bilibiliSearchFeatureEnabled(settings: unknown) {
+  return (settings as { bilibiliSearchEnabled?: boolean } | null)?.bilibiliSearchEnabled !== false;
 }
 
 function siteVideoAttachMode(settings: unknown): string | null {
@@ -1319,8 +1325,8 @@ async function attachVideosFromEvidence(
     }
   }
 
-  const youtubeId = await attachTopYouTubeVideo(postId, searchQuery, mode).catch((error) => {
-    console.error(`[youtube-search] attach failed for post ${postId}:`, error);
+  const youtubeId = await attachTopPlatformVideo(postId, searchQuery, mode).catch((error) => {
+    console.error(`[video-search] attach failed for post ${postId}:`, error);
     return null;
   });
   if (youtubeId) createdIds.push(youtubeId);
@@ -1356,22 +1362,32 @@ function youtubeVideoIdOf(url: string): string | null {
   }
 }
 
+/** 平台视频的去重键：YouTube 取 v= 参数，B 站取路径里的 BV/av 号。 */
+function platformVideoKeyOf(watchUrl: string): string | null {
+  const yt = youtubeVideoIdOf(watchUrl);
+  if (yt) return yt;
+  return watchUrl.match(/bilibili\.com\/video\/((?:BV[A-Za-z0-9]{8,20})|(?:av\d{1,20}))/i)?.[1] ?? null;
+}
+
 /**
- * 按文章主题在 YouTube 上搜相关视频，取播放量最高的一支，默认以外链 EMBED 挂到
- * 文末（不下载）。原视频链接与频道保留在 sourcePageUrl/attribution，管理员可在
- * 后台一键下载为 480p 低码率存档。YouTube 不可达/搜索失败一律静默跳过，不影响成稿。
- * 只在带 yt-dlp 的 full/backend 镜像内有意义（frontend 模式不跑 worker）。
+ * 按文章主题搜相关视频，取播放量最高且命中型号词的一支挂到文末。
+ * **B 站优先、YouTube 兜底**：B 站 iframe 墙内直连可嵌（国内受众"看得了"），
+ * YouTube 对墙内访客是空白播放器。两个平台各有独立开关（设置→媒体）。
+ * 原视频链接与频道保留在 sourcePageUrl/attribution；download 模式自动排入 480p
+ * 本地化队列。搜索失败一律静默跳过，不影响成稿。
  */
-async function attachTopYouTubeVideo(
+async function attachTopPlatformVideo(
   postId: string,
   queryHint: string,
   mode: VideoAttachMode = "embed"
 ): Promise<string | null> {
   const settings = await prisma.siteSettings.findUnique({ where: { id: "site" } });
-  if (!youtubeSearchFeatureEnabled(settings)) return null;
+  const wantBilibili = bilibiliSearchFeatureEnabled(settings);
+  const wantYouTube = youtubeSearchFeatureEnabled(settings);
+  if (!wantBilibili && !wantYouTube) return null;
 
   // 优先用驱动文章的关键词/主题当搜索词；实测成稿后的花体标题（带引号、冒号、
-  // 比喻）在 YouTube 上常常一条都搜不到，仅在无关键词时回退到清洗后的标题。
+  // 比喻）常常一条都搜不到，仅在无关键词时回退到清洗后的标题。
   const post = await prisma.post.findUnique({ where: { id: postId }, select: { title: true } });
   const title = post?.title || "";
   let query = cleanYouTubeQuery(queryHint) || cleanYouTubeQuery(title);
@@ -1386,16 +1402,34 @@ async function attachTopYouTubeVideo(
   }
   query = query.slice(0, 100);
 
-  const picks = await searchTopYouTubeVideos(query, { limit: 5 });
-  const pick = pickTopRelevantVideo(picks, salientTokens);
-  if (!pick) return null;
+  if (wantBilibili) {
+    const picks = await searchTopBilibiliVideos(query, { limit: 5 });
+    const pick = pickTopRelevantVideo(picks, salientTokens);
+    if (pick) {
+      const id = await createPlatformSearchVideo(postId, pick, mode, "Bilibili");
+      if (id) return id;
+    }
+  }
+  if (wantYouTube) {
+    const picks = await searchTopYouTubeVideos(query, { limit: 5 });
+    const pick = pickTopRelevantVideo(picks, salientTokens);
+    if (pick) return createPlatformSearchVideo(postId, pick, mode, "YouTube");
+  }
+  return null;
+}
 
-  // 去重：证据链里可能已抓到同一支 YouTube，避免同一文章重复挂。
-  const videoId = youtubeVideoIdOf(pick.watchUrl);
-  if (videoId) {
+async function createPlatformSearchVideo(
+  postId: string,
+  pick: { watchUrl: string; title: string; viewCount: number; durationSec: number | null; channel: string | null },
+  mode: VideoAttachMode,
+  platform: "Bilibili" | "YouTube"
+): Promise<string | null> {
+  // 去重：证据链里可能已抓到同一支视频，避免同一文章重复挂。
+  const videoKey = platformVideoKeyOf(pick.watchUrl);
+  if (videoKey) {
     const existing = await prisma.video.findMany({ where: { postId }, select: { url: true, sourcePageUrl: true } });
     const already = existing.some(
-      (v) => (v.url && v.url.includes(videoId)) || (v.sourcePageUrl && v.sourcePageUrl.includes(videoId))
+      (v) => (v.url && v.url.includes(videoKey)) || (v.sourcePageUrl && v.sourcePageUrl.includes(videoKey))
     );
     if (already) return null;
   }
@@ -1404,24 +1438,24 @@ async function attachTopYouTubeVideo(
   const channelSuffix = pick.channel ? `，频道：${pick.channel}` : "";
   const created = await prisma.video.create({
     data: {
-      title: pick.title || "相关 YouTube 视频",
+      title: pick.title || `相关 ${platform} 视频`,
       type: "EMBED",
       url: normalizeEmbedUrl(pick.watchUrl),
       // link 模式：不内嵌 iframe，只给来源链接卡片（观众自行决定是否跳转平台）。
       displayMode: mode === "link" ? "link" : "embed",
-      summary: `按文章主题在 YouTube 上自动匹配、优先选取播放量最高者（约 ${viewsLabel} 次观看）。`,
+      summary: `按文章主题在 ${platform} 上自动匹配、优先选取播放量最高者（约 ${viewsLabel} 次观看）。`,
       postId,
-      region: "INTERNATIONAL",
+      region: platform === "Bilibili" ? "DOMESTIC" : "INTERNATIONAL",
       durationSec: pick.durationSec ?? undefined,
       sourcePageUrl: pick.watchUrl,
-      sourcePlatform: "YouTube",
+      sourcePlatform: platform,
       attribution:
-        `YouTube 搜索自动匹配，按播放量优先（约 ${viewsLabel} 次观看${channelSuffix}）。\n` +
+        `${platform} 搜索自动匹配，按播放量优先（约 ${viewsLabel} 次观看${channelSuffix}）。\n` +
         `原视频：${pick.watchUrl}\n默认外链播放、未下载；管理员可在后台下载为 480p 低码率存档。`
     },
     select: { id: true }
   });
-  // download 模式：用规范 watch 页（而非 /embed/ URL）入下载队列。
+  // download 模式：用规范观看页（而非 /embed/ 播放器 URL）入下载队列。
   await maybeEnqueueAutoDownload(created.id, pick.watchUrl, mode);
   return created.id;
 }

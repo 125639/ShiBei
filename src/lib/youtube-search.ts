@@ -8,16 +8,17 @@ import {
 } from "./video-download-policy";
 
 const execFileAsync = promisify(execFile);
-const YT_DLP_BIN = process.env.YT_DLP_PATH || "yt-dlp";
+export const YT_DLP_BIN = process.env.YT_DLP_PATH || "yt-dlp";
 
 // 搜索是纯元数据请求（--flat-playlist），不下载媒体；60s 足够，超时即放弃。
-const SEARCH_TIMEOUT_MS = 60 * 1000;
+export const SEARCH_TIMEOUT_MS = 60 * 1000;
 // 取一批候选再按播放量挑选：候选池要比最终数量大，避免最热的几条正好落在被
 // trustedVideoDownloadTarget 过滤掉的形态（频道页 / 直播中 / 非标准链接）。
 const DEFAULT_CANDIDATE_POOL = 10;
-// Shorts 播放量经常碾压正片，但 60 秒竖屏不适合当"相关视频报道"挂在文末。
-// flat-playlist 偶尔缺 duration（null），此时放行——宁可漏拦也别把整批结果清零。
-const MIN_DURATION_SEC = 60;
+// Shorts/短竖屏播放量经常碾压正片，但 60 秒内的不适合当"相关视频报道"挂在文末。
+// 元数据偶尔缺 duration（null），此时放行——宁可漏拦也别把整批结果清零。
+// B 站搜索（bilibili-search.ts）沿用同一阈值。
+export const MIN_DURATION_SEC = 60;
 
 export type YouTubeSearchResult = {
   /** 规范化后的观看页 URL：https://www.youtube.com/watch?v=<id> */
@@ -133,7 +134,7 @@ export function pickTopRelevantVideo(
 }
 
 /** 剥离控制字符（0x00–0x1f、0x7f）并压缩空白；不在源码里写任何控制字面量。 */
-function sanitizeQuery(query: string): string {
+export function sanitizeQuery(query: string): string {
   let out = "";
   for (const ch of query) {
     const code = ch.codePointAt(0) ?? 0;
@@ -147,7 +148,7 @@ const PROXY_ENV_KEYS = [
   "all_proxy", "https_proxy", "http_proxy", "no_proxy"
 ];
 
-function sanitizedEnvironment() {
+export function sanitizedEnvironment() {
   const env = { ...process.env };
   for (const key of PROXY_ENV_KEYS) delete env[key];
   return env;
