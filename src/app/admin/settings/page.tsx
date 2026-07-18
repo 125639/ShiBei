@@ -59,6 +59,7 @@ export default async function SettingsPage({
         autoImageSearchEnabled: true,
         textOnlyMode: true,
         videosEnabled: true,
+        youtubeSearchEnabled: true,
         commentsEnabled: true,
         musicEnabledDefault: true,
         maxStorageMb: true,

@@ -14,7 +14,10 @@ const YT_DLP_BIN = process.env.YT_DLP_PATH || "yt-dlp";
 const SEARCH_TIMEOUT_MS = 60 * 1000;
 // 取一批候选再按播放量挑选：候选池要比最终数量大，避免最热的几条正好落在被
 // trustedVideoDownloadTarget 过滤掉的形态（频道页 / 直播中 / 非标准链接）。
-const DEFAULT_CANDIDATE_POOL = 8;
+const DEFAULT_CANDIDATE_POOL = 10;
+// Shorts 播放量经常碾压正片，但 60 秒竖屏不适合当"相关视频报道"挂在文末。
+// flat-playlist 偶尔缺 duration（null），此时放行——宁可漏拦也别把整批结果清零。
+const MIN_DURATION_SEC = 60;
 
 export type YouTubeSearchResult = {
   /** 规范化后的观看页 URL：https://www.youtube.com/watch?v=<id> */
@@ -69,6 +72,8 @@ export function parseYouTubeSearchResults(rawJson: string, limit: number): YouTu
     seen.add(target.url);
 
     const duration = toFiniteNumber(raw.duration);
+    // Shorts/超短片过滤：时长已知且不足下限的一律出局（见 MIN_DURATION_SEC 注释）。
+    if (duration !== null && duration > 0 && duration < MIN_DURATION_SEC) continue;
     results.push({
       watchUrl: target.url,
       title: (typeof raw.title === "string" ? raw.title : "").slice(0, 200),
@@ -84,6 +89,47 @@ export function parseYouTubeSearchResults(rawJson: string, limit: number): YouTu
   // 播放量降序；同播放量按标题保持确定性，避免每次抓取顺序抖动。
   results.sort((a, b) => b.viewCount - a.viewCount || a.title.localeCompare(b.title));
   return results.slice(0, Math.max(0, limit));
+}
+
+// 型号/代号类 ASCII 词（L03、SU7、Mate70、P7+、9020X）是标题里区分度最高的实体：
+// 必须含至少一个字母 + 一个数字，避免把年份（2027）或普通英文单词当型号。
+const MODEL_TOKEN_RE = /[A-Za-z]+[0-9][A-Za-z0-9+]*|[0-9]+[A-Za-z][A-Za-z0-9+]*/g;
+
+/**
+ * 从文章标题/关键词里抽取"型号级"实体词，用于拼进搜索词并给结果做相关性分层。
+ * 实测教训：query 只有"小鹏汽车 最新车型"时，L03 首发文章会挂上播放量更高的
+ * P7+ 测评——必须把标题里的 L03 带上。纯函数，便于单测。
+ */
+export function extractSalientTokens(text: string): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const match of (text || "").matchAll(MODEL_TOKEN_RE)) {
+    const token = match[0].toUpperCase();
+    if (token.length < 2 || token.length > 12 || seen.has(token)) continue;
+    seen.add(token);
+    out.push(token);
+    if (out.length >= 4) break;
+  }
+  return out;
+}
+
+/**
+ * 相关性分层选优：候选（已按播放量降序）先看标题是否命中任一型号词——命中层
+ * 整体优先于未命中层，层内保持播放量序。没有型号词时退化为纯播放量（原行为）。
+ * 纯函数，便于单测。
+ */
+export function pickTopRelevantVideo(
+  results: YouTubeSearchResult[],
+  salientTokens: string[]
+): YouTubeSearchResult | null {
+  if (!results.length) return null;
+  if (!salientTokens.length) return results[0];
+  const tokens = salientTokens.map((t) => t.toUpperCase());
+  const hit = results.find((r) => {
+    const title = r.title.toUpperCase();
+    return tokens.some((t) => title.includes(t));
+  });
+  return hit ?? results[0];
 }
 
 /** 剥离控制字符（0x00–0x1f、0x7f）并压缩空白；不在源码里写任何控制字面量。 */
@@ -105,6 +151,29 @@ function sanitizedEnvironment() {
   const env = { ...process.env };
   for (const key of PROXY_ENV_KEYS) delete env[key];
   return env;
+}
+
+// yt-dlp 的版本冻结在镜像构建时；YouTube 改接口后搜索会"成功但永远 0 结果"地
+// 静默失效。这里统计连续空结果次数，达到阈值就打显眼告警，别等人肉翻日志发现。
+const EMPTY_STREAK_ALERT_THRESHOLD = 5;
+let consecutiveEmptySearches = 0;
+
+function trackSearchOutcome(resultCount: number, query: string) {
+  if (resultCount > 0) {
+    consecutiveEmptySearches = 0;
+    return;
+  }
+  consecutiveEmptySearches += 1;
+  if (
+    consecutiveEmptySearches >= EMPTY_STREAK_ALERT_THRESHOLD &&
+    consecutiveEmptySearches % EMPTY_STREAK_ALERT_THRESHOLD === 0
+  ) {
+    console.warn(
+      `[youtube-search] ⚠ 已连续 ${consecutiveEmptySearches} 次搜索返回 0 结果` +
+        `（最近查询：「${query.slice(0, 60)}」）。若查询词正常，多半是 YouTube 接口变更、` +
+        `镜像内 yt-dlp 需要更新（重建镜像会安装最新版）。`
+    );
+  }
 }
 
 /**
@@ -145,7 +214,9 @@ export async function searchTopYouTubeVideos(
       maxBuffer: 16 * 1024 * 1024,
       env: { ...sanitizedEnvironment(), LANG: "C.UTF-8" }
     });
-    return parseYouTubeSearchResults(stdout, limit);
+    const results = parseYouTubeSearchResults(stdout, limit);
+    trackSearchOutcome(results.length, cleanQuery);
+    return results;
   } catch (error) {
     // execFile 失败的 error.message 会带上完整命令行（含 --proxy http://user:pass@…）。
     // 一次性代理凭据绝不能落日志——先把它从消息里抹掉，再取首行并截断。
