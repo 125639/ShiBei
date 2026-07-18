@@ -70,6 +70,9 @@ async function submitBootstrap(seed: string) {
     const data = (await response.json().catch(() => ({}))) as { error?: string };
     throw new Error(data.error || `匿名身份初始化失败（${response.status}）`);
   }
+  // 必须消费响应体：不读完流，浏览器会把该请求一直算作进行中——
+  // 网络面板/自动化里表现为永远 pending，还占着连接槽位。
+  await response.json().catch(() => undefined);
 }
 
 async function acquireIndexedSeed(): Promise<IndexedSeed> {
