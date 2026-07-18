@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { unstable_cache } from "next/cache";
-import { AiAssistant } from "@/components/AiAssistant";
+import { AssistantPageContext } from "@/components/AssistantPageContext";
 import { I18nText } from "@/components/I18nText";
 import { extractPostCover, postCoverStyle } from "@/lib/post-cover";
 import { prisma } from "@/lib/prisma";
@@ -155,7 +155,7 @@ export default async function HomePage() {
         </aside>
       </section>
 
-      <AiAssistant
+      <AssistantPageContext
         contextLabel={<I18nText zh="博客主页" en="Home" />}
         suggestionGroups={[
           {

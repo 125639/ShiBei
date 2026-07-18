@@ -2,11 +2,11 @@ import Link from "next/link";
 import { ActiveLink } from "@/components/ActiveLink";
 import { FFCalendar } from "@/components/FFCalendar";
 import { I18nText } from "@/components/I18nText";
+import { AppearancePanel } from "@/components/AppearancePanel";
 import { MusicPlayer } from "@/components/MusicPlayer";
-import { QuickStylePanel } from "@/components/QuickStylePanel";
 import { RouteDisclosure } from "@/components/RouteDisclosure";
+import { SiteAssistant } from "@/components/SiteAssistant";
 import { VisitBeacon } from "@/components/VisitBeacon";
-import { ThemeQuickSwitch } from "@/components/ThemeQuickSwitch";
 import { getCachedFireflyWidgetData } from "@/lib/firefly-widgets";
 import { getCachedSiteChromeSettings } from "@/lib/site-settings-cache";
 
@@ -79,8 +79,7 @@ export async function PublicShell({ children }: { children: React.ReactNode }) {
             <span className="header-account-icon" aria-hidden="true">{ICONS.user}</span>
             <I18nText zh="用户登录 / 账户" en="Member sign-in" />
           </Link>
-          <QuickStylePanel defaultUi={settings?.defaultSettingsUI} />
-          <ThemeQuickSwitch
+          <AppearancePanel
             siteDefaults={{
               theme: settings?.defaultTheme,
               font: settings?.defaultFont,
@@ -227,6 +226,7 @@ export async function PublicShell({ children }: { children: React.ReactNode }) {
         </p>
       </footer>
       <MusicPlayer />
+      <SiteAssistant siteName={siteName} siteDescription={siteDescription} />
     </div>
   );
 }

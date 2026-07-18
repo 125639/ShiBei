@@ -5,6 +5,7 @@ import { AiAssistant } from "@/components/AiAssistant";
 import { ArticleToc } from "@/components/ArticleToc";
 import { LanguageAwarePost } from "@/components/LanguageAwarePost";
 import { PostComments } from "@/components/PostComments";
+import { AssistantPageContext } from "@/components/AssistantPageContext";
 import { I18nText } from "@/components/I18nText";
 import { prisma } from "@/lib/prisma";
 import { getCachedSiteChromeSettings } from "@/lib/site-settings-cache";
@@ -195,6 +196,33 @@ export default async function PostDetailPage({ params }: { params: Promise<{ slu
         type="application/ld+json"
         // JSON-LD 里的 "<" 需转义，防止内容中出现 "</script>" 提前闭合标签。
         dangerouslySetInnerHTML={{ __html: JSON.stringify(articleJsonLd).replace(/</g, "\\u003c") }}
+      />
+      <AssistantPageContext
+        contextLabel={<I18nText zh="本篇文章" en="This article" />}
+        suggestionGroups={[
+          {
+            title: <I18nText zh="读这篇文章" en="About this article" />,
+            prompts: [
+              "概括这篇文章的重点",
+              "列出文中的事实、观点和不确定信息",
+              "用更通俗的话解释给我听"
+            ]
+          },
+          {
+            title: <I18nText zh="继续思考" en="Go further" />,
+            prompts: [
+              "这件事可能带来什么影响？",
+              "有哪些值得继续追问的问题？",
+              "帮我拟一个评论角度"
+            ]
+          }
+        ]}
+        // 30k 是接口上限；留出富余给标题摘要与访客问题本身。
+        context={[
+          `文章标题：${post.title}`,
+          post.summary ? `摘要：${post.summary}` : "",
+          `正文：\n${(post.content || "").slice(0, 20000)}`
+        ].filter(Boolean).join("\n\n")}
       />
       <p style={{ marginBottom: 12 }}>
         <Link className="text-link" href="/posts">
