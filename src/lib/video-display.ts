@@ -29,6 +29,24 @@ export function shouldRenderVideoAsLink(video: { displayMode?: string | null; ty
   return normalizeVideoDisplayMode(video.displayMode) === "link" || video.type === "LINK";
 }
 
+/**
+ * http/https 或站内绝对路径(/…，排除协议相对 //host)才可作可点击 href；其余返回
+ * null。视频 url / sourcePageUrl 可能来自同步包或抓取，escapeHtml 只防属性逃逸、
+ * 防不了 javascript:/data: scheme——所有渲染视频链接的地方（video.tsx 与
+ * markdown.ts 短代码路径）都必须过这一层。
+ */
+export function safeHttpHref(url: string | null | undefined): string | null {
+  const raw = (url || "").trim();
+  if (!raw) return null;
+  if (raw.startsWith("/") && !raw.startsWith("//")) return raw;
+  try {
+    const parsed = new URL(raw);
+    return parsed.protocol === "http:" || parsed.protocol === "https:" ? raw : null;
+  } catch {
+    return null;
+  }
+}
+
 export function isAllowedEmbedUrl(url: string): boolean {
   return EMBED_HOST_WHITELIST.some((re) => re.test(url));
 }

@@ -6,6 +6,7 @@ import {
   EMBED_IFRAME_SANDBOX,
   formatVideoDuration,
   isAllowedEmbedUrl,
+  safeHttpHref,
   shouldRenderVideoAsLink
 } from "./video-display";
 
@@ -86,16 +87,29 @@ function hostFromUrl(url: string): string {
 export function videoShortcodeHtml(video: VideoForShortcode): string {
   const title = escapeHtml(video.title || "视频");
   const url = video.url || "";
+  // escapeHtml 只防属性逃逸，防不了 javascript:/data: scheme——所有落到 <a href>
+  // 的地址必须过 safeHttpHref，非安全值一律降级为不可点击形态（与 video.tsx 同口径）。
+  const safeUrl = safeHttpHref(url);
+  const safeSource = safeHttpHref(video.sourcePageUrl);
   let player = "";
-  if (shouldRenderVideoAsLink(video) && url) {
-    player = `<a class="video-link-card" href="${escapeHtml(url)}" target="_blank" rel="noreferrer"><span>${title}</span><strong>打开视频</strong></a>`;
+  if (shouldRenderVideoAsLink(video)) {
+    // EMBED 型以卡片展示时，人点出去应到平台观看页（sourcePageUrl，如
+    // youtube.com/watch），而不是 /embed/ 裸播放器 URL；LINK 型的 url 本身就是资源。
+    const cardHref = (video.type === "EMBED" ? safeSource : null) ?? safeUrl;
+    player = cardHref
+      ? `<a class="video-link-card" href="${escapeHtml(cardHref)}" target="_blank" rel="noreferrer"><span>${title}</span><strong>打开视频</strong></a>`
+      : `<div class="video-link-card"><span>${title}</span></div>`;
   } else if (video.type === "LOCAL" && url) {
     player = `<video controls preload="metadata" class="video-frame" src="${escapeHtml(url)}"></video>`;
+    if (safeSource) {
+      // 与 video.tsx 一致的醒目 CTA：本地副本只是低码率存档，引导读者去源站看高清。
+      player += `<a class="video-hd-cta" href="${escapeHtml(safeSource)}" target="_blank" rel="noreferrer"><span>本站仅为低码率存档副本，供网络受限时观看</span><strong>到源站看高清完整报道 →</strong></a>`;
+    }
   } else if (video.type === "EMBED" && isAllowedEmbedUrl(url)) {
     player = `<iframe class="video-frame" title="${title}" src="${escapeHtml(url)}" sandbox="${EMBED_IFRAME_SANDBOX}" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" allowfullscreen></iframe>`;
-  } else if (url) {
+  } else if (safeUrl) {
     // EMBED 但 host 未在白名单 / 或 LINK 类型 → 都降级为链接。
-    player = `<a class="text-link" href="${escapeHtml(url)}" target="_blank" rel="noreferrer">打开视频资源</a>`;
+    player = `<a class="text-link" href="${escapeHtml(safeUrl)}" target="_blank" rel="noreferrer">打开视频资源</a>`;
   } else {
     player = `<span class="muted-block">视频资源不可用</span>`;
   }
@@ -110,10 +124,10 @@ export function videoShortcodeHtml(video: VideoForShortcode): string {
       `<div><strong>视频平台</strong>：${escapeHtml(video.sourcePlatform)}${dur}</div>`
     );
   }
-  if (video.sourcePageUrl) {
-    const sourceLabel = hostFromUrl(video.sourcePageUrl);
+  if (safeSource) {
+    const sourceLabel = hostFromUrl(safeSource);
     attributionParts.push(
-      `<div><strong>来源页面</strong>：<a class="text-link" href="${escapeHtml(video.sourcePageUrl)}" target="_blank" rel="noreferrer">${escapeHtml(sourceLabel)}</a></div>`
+      `<div><strong>来源页面</strong>：<a class="text-link" href="${escapeHtml(safeSource)}" target="_blank" rel="noreferrer">${escapeHtml(sourceLabel)}</a></div>`
     );
   }
   if (video.attribution) {
