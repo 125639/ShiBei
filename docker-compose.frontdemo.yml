@@ -51,6 +51,9 @@ services:
     environment:
       APP_MODE: frontend
       NODE_OPTIONS: --max-old-space-size=256
+      # 低配前端：图片优化串行化，避免 sharp/libvips 在 1 核上按核起多线程。
+      VIPS_CONCURRENCY: "1"
+      SHARP_CONCURRENCY: "1"
       DATABASE_URL: postgresql://shibei:shibei@postgres-fro:5432/shibei_frontend?schema=public
       AUTH_SECRET: "frontend-only-auth-secret-d61baca32c904dd102d32ae7684847ccee"
       ENCRYPTION_KEY: "frontend-only-encryption-01127bc343892f83786563a9ac10ed2ed8"
