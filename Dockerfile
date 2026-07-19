@@ -10,6 +10,12 @@ FROM deps AS builder
 COPY . .
 RUN npx prisma generate
 RUN npm run build
+# 运行镜像瘦身（同 Dockerfile.frontend 的说明）：去构建缓存、开发依赖与
+# @next/swc 二进制；tsx(worker/seed 运行期要用)已在生产依赖，不受 prune 影响。
+RUN rm -rf .next/cache \
+ && npm prune --omit=dev \
+ && npx prisma generate \
+ && rm -rf node_modules/@next/swc-linux-x64-gnu node_modules/@next/swc-linux-x64-musl
 
 FROM base AS runner
 ENV NODE_ENV=production
@@ -32,7 +38,7 @@ COPY --from=builder /app/package.json ./package.json
 COPY --from=builder /app/prisma ./prisma
 COPY --from=builder /app/src ./src
 COPY --from=builder /app/scripts ./scripts
-COPY --from=builder /app/next.config.ts ./next.config.ts
+COPY --from=builder /app/next.config.mjs ./next.config.mjs
 COPY --from=builder /app/tsconfig.json ./tsconfig.json
 RUN npx playwright install --with-deps chromium
 # 构建元数据放在所有重层之后：ARG 一变只重建其后的层；放前面会导致

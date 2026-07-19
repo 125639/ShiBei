@@ -1,4 +1,5 @@
-import type { NextConfig } from "next";
+// 用 .mjs 而不是 .ts:next start 运行期加载 TS 配置要靠 @next/swc 原生二进制
+// 转译(~245MB),换成纯 JS 配置后运行镜像就能把 SWC 删掉。构建期两者皆可。
 
 // 除页面自身的缓存策略外，统一给所有响应加保守的安全头。
 // 不上全量 CSP：Next 的内联 runtime script 需要 nonce 改造，收益/风险比不划算；
@@ -12,11 +13,15 @@ const SECURITY_HEADERS = [
   { key: "Content-Security-Policy", value: "frame-ancestors 'self'" }
 ];
 
-const nextConfig: NextConfig = {
+/** @type {import("next").NextConfig} */
+const nextConfig = {
   // Reduce CSS payload + better chunk hashing for repeat visits.
   poweredByHeader: false,
   reactStrictMode: true,
   compress: true,
+  // ISR/数据缓存只走磁盘，不再另设默认 ~50MB 的进程内 LRU：
+  // 1核/1G 前端机上 Next 堆只有 192MB,这 50MB 比磁盘读快带来的收益贵得多。
+  cacheMaxMemorySize: 0,
   // 站内封面与正文图都走 /_next/image。uploads 图片文件名是内容 sha256，
   // 内容变了 URL 必变，优化结果可以放心长缓存（31 天）。
   images: {
