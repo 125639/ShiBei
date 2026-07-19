@@ -540,6 +540,87 @@ maybe_install_docker() {
   return 0
 }
 
+# 低内存机器上 docker build（Next.js 构建）容易 OOM 把整机拖死。内存 + 现有
+# swap 合计偏低时，征得同意后创建一个 swap 文件兜底。仅 Linux。控制开关
+# SHIBEI_AUTO_SWAP：y=免询问直接建、n=跳过、未设=询问。
+# SHIBEI_SWAP_TEST_MEM_MB / _SWAP_MB 仅供测试伪造内存，正常留空。
+ensure_swap() {
+  [ "$OS" = "linux" ] || return 0
+  case "${SHIBEI_AUTO_SWAP:-}" in n|N|no|NO|0|false) return 0 ;; esac
+
+  local mem_mb swap_mb
+  mem_mb="${SHIBEI_SWAP_TEST_MEM_MB:-$(awk '/^MemTotal:/ {printf "%d", $2/1024}' /proc/meminfo 2>/dev/null || echo 0)}"
+  swap_mb="${SHIBEI_SWAP_TEST_SWAP_MB:-$(awk '/^SwapTotal:/ {printf "%d", $2/1024}' /proc/meminfo 2>/dev/null || echo 0)}"
+  [ -n "$mem_mb" ] || mem_mb=0
+  [ -n "$swap_mb" ] || swap_mb=0
+
+  # 内存 + swap 合计已达 ~3GB 就不折腾。
+  local total_mb=$(( mem_mb + swap_mb ))
+  [ "$total_mb" -ge 3072 ] && return 0
+
+  # 目标：补到约 3GB，区间 [2GB, 4GB]。
+  local want_mb=$(( 3072 - total_mb ))
+  [ "$want_mb" -lt 2048 ] && want_mb=2048
+  [ "$want_mb" -gt 4096 ] && want_mb=4096
+
+  case "${SHIBEI_AUTO_SWAP:-}" in
+    y|Y|yes|YES|1|true) : ;;  # 免询问
+    *)
+      local ans=""
+      ask_default ans "内存偏低（RAM ${mem_mb}MB / swap ${swap_mb}MB），构建时可能 OOM 死机。现在创建 ${want_mb}MB swap 兜底？(Y/n)" "y"
+      case "$ans" in n|N|no|NO|0|false) ui_info "跳过创建 swap。"; return 0 ;; esac
+      ;;
+  esac
+
+  local sudo=""
+  if [ "$(id -u 2>/dev/null || echo 0)" != "0" ]; then
+    if command -v sudo >/dev/null 2>&1; then sudo="sudo"; else
+      ui_warn "创建 swap 需要 root，但当前非 root 且没有 sudo，已跳过。"; return 0
+    fi
+  fi
+
+  # 不覆盖任何已存在的 swap 文件。
+  local swapfile="/swapfile"
+  [ -e "$swapfile" ] && swapfile="/swapfile.shibei"
+  if [ -e "$swapfile" ]; then ui_warn "已存在 swap 文件，已跳过创建。"; return 0; fi
+
+  # 磁盘要有 want_mb + 512MB 余量，别把根分区也撑满。
+  local avail_mb
+  avail_mb=$(df -Pm / 2>/dev/null | awk 'NR==2 {print $4}')
+  if [ -n "$avail_mb" ] && [ "$avail_mb" -lt $(( want_mb + 512 )) ]; then
+    ui_warn "磁盘可用空间不足（${avail_mb}MB < 需要约 $(( want_mb + 512 ))MB），已跳过创建 swap。"
+    return 0
+  fi
+
+  ui_info "创建 ${want_mb}MB swap 文件 ${swapfile}（分配可能要几十秒）…"
+  # fallocate 快但稀疏文件在部分文件系统上 swapon 会失败；失败即回退到 dd 写实。
+  if ! { command -v fallocate >/dev/null 2>&1 && $sudo fallocate -l "${want_mb}M" "$swapfile" 2>/dev/null; }; then
+    $sudo rm -f "$swapfile" 2>/dev/null || true
+    if ! $sudo dd if=/dev/zero of="$swapfile" bs=1M count="$want_mb" status=none 2>/dev/null; then
+      ui_warn "swap 文件分配失败，已跳过（不影响其余安装）。"; $sudo rm -f "$swapfile" 2>/dev/null || true; return 0
+    fi
+  fi
+  if ! { $sudo chmod 600 "$swapfile" 2>/dev/null && $sudo mkswap "$swapfile" >/dev/null 2>&1 && $sudo swapon "$swapfile" 2>/dev/null; }; then
+    $sudo swapoff "$swapfile" 2>/dev/null || true
+    $sudo rm -f "$swapfile" 2>/dev/null || true
+    if $sudo dd if=/dev/zero of="$swapfile" bs=1M count="$want_mb" status=none 2>/dev/null \
+      && $sudo chmod 600 "$swapfile" 2>/dev/null \
+      && $sudo mkswap "$swapfile" >/dev/null 2>&1 \
+      && $sudo swapon "$swapfile" 2>/dev/null; then :; else
+      ui_warn "启用 swap 失败，已跳过（不影响其余安装）。"; $sudo rm -f "$swapfile" 2>/dev/null || true; return 0
+    fi
+  fi
+
+  # 持久化到 fstab（重启后仍在）+ 调高 swappiness，低内存下更早用 swap 减少卡死。
+  if ! grep -qs "^[^#]*${swapfile}[[:space:]]" /etc/fstab 2>/dev/null; then
+    printf '%s none swap sw 0 0\n' "$swapfile" | $sudo tee -a /etc/fstab >/dev/null 2>&1 || true
+  fi
+  $sudo sysctl -w vm.swappiness=60 >/dev/null 2>&1 || true
+
+  ui_success "已启用 ${want_mb}MB swap（${swapfile}），并写入 /etc/fstab 持久化。"
+  return 0
+}
+
 # ---------- 启动 docker compose（可跳过）-------------------------------------
 # 选择对应模式的 compose 参数。后续 ui_section "Next steps" 也复用。
 case "$APP_MODE" in
@@ -594,6 +675,8 @@ case "$AUTO_START" in
       if ! docker info >/dev/null 2>&1 && [ "$(id -u 2>/dev/null || echo 0)" != "0" ] && command -v sudo >/dev/null 2>&1; then
         DOCKER_SUDO="sudo"
       fi
+      # 构建前先按内存情况兜底 swap：低配机上 Next.js 构建 OOM 会拖死整机。
+      ensure_swap
       echo
       ui_info "切到 $PROJECT_DIR 并运行 ${DOCKER_SUDO:+sudo }${COMPOSE_UP_DISPLAY} ..."
       ui_info "测试环境默认本地 build；如要改用远程镜像，删掉 --build 并 ${COMPOSE_CMD_DISPLAY} pull。"
