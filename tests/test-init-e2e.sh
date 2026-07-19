@@ -307,7 +307,9 @@ STUB
   chmod +x "$stub_dir/docker"
 
   local log="$sandbox/docker.log"
+  # 钉死"大内存"，让默认 build 行为不受跑测试的机器内存影响。
   PATH="$stub_dir:$PATH" DOCKER_LOG="$log" SHIBEI_AUTO_START=y SHIBEI_AUTO_SWAP=n \
+    SHIBEI_SWAP_TEST_MEM_MB=8192 \
     NO_COLOR=1 bash -c "printf '2\n\n\n\n3\nsk-x\ny\n' | bash '$sandbox/scripts/init.sh'" >/dev/null 2>&1
 
   if [ ! -f "$log" ]; then
@@ -320,6 +322,64 @@ STUB
   grep -F "ARGS=compose -f docker-compose.backend.yml up -d --build --force-recreate" "$log" >/dev/null || {
     echo "    FAIL: wrong compose args"; cat "$log"
     rm -rf "$sandbox" "$stub_dir"; return 1; }
+
+  rm -rf "$sandbox" "$stub_dir"
+}
+
+test_low_memory_auto_start_pulls_prebuilt_images() {
+  # 内存不足以本地 build 时（非交互），必须切到"拉预构建镜像"：先 pull 再 up，
+  # 且绝不能带 --build——765MB 级机器上 Next.js 构建必然 OOM（V8 默认堆上限
+  # 按物理内存推算，只有 ~300MB，加 swap 也救不了）。
+  local sandbox stub_dir
+  sandbox=$(setup_sandbox)
+  stub_dir=$(mktemp -d)
+  cat > "$stub_dir/docker" <<STUB
+#!/usr/bin/env bash
+echo "ARGS=\$*" >> "\$DOCKER_LOG"
+exit 0
+STUB
+  chmod +x "$stub_dir/docker"
+
+  local log="$sandbox/docker.log" output
+  output=$(PATH="$stub_dir:$PATH" DOCKER_LOG="$log" SHIBEI_AUTO_START=y SHIBEI_AUTO_SWAP=n \
+    SHIBEI_SWAP_TEST_MEM_MB=512 SHIBEI_SWAP_TEST_SWAP_MB=0 \
+    NO_COLOR=1 bash -c "printf '2\n\n\n\n3\nsk-x\ny\n' | bash '$sandbox/scripts/init.sh'" 2>&1)
+
+  if ! printf '%s' "$output" | grep -qF '偏低'; then
+    echo "    FAIL: 低内存未向用户说明改用预构建镜像"
+    rm -rf "$sandbox" "$stub_dir"; return 1
+  fi
+  assert_grep "$log" 'ARGS=compose -f docker-compose.backend.yml pull' \
+    '低内存时未先 pull 预构建镜像' || { rm -rf "$sandbox" "$stub_dir"; return 1; }
+  assert_grep "$log" 'ARGS=compose -f docker-compose.backend.yml up -d --force-recreate' \
+    'pull 模式的 up 参数不对' || { rm -rf "$sandbox" "$stub_dir"; return 1; }
+  assert_no_grep "$log" '\-\-build' \
+    '低内存机器仍在本地 build（会 OOM）' || { rm -rf "$sandbox" "$stub_dir"; return 1; }
+
+  rm -rf "$sandbox" "$stub_dir"
+}
+
+test_deploy_source_env_forces_local_build() {
+  # SHIBEI_DEPLOY_SOURCE=build 显式覆盖时，即便低内存也尊重用户选择本地构建。
+  local sandbox stub_dir
+  sandbox=$(setup_sandbox)
+  stub_dir=$(mktemp -d)
+  cat > "$stub_dir/docker" <<STUB
+#!/usr/bin/env bash
+echo "ARGS=\$*" >> "\$DOCKER_LOG"
+exit 0
+STUB
+  chmod +x "$stub_dir/docker"
+
+  local log="$sandbox/docker.log"
+  PATH="$stub_dir:$PATH" DOCKER_LOG="$log" SHIBEI_AUTO_START=y SHIBEI_AUTO_SWAP=n \
+    SHIBEI_SWAP_TEST_MEM_MB=512 SHIBEI_SWAP_TEST_SWAP_MB=0 SHIBEI_DEPLOY_SOURCE=build \
+    NO_COLOR=1 bash -c "printf '2\n\n\n\n3\nsk-x\ny\n' | bash '$sandbox/scripts/init.sh'" >/dev/null 2>&1
+
+  assert_grep "$log" 'ARGS=compose -f docker-compose.backend.yml up -d --build --force-recreate' \
+    'SHIBEI_DEPLOY_SOURCE=build 未生效' || { rm -rf "$sandbox" "$stub_dir"; return 1; }
+  assert_no_grep "$log" 'ARGS=compose -f docker-compose.backend.yml pull' \
+    '显式 build 模式不应先 pull' || { rm -rf "$sandbox" "$stub_dir"; return 1; }
 
   rm -rf "$sandbox" "$stub_dir"
 }

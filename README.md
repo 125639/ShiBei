@@ -589,9 +589,9 @@ curl -O -J https://backend.example.com/api/admin/sync/export \
 
 ### ❼ 构建非常慢 / OOM
 
-`docker compose up --build` 会下 Playwright/Chromium 并跑 `next build`，2 GB 机器经常 OOM。两个办法：
+`docker compose up --build` 会下 Playwright/Chromium 并跑 `next build`，内存 <4 GB 的机器几乎必然 OOM（Node 按物理内存推算的默认堆上限太小，且加 swap 也救不了构建）。两个办法：
 
-1. 改用 Docker Hub 上的预构建镜像：删 `--build`，`docker compose pull && up -d` 即可。
+1. 改用 Docker Hub 上的预构建镜像：删 `--build`，`docker compose pull && up -d` 即可。`scripts/init.sh` 向导检测到内存 <3.5 GB 会自动走这条路；也可用 `SHIBEI_DEPLOY_SOURCE=pull`（或 `build`）显式指定。
 2. 用 4 GB+ 的机器构建，`docker push safg/shibei:xxx`，再到目标机器拉。
 
 ### ❽ 启动日志 `Unique constraint failed`
