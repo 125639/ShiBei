@@ -1064,6 +1064,58 @@ a.bento-card:hover {
   border-color: var(--line-strong);
 }
 
+/* 危险操作按钮变体（删除等）。此前 .button-danger 无定义，渲染成普通主色；
+   现为统一的红色实心，带与主按钮一致的微光泽与落影。两种写法都受支持。 */
+.button.danger,
+.button-danger {
+  border-color: var(--color-danger, #d1453b);
+  background: linear-gradient(180deg, color-mix(in oklab, var(--color-danger, #d1453b) 90%, white), var(--color-danger, #d1453b));
+  color: #fff;
+  box-shadow:
+    inset 0 1px 0 color-mix(in srgb, white 20%, transparent),
+    0 1px 2px color-mix(in srgb, var(--color-danger, #d1453b) 34%, transparent),
+    0 5px 14px color-mix(in srgb, var(--color-danger, #d1453b) 18%, transparent);
+}
+
+.button.danger:hover,
+.button-danger:hover {
+  transform: translateY(-1px);
+  background: linear-gradient(180deg, color-mix(in oklab, var(--color-danger, #d1453b) 82%, white), color-mix(in oklab, var(--color-danger, #d1453b) 96%, white));
+  box-shadow:
+    inset 0 1px 0 color-mix(in srgb, white 24%, transparent),
+    0 2px 5px color-mix(in srgb, var(--color-danger, #d1453b) 34%, transparent),
+    0 12px 26px color-mix(in srgb, var(--color-danger, #d1453b) 26%, transparent);
+}
+
+.button.danger:active:not(:disabled),
+.button-danger:active:not(:disabled) {
+  transform: translateY(0) scale(0.975);
+}
+
+/* 键盘可达性：清晰的焦点环（鼠标点击不出现，仅键盘导航时） */
+.button:focus-visible,
+.danger-button:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 40%, transparent);
+}
+
+.button.danger:focus-visible,
+.button-danger:focus-visible {
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-danger, #d1453b) 40%, transparent);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .button,
+  .danger-button {
+    transition: background 0.18s ease, box-shadow 0.18s ease;
+  }
+  .button:hover,
+  .button:active,
+  .danger-button:hover {
+    transform: none;
+  }
+}
+
 .filter-form {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
@@ -7630,10 +7682,30 @@ button:disabled {
   color: var(--white);
 }
 
-:root[data-theme="apple"] .button:hover {
-  transform: none;
-  background: color-mix(in oklab, var(--accent) 88%, white);
-  box-shadow: none;
+/* 主按钮质感：极细的上浅下深渐变形成光泽，加一层同色系柔和落影，
+   让实心按钮有体积感而不显廉价（仅主按钮，不碰 secondary/ghost/danger）。 */
+:root[data-theme="apple"] .button:not(.secondary):not(.ghost):not(.danger):not(.button-danger) {
+  background: linear-gradient(180deg, color-mix(in oklab, var(--accent) 90%, white), var(--accent));
+  box-shadow:
+    inset 0 1px 0 color-mix(in srgb, white 22%, transparent),
+    0 1px 2px color-mix(in srgb, var(--accent) 34%, transparent),
+    0 5px 14px color-mix(in srgb, var(--accent) 18%, transparent);
+}
+
+:root[data-theme="apple"] .button:not(.secondary):not(.ghost):hover {
+  transform: translateY(-1px);
+  background: linear-gradient(180deg, color-mix(in oklab, var(--accent) 82%, white), color-mix(in oklab, var(--accent) 96%, white));
+  box-shadow:
+    inset 0 1px 0 color-mix(in srgb, white 26%, transparent),
+    0 2px 5px color-mix(in srgb, var(--accent) 34%, transparent),
+    0 12px 26px color-mix(in srgb, var(--accent) 26%, transparent);
+}
+
+:root[data-theme="apple"] .button:not(.secondary):not(.ghost):active:not(:disabled) {
+  transform: translateY(0) scale(0.975);
+  box-shadow:
+    inset 0 1px 2px color-mix(in srgb, var(--accent-dark, var(--accent)) 30%, transparent),
+    0 1px 2px color-mix(in srgb, var(--accent) 30%, transparent);
 }
 
 :root[data-theme="apple"] .button.secondary {
@@ -7643,7 +7715,14 @@ button:disabled {
 }
 
 :root[data-theme="apple"] .button.secondary:hover {
+  transform: translateY(-1px);
   background: color-mix(in oklab, var(--accent) 8%, transparent);
+  box-shadow: inset 0 0 0 1px var(--accent), 0 6px 16px color-mix(in srgb, var(--accent) 14%, transparent);
+}
+
+:root[data-theme="apple"] .button.secondary:active:not(:disabled) {
+  transform: scale(0.985);
+  box-shadow: inset 0 0 0 1px var(--accent);
 }
 
 :root[data-theme="apple"] .button.ghost {
