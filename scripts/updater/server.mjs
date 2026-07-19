@@ -6,7 +6,8 @@
 //   GET  /health   存活探针（不鉴权，无敏感信息）
 //   GET  /current  当前仓库 HEAD / 分支 / origin 地址
 //   POST /check    git fetch 后对比本地与 origin/<branch>，返回落后的提交列表
-//   POST /update   异步执行：校验干净工作区并仅快进到 origin/<branch> → build → up -d
+//   POST /update   异步执行：校验干净工作区并仅快进到 origin/<branch> → build|pull → up -d
+//                  （.env 的 DEPLOY_SOURCE=pull 时拉预构建镜像，低配机不本地 build）
 //   GET  /status   更新任务状态 + 日志（app 重启期间/之后都可以来拉）
 //
 // 安全模型：
@@ -40,6 +41,14 @@ const BUILD_SERVICES = (process.env.UPDATE_BUILD_SERVICES || process.env.UPDATE_
   .filter(Boolean);
 // 留空 = 跟随仓库当前分支。
 const UPDATE_BRANCH = (process.env.UPDATE_BRANCH || "").trim();
+// 部署方式，init 向导写进 .env（updater 与 app 同读一份 .env）。"pull" 是
+// 低配机形态：本机 build 必然 OOM（Next 构建需 4GB+ 内存），改为拉取
+// Docker Hub 上的预构建镜像；其余值一律按 "build" 处理。.env 里的值可能带
+// 引号（godotenv 通常会剥掉，防御性再剥一次）。
+const DEPLOY_SOURCE =
+  (process.env.DEPLOY_SOURCE || "build").trim().replace(/^["']|["']$/g, "") === "pull"
+    ? "pull"
+    : "build";
 
 const LOG_LIMIT = 800; // ring buffer 行数上限
 
@@ -223,7 +232,7 @@ async function doUpdate() {
     const composeArgs = ["compose", "-p", project, "-f", `${REPO_DIR}/${COMPOSE_FILE_NAME}`];
 
     state.phase = "fetching";
-    logLine(`开始更新：分支 ${branch}，compose 文件 ${COMPOSE_FILE_NAME}，project ${project}，构建 ${BUILD_SERVICES.join(" ")}，重启应用服务 ${UPDATE_SERVICES.join(" ")}`);
+    logLine(`开始更新：分支 ${branch}，compose 文件 ${COMPOSE_FILE_NAME}，project ${project}，部署方式 ${DEPLOY_SOURCE}，${DEPLOY_SOURCE === "pull" ? "拉取" : "构建"} ${(DEPLOY_SOURCE === "pull" ? UPDATE_SERVICES : BUILD_SERVICES).join(" ")}，重启应用服务 ${UPDATE_SERVICES.join(" ")}`);
     const [dirty, currentBranch, oldHead] = await Promise.all([
       git(["status", "--porcelain"]),
       git(["rev-parse", "--abbrev-ref", "HEAD"]),
@@ -259,7 +268,11 @@ async function doUpdate() {
     const info = await repoInfo();
     const gitCommit = info.shortCommit || "unknown";
     const buildTime = new Date().toISOString().replace(/\.\d{3}Z$/, "Z");
-    logLine(`仓库已更新到 ${gitCommit}，开始构建镜像（可能需要几分钟）…`);
+    logLine(
+      DEPLOY_SOURCE === "pull"
+        ? `仓库已更新到 ${gitCommit}，开始拉取预构建镜像（pull 模式，本机不构建）…`
+        : `仓库已更新到 ${gitCommit}，开始构建镜像（可能需要几分钟）…`
+    );
 
     // updater 自身的文件变了要提醒手动重建一次（它不自更新）。
     const selfChanged = oldHead.code === 0
@@ -269,16 +282,26 @@ async function doUpdate() {
       logLine("提示：本次更新修改了 updater 自身，稍后请在服务器上执行一次 `docker compose up -d --build updater` 使其生效。");
     }
 
-    state.phase = "building";
     const buildEnv = { GIT_COMMIT: gitCommit, BUILD_TIME: buildTime };
-    r = await run("docker", [...composeArgs, "build", ...BUILD_SERVICES], {
-      env: buildEnv,
-      timeoutMs: 45 * 60_000
-    });
-    if (r.code !== 0) throw new Error(`docker compose build 失败（exit ${r.code}）`);
+    if (DEPLOY_SOURCE === "pull") {
+      // 低配机：绝不本地 build（必 OOM 拖死整机），拉 Docker Hub 预构建镜像。
+      state.phase = "pulling";
+      r = await run("docker", [...composeArgs, "pull", ...UPDATE_SERVICES], {
+        timeoutMs: 30 * 60_000
+      });
+      if (r.code !== 0) throw new Error(`docker compose pull 失败（exit ${r.code}）；检查磁盘空间（df -h）与网络后重试`);
+      logLine("镜像拉取完成，滚动重启服务…");
+    } else {
+      state.phase = "building";
+      r = await run("docker", [...composeArgs, "build", ...BUILD_SERVICES], {
+        env: buildEnv,
+        timeoutMs: 45 * 60_000
+      });
+      if (r.code !== 0) throw new Error(`docker compose build 失败（exit ${r.code}）`);
+      logLine("构建完成，滚动重启服务…");
+    }
 
     state.phase = "starting";
-    logLine("构建完成，滚动重启服务…");
     // --no-deps：只动 app/worker，绝不顺手重建 postgres/redis（数据库容器交给人工）。
     r = await run("docker", [...composeArgs, "up", "-d", "--no-deps", ...UPDATE_SERVICES], {
       env: buildEnv,
@@ -293,12 +316,18 @@ async function doUpdate() {
     logLine("清理被替换的旧镜像与多余构建缓存…");
     r = await run("docker", ["image", "prune", "-f"], { timeoutMs: 5 * 60_000 });
     if (r.code !== 0) logLine(`! 旧镜像清理未完成（exit ${r.code}），不影响本次更新。`);
-    r = await run("docker", ["builder", "prune", "-f", "--keep-storage", "4GB"], { timeoutMs: 10 * 60_000 });
-    if (r.code !== 0) logLine(`! 构建缓存清理未完成（exit ${r.code}），不影响本次更新。`);
+    if (DEPLOY_SOURCE !== "pull") {
+      // pull 模式没有本地构建缓存，跳过 builder prune。
+      r = await run("docker", ["builder", "prune", "-f", "--keep-storage", "4GB"], { timeoutMs: 10 * 60_000 });
+      if (r.code !== 0) logLine(`! 构建缓存清理未完成（exit ${r.code}），不影响本次更新。`);
+    }
 
     state.phase = "done";
     state.ok = true;
     logLine(`更新完成：现在运行 ${gitCommit}。应用容器可能还需要几十秒完成迁移与预热。`);
+    if (DEPLOY_SOURCE === "pull") {
+      logLine("提示：pull 模式的版本以 Docker Hub 镜像为准；若发布方尚未推送对应提交的镜像，检查页可能仍显示落后，稍后再更新一次即可。");
+    }
   } catch (err) {
     state.phase = "error";
     state.ok = false;
@@ -396,7 +425,7 @@ const server = http.createServer(async (req, res) => {
 // 宿主仓库挂载进来后属主与容器内 root 不一致，git 会拒绝操作（dubious ownership）。
 run("git", ["config", "--global", "--add", "safe.directory", REPO_DIR], { quiet: true }).then(() => {
   server.listen(PORT, "0.0.0.0", () => {
-    console.log(`[updater] listening on :${PORT}, repo=${REPO_DIR}, compose=${COMPOSE_FILE_NAME}, build=${BUILD_SERVICES.join(",")}, up=${UPDATE_SERVICES.join(",")}`);
+    console.log(`[updater] listening on :${PORT}, repo=${REPO_DIR}, compose=${COMPOSE_FILE_NAME}, deploy=${DEPLOY_SOURCE}, build=${BUILD_SERVICES.join(",")}, up=${UPDATE_SERVICES.join(",")}`);
     if (!TOKEN) {
       console.warn("[updater] 警告：UPDATER_TOKEN / AUTH_SECRET 均未设置，所有请求将被拒绝。");
     }
