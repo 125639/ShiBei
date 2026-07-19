@@ -563,6 +563,17 @@ ensure_swap() {
   [ "$want_mb" -lt 2048 ] && want_mb=2048
   [ "$want_mb" -gt 4096 ] && want_mb=4096
 
+  # 小磁盘缩水：swap 别吃掉镜像/数据/更新期新旧镜像并存要用的空间。可用
+  # <15GB 时上限降为 1GB——pull 部署的运行期兜底 1GB 足够，2GB 是为本地构建
+  # 准备的（10G 盘曾因 2GB swap + 镜像解压直接打满,拉取失败 no space left）。
+  local avail_mb=""
+  if command -v df >/dev/null 2>&1; then
+    avail_mb=$(df -Pm / 2>/dev/null | awk 'NR==2 {print $4}') || avail_mb=""
+  fi
+  if [ -n "$avail_mb" ] && [ "$avail_mb" -lt 15360 ] && [ "$want_mb" -gt 1024 ]; then
+    want_mb=1024
+  fi
+
   case "${SHIBEI_AUTO_SWAP:-}" in
     y|Y|yes|YES|1|true) : ;;  # 免询问
     *)
@@ -585,8 +596,6 @@ ensure_swap() {
   if [ -e "$swapfile" ]; then ui_warn "已存在 swap 文件，已跳过创建。"; return 0; fi
 
   # 磁盘要有 want_mb + 512MB 余量，别把根分区也撑满。
-  local avail_mb
-  avail_mb=$(df -Pm / 2>/dev/null | awk 'NR==2 {print $4}')
   if [ -n "$avail_mb" ] && [ "$avail_mb" -lt $(( want_mb + 512 )) ]; then
     ui_warn "磁盘可用空间不足（${avail_mb}MB < 需要约 $(( want_mb + 512 ))MB），已跳过创建 swap。"
     return 0
@@ -683,6 +692,18 @@ else
   COMPOSE_UP_DISPLAY="${COMPOSE_CMD_DISPLAY} ${COMPOSE_UP_ARGS[*]}"
 fi
 
+# 把部署方式记进 .env：updater 的网页一键更新按它决定 build 还是 pull——
+# 低配机上 build 必然 OOM，不记下来的话点一次更新就把机器打死。
+# 纯 bash 内建实现：极简环境（curl|bash 的精简容器、测试沙箱）没有 grep/sed/mv。
+if [ -f "$PROJECT_DIR/.env" ]; then
+  ENV_FILTERED=""
+  while IFS= read -r ENV_LINE || [ -n "$ENV_LINE" ]; do
+    case "$ENV_LINE" in DEPLOY_SOURCE=*) : ;; *) ENV_FILTERED="${ENV_FILTERED}${ENV_LINE}
+" ;; esac
+  done < "$PROJECT_DIR/.env"
+  printf '%sDEPLOY_SOURCE="%s"\n' "$ENV_FILTERED" "$DEPLOY_SOURCE" > "$PROJECT_DIR/.env"
+fi
+
 if [ -z "$AUTO_START" ]; then
   echo
   ask_default AUTO_START "现在用 ${COMPOSE_UP_DISPLAY} 启动？(Y/n)" "y"
@@ -718,6 +739,14 @@ case "$AUTO_START" in
       START_OK=0
       if [ "$DEPLOY_SOURCE" = "pull" ]; then
         ui_info "镜像来源：hub.docker.com/r/safg/shibei（预构建）；本地未推送的改动不会包含在内。"
+        # 预警：拉取+解压 frontend 三件套(app/updater/postgres)约需 2.5-3GB 空闲。
+        PULL_AVAIL_MB=""
+        if command -v df >/dev/null 2>&1; then
+          PULL_AVAIL_MB=$(df -Pm / 2>/dev/null | awk 'NR==2 {print $4}') || PULL_AVAIL_MB=""
+        fi
+        if [ -n "$PULL_AVAIL_MB" ] && [ "$PULL_AVAIL_MB" -lt 3072 ]; then
+          ui_warn "磁盘可用仅 ${PULL_AVAIL_MB}MB，拉取+解压镜像可能不够；建议先 docker system prune -af 清理旧缓存。"
+        fi
         if (cd "$PROJECT_DIR" \
             && ${DOCKER_SUDO:+sudo }docker compose "${COMPOSE_ARGS[@]}" pull \
             && ${DOCKER_SUDO:+sudo }docker compose "${COMPOSE_ARGS[@]}" "${COMPOSE_UP_ARGS[@]}"); then
@@ -737,7 +766,7 @@ case "$AUTO_START" in
         DOCKER_FAILED=1
         echo
         if [ "$DEPLOY_SOURCE" = "pull" ]; then
-          ui_error "${COMPOSE_UP_DISPLAY} 退出非零；常见原因：网络拉取失败 / Docker Hub 限流 / 端口占用 / .env 缺项。"
+          ui_error "${COMPOSE_UP_DISPLAY} 退出非零；常见原因：磁盘空间不足 / 网络拉取失败 / Docker Hub 限流 / 端口占用 / .env 缺项。"
         else
           ui_error "${COMPOSE_UP_DISPLAY} 退出非零；常见原因：build 失败(内存不足) / 端口占用 / .env 缺项。"
         fi
@@ -765,7 +794,8 @@ if [ "${DOCKER_FAILED:-0}" = "1" ]; then
   printf "  ${BOLD}1. 看错误：${NC}cd %s && %s logs --tail=100\n" "$PROJECT_DIR" "$COMPOSE_CMD_DISPLAY"
   if [ "${DEPLOY_SOURCE:-build}" = "pull" ]; then
     printf "  ${BOLD}2. 单独拉镜像看报错：${NC}cd %s && %s pull\n" "$PROJECT_DIR" "$COMPOSE_CMD_DISPLAY"
-    printf "       ${MUTED}多为网络问题或 Docker Hub 限流,稍候重试;镜像主页 hub.docker.com/r/safg/shibei${NC}\n"
+    printf "       ${MUTED}报 no space left 就是磁盘满:df -h / 看空间,docker system prune -af 清掉旧镜像/缓存再重试${NC}\n"
+    printf "       ${MUTED}网络问题或 Docker Hub 限流稍候重试;镜像主页 hub.docker.com/r/safg/shibei${NC}\n"
   else
     printf "  ${BOLD}2. 单独 build 看报错：${NC}cd %s && %s build\n" "$PROJECT_DIR" "$COMPOSE_CMD_DISPLAY"
     printf "       ${MUTED}报 OOM/SIGABRT 就是内存不够,改拉预构建镜像(小内存机器别本地 build):${NC}\n"

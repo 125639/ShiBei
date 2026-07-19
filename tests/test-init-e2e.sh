@@ -355,6 +355,9 @@ STUB
     'pull 模式的 up 参数不对' || { rm -rf "$sandbox" "$stub_dir"; return 1; }
   assert_no_grep "$log" '\-\-build' \
     '低内存机器仍在本地 build（会 OOM）' || { rm -rf "$sandbox" "$stub_dir"; return 1; }
+  # 部署方式必须写进 .env——updater 的一键更新靠它决定 pull 还是 build。
+  assert_grep "$sandbox/.env" '^DEPLOY_SOURCE="pull"$' \
+    'DEPLOY_SOURCE 未写入 .env' || { rm -rf "$sandbox" "$stub_dir"; return 1; }
 
   rm -rf "$sandbox" "$stub_dir"
 }
