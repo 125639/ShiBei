@@ -88,8 +88,8 @@ export default async function VideosAdminPage() {
         <h2 style={{ marginTop: 0 }}><I18nText zh="YouTube 下载 Cookies" en="YouTube Download Cookies" /></h2>
         <p className="muted-block" style={{ margin: 0 }}>
           <I18nText
-            zh={<>YouTube 对服务器机房 IP 的<strong>下载</strong>有「Sign in to confirm you’re not a bot」登录墙（搜索不受影响）。上传你浏览器导出的 Netscape 格式 <code>cookies.txt</code>（如扩展 “Get cookies.txt LOCALLY”）后，下载会带上它。文件加密存储、仅下载瞬间解密到临时文件并即刻删除。<strong>注意：使用个人账号 cookies 有账号风控风险，建议使用小号。</strong></>}
-            en={<>YouTube gates <strong>downloads</strong> from datacenter IPs behind a “Sign in to confirm you’re not a bot” wall (search is unaffected). Upload a Netscape-format <code>cookies.txt</code> exported from your browser (e.g. the “Get cookies.txt LOCALLY” extension) and downloads will use it. It is stored encrypted and only decrypted into a transient file during a download. <strong>Using personal-account cookies carries account risk — prefer a spare account.</strong></>}
+            zh={<>YouTube 对服务器机房 IP 的<strong>下载</strong>有「Sign in to confirm you’re not a bot」登录墙（搜索不受影响）。用浏览器扩展（如 “Get cookies.txt LOCALLY”）导出 Netscape 格式 <code>cookies.txt</code> 后，把内容<strong>粘贴</strong>到下面的框里、或直接<strong>上传</strong>文件，下载就会带上它。内容加密存储、仅下载瞬间解密到临时文件并即刻删除。<strong>注意：使用个人账号 cookies 有账号风控风险，建议使用小号。</strong></>}
+            en={<>YouTube gates <strong>downloads</strong> from datacenter IPs behind a “Sign in to confirm you’re not a bot” wall (search is unaffected). Export a Netscape-format <code>cookies.txt</code> with a browser extension (e.g. “Get cookies.txt LOCALLY”), then <strong>paste</strong> its contents below or <strong>upload</strong> the file — downloads will use it. It is stored encrypted and only decrypted into a transient file during a download. <strong>Using personal-account cookies carries account risk — prefer a spare account.</strong></>}
           />
         </p>
         <p style={{ margin: 0 }}>
@@ -99,18 +99,38 @@ export default async function VideosAdminPage() {
             <I18nText zh={<>状态：<strong>未配置</strong>（YouTube 下载大概率被登录墙拒绝）</>} en={<>Status: <strong>not configured</strong> (YouTube downloads will likely be rejected)</>} />
           )}
         </p>
-        <div className="meta-row" style={{ gap: 12, alignItems: "center", flexWrap: "wrap" }}>
-          <form action="/api/admin/videos/cookies" method="post" encType="multipart/form-data" className="meta-row" style={{ gap: 8, alignItems: "center" }}>
-            <input type="file" name="cookiesFile" accept=".txt,text/plain" required />
-            <button className="button" type="submit"><I18nText zh="上传 cookies" en="Upload cookies" /></button>
+        <form action="/api/admin/videos/cookies" method="post" encType="multipart/form-data" className="form-stack" style={{ gap: 10 }}>
+          <div className="field">
+            <label htmlFor="cookiesText">
+              <I18nText zh="粘贴 cookies 内容" en="Paste cookies content" />
+            </label>
+            <textarea
+              id="cookiesText"
+              name="cookiesText"
+              rows={6}
+              spellCheck={false}
+              placeholder={"# Netscape HTTP Cookie File\n.youtube.com\tTRUE\t/\tTRUE\t…\t<name>\t<value>\n（用浏览器扩展导出后，把 cookies.txt 的内容整段粘贴到这里）"}
+              style={{ fontFamily: "var(--font-mono, monospace)", fontSize: "0.82rem", whiteSpace: "pre", overflowWrap: "normal", overflowX: "auto" }}
+            />
+          </div>
+          <div className="field">
+            <label htmlFor="cookiesFile">
+              <I18nText zh="或上传 cookies.txt 文件" en="Or upload a cookies.txt file" />
+            </label>
+            <input id="cookiesFile" type="file" name="cookiesFile" accept=".txt,text/plain" />
+          </div>
+          <div className="row-actions">
+            <button className="button" type="submit">
+              <I18nText zh={cookiesConfigured ? "更新 cookies" : "保存 cookies"} en={cookiesConfigured ? "Update cookies" : "Save cookies"} />
+            </button>
+          </div>
+        </form>
+        {cookiesConfigured ? (
+          <form action="/api/admin/videos/cookies" method="post">
+            <input type="hidden" name="action" value="clear" />
+            <button className="button button-danger" type="submit"><I18nText zh="删除已存 cookies" en="Remove stored cookies" /></button>
           </form>
-          {cookiesConfigured ? (
-            <form action="/api/admin/videos/cookies" method="post">
-              <input type="hidden" name="action" value="clear" />
-              <button className="button button-danger" type="submit"><I18nText zh="删除已存 cookies" en="Remove stored cookies" /></button>
-            </form>
-          ) : null}
-        </div>
+        ) : null}
       </section>
 
       <form
