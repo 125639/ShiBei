@@ -3502,49 +3502,57 @@ button[aria-busy="true"] {
   gap: 4px;
 }
 
+/* 写作模式：紧凑分段开关（原来是两张占半屏的大卡） */
 .writing-mode-picker {
-  display: grid;
-  gap: 7px;
-  margin-bottom: 12px;
-  padding: 12px;
-  border: 1px solid var(--line);
-  border-radius: var(--radius-md);
-  background: color-mix(in srgb, var(--surface-strong) 84%, var(--paper));
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 10px;
 }
 
-.writing-mode-picker p {
-  margin: 0;
-  font-size: 0.84rem;
+.writing-mode-seg {
+  display: inline-flex;
+  gap: 3px;
+  padding: 3px;
+  border: var(--border-w) solid var(--line);
+  border-radius: 9px;
+  background: color-mix(in srgb, var(--surface) 70%, transparent);
 }
 
-.writing-mode-buttons {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 8px;
-}
-
-.writing-mode-buttons button {
-  display: grid;
-  gap: 2px;
-  padding: 9px 11px;
-  border: 1px solid var(--line);
-  border-radius: var(--radius-sm);
-  background: var(--surface-soft);
-  color: inherit;
-  text-align: left;
-  cursor: pointer;
-  font: inherit;
-}
-
-.writing-mode-buttons button.active {
-  border-color: var(--accent);
-  background: color-mix(in srgb, var(--accent) 9%, var(--surface));
-  box-shadow: 0 0 0 1px var(--accent) inset;
-}
-
-.writing-mode-buttons button span {
+.writing-mode-tab {
+  padding: 5px 14px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
   color: var(--muted);
-  font-size: 0.8rem;
+  font: inherit;
+  font-size: 0.86rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background-color 0.16s ease, color 0.16s ease, box-shadow 0.16s ease;
+}
+
+.writing-mode-tab:hover:not(:disabled) {
+  color: var(--ink);
+}
+
+.writing-mode-tab.active {
+  background: var(--paper);
+  color: var(--accent);
+  box-shadow: 0 1px 5px color-mix(in srgb, var(--ink) 10%, transparent);
+}
+
+.writing-mode-tab:disabled {
+  cursor: default;
+  opacity: 0.6;
+}
+
+.writing-mode-note {
+  margin: 0;
+  font-size: 0.82rem;
+  flex: 1 1 240px;
+  min-width: 0;
 }
 
 .writing-complete-action {
@@ -3721,32 +3729,6 @@ button[aria-busy="true"] {
   color: color-mix(in srgb, var(--muted) 55%, transparent);
 }
 
-.writing-empty-guide {
-  display: grid;
-  gap: 5px;
-  margin: 8px 0 4px;
-  padding: 12px 14px;
-  border-left: 3px solid color-mix(in srgb, var(--accent) 55%, var(--line));
-  border-radius: 0 10px 10px 0;
-  background: color-mix(in srgb, var(--accent) 5%, transparent);
-  color: var(--muted);
-  font-size: 0.86rem;
-  line-height: 1.55;
-}
-
-.writing-empty-guide strong {
-  color: var(--ink-soft);
-}
-
-.writing-empty-guide kbd {
-  padding: 1px 6px;
-  border: 1px solid var(--line);
-  border-radius: 5px;
-  background: var(--surface-strong);
-  color: var(--ink);
-  font: inherit;
-}
-
 /* —— 编辑器主体 —— */
 .notion-editor {
   min-height: 46vh;
@@ -3825,6 +3807,100 @@ button[aria-busy="true"] {
   color: color-mix(in srgb, var(--muted) 50%, transparent);
 }
 
+/* —— 左侧块手柄（Notion 招牌：悬停出现 + 与 ⋮⋮）—— */
+.notion-gutter {
+  display: flex;
+  align-items: center;
+  gap: 1px;
+  padding-right: 2px;
+}
+
+.notion-gutter-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 24px;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: color-mix(in srgb, var(--muted) 78%, transparent);
+  cursor: pointer;
+  transition: background-color 0.12s ease, color 0.12s ease;
+}
+
+.notion-gutter-btn:hover {
+  background: color-mix(in srgb, var(--ink) 8%, transparent);
+  color: var(--ink);
+}
+
+.notion-grip {
+  cursor: grab;
+}
+
+.notion-grip:active {
+  cursor: grabbing;
+}
+
+/* 拖拽重排时的落点提示线（ProseMirror drop cursor 由扩展注入） */
+.notion-editor .ProseMirror-dropcursor,
+.notion-editor .prosemirror-dropcursor-block {
+  background: var(--accent) !important;
+}
+
+/* —— 块手柄菜单（转换为 / 复制 / 删除）—— */
+.notion-block-menu {
+  min-width: 168px;
+  padding: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  border: var(--border-w) solid var(--line);
+  border-radius: 10px;
+  background: var(--paper);
+  box-shadow: 0 20px 56px color-mix(in srgb, var(--ink) 20%, transparent);
+}
+
+.notion-block-menu-label {
+  margin: 2px 8px 3px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.notion-block-menu-item {
+  padding: 7px 9px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--ink);
+  font: inherit;
+  font-size: 14px;
+  text-align: left;
+  cursor: pointer;
+  transition: background-color 0.12s ease;
+}
+
+.notion-block-menu-item:hover {
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+}
+
+.notion-block-menu-item.danger {
+  color: var(--color-danger, #c4443a);
+}
+
+.notion-block-menu-item.danger:hover {
+  background: color-mix(in srgb, var(--color-danger, #c4443a) 12%, transparent);
+}
+
+.notion-block-menu-divider {
+  height: 1px;
+  margin: 4px 6px;
+  background: var(--line);
+}
+
 /* —— 浮动工具栏 —— */
 .bubble-toolbar {
   display: flex;
@@ -3892,7 +3968,7 @@ button[aria-busy="true"] {
 
 .slash-item {
   display: flex;
-  align-items: baseline;
+  align-items: center;
   gap: 10px;
   width: 100%;
   text-align: left;
@@ -3900,7 +3976,7 @@ button[aria-busy="true"] {
   background: none;
   color: inherit;
   font: inherit;
-  padding: 8px 10px;
+  padding: 7px 9px;
   border-radius: 8px;
   cursor: pointer;
 }
@@ -3909,15 +3985,47 @@ button[aria-busy="true"] {
   background: color-mix(in srgb, var(--accent) 10%, transparent);
 }
 
+/* 图标块（Notion 同款：命令左侧一枚描边小图，落在浅底卡里） */
+.slash-item-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  width: 30px;
+  height: 30px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: var(--surface-soft, color-mix(in srgb, var(--surface) 70%, transparent));
+  color: var(--ink-soft, var(--ink));
+}
+
+.slash-item.active .slash-item-icon {
+  border-color: color-mix(in srgb, var(--accent) 45%, var(--line));
+  color: var(--accent);
+}
+
+.slash-item-body {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+
 .slash-item-title {
-  font-size: 0.95rem;
+  font-size: 0.92rem;
   font-weight: 500;
+  line-height: 1.25;
 }
 
 .slash-item-hint {
-  margin-left: auto;
-  font-size: 0.8rem;
+  font-size: 0.76rem;
   color: var(--muted);
+  line-height: 1.2;
+}
+
+.slash-item.slash-ai .slash-item-icon {
+  border-color: color-mix(in srgb, var(--accent) 45%, var(--line));
+  color: var(--accent);
 }
 
 .slash-item.slash-ai .slash-item-title {

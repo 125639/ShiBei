@@ -1,13 +1,27 @@
 "use client";
 
-import { useEffect, useLayoutEffect, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { EditorContent, useEditor, type Editor } from "@tiptap/react";
 import { BubbleMenu } from "@tiptap/react/menus";
+import { DragHandle } from "@tiptap/extension-drag-handle-react";
 import StarterKit from "@tiptap/starter-kit";
 import { Placeholder } from "@tiptap/extensions";
 import { exitSuggestion } from "@tiptap/suggestion";
 import { Markdown } from "tiptap-markdown";
 import { SlashCommand } from "./slash-menu";
+import { useDismissableOverlay } from "@/components/useDismissableOverlay";
+
+// 块级右键/手柄菜单里的"转换为"目标；run 在已选中目标块的前提下执行。
+const TURN_INTO: Array<{ id: string; label: string; run: (editor: Editor) => void }> = [
+  { id: "paragraph", label: "正文", run: (e) => e.chain().focus().setParagraph().run() },
+  { id: "h1", label: "标题 1", run: (e) => e.chain().focus().setHeading({ level: 1 }).run() },
+  { id: "h2", label: "标题 2", run: (e) => e.chain().focus().setHeading({ level: 2 }).run() },
+  { id: "h3", label: "标题 3", run: (e) => e.chain().focus().setHeading({ level: 3 }).run() },
+  { id: "bullet", label: "无序列表", run: (e) => e.chain().focus().toggleBulletList().run() },
+  { id: "ordered", label: "有序列表", run: (e) => e.chain().focus().toggleOrderedList().run() },
+  { id: "quote", label: "引用", run: (e) => e.chain().focus().toggleBlockquote().run() },
+  { id: "code", label: "代码块", run: (e) => e.chain().focus().toggleCodeBlock().run() }
+];
 
 export type AiSelectionKind = "polish" | "shorten" | "expand" | "fix" | "translate";
 
@@ -136,6 +150,22 @@ export function NotionEditor({
     }
   });
 
+  // 手柄当前指向的块在文档中的位置（onNodeChange 持续更新）。
+  const blockPosRef = useRef<number | null>(null);
+  const gripRef = useRef<HTMLButtonElement | null>(null);
+  const blockMenuRef = useRef<HTMLDivElement | null>(null);
+  const [blockMenu, setBlockMenu] = useState<{ x: number; y: number } | null>(null);
+
+  // 必须是稳定引用：DragHandle 的注册 effect 把 onNodeChange 列入依赖，内联函数
+  // 会让它每次渲染都 unregister→registerPlugin，reconfigure 时 ProseMirror 会摧毁
+  // 并重建全部插件视图——包括斜杠命令的 Suggestion 视图，导致每个键位都把菜单状态
+  // 清零、菜单永远弹不出来（2026-07-19 实测）。
+  const handleNodeChange = useCallback(({ pos }: { pos: number }) => {
+    blockPosRef.current = pos;
+  }, []);
+
+  useDismissableOverlay(Boolean(blockMenu), blockMenuRef, () => setBlockMenu(null), gripRef);
+
   useEffect(() => {
     if (editor && onReady) onReady(editor);
   }, [editor, onReady]);
@@ -185,8 +215,106 @@ export function NotionEditor({
     editor.chain().focus().setLink({ href: url.trim() }).run();
   };
 
+  // ── 左侧手柄动作（都基于 blockPosRef 指向的块）──
+  const hoveredNode = () => {
+    const pos = blockPosRef.current;
+    if (pos == null) return null;
+    return { pos, node: editor.state.doc.nodeAt(pos) };
+  };
+
+  // "+"：在当前块下方插入空段落并打出 "/"，直接进入块命令（Notion 同款）。
+  const addBlockBelow = () => {
+    if (editor.isDestroyed || !editor.isEditable) return;
+    const target = hoveredNode();
+    if (!target) return;
+    const insertAt = target.node ? target.pos + target.node.nodeSize : editor.state.doc.content.size;
+    editor.chain().focus().insertContentAt(insertAt, { type: "paragraph" }).setTextSelection(insertAt + 1).run();
+    editor.chain().focus().insertContent("/").run();
+  };
+
+  const openBlockMenu = () => {
+    if (editor.isDestroyed || !editor.isEditable) return;
+    const rect = gripRef.current?.getBoundingClientRect();
+    if (!rect) return;
+    setBlockMenu({ x: rect.right + 6, y: rect.top });
+  };
+
+  const turnHoveredInto = (item: (typeof TURN_INTO)[number]) => {
+    const target = hoveredNode();
+    if (!target) return;
+    editor.chain().setTextSelection(target.pos + 1).run();
+    item.run(editor);
+    setBlockMenu(null);
+  };
+
+  const duplicateBlock = () => {
+    const target = hoveredNode();
+    if (!target?.node) return;
+    editor.chain().focus().insertContentAt(target.pos + target.node.nodeSize, target.node.toJSON()).run();
+    setBlockMenu(null);
+  };
+
+  const deleteBlock = () => {
+    const target = hoveredNode();
+    if (!target?.node) return;
+    editor.chain().focus().deleteRange({ from: target.pos, to: target.pos + target.node.nodeSize }).run();
+    setBlockMenu(null);
+  };
+
   return (
     <div className="notion-editor">
+      {editable ? (
+        <DragHandle
+          editor={editor}
+          onNodeChange={handleNodeChange}
+        >
+          <div className="notion-gutter" aria-hidden={false}>
+            <button
+              type="button"
+              className="notion-gutter-btn"
+              aria-label="在下方插入块"
+              title="插入块"
+              draggable={false}
+              onDragStart={(e) => { e.preventDefault(); e.stopPropagation(); }}
+              onMouseDown={(e) => e.stopPropagation()}
+              onClick={addBlockBelow}
+            >
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14" /></svg>
+            </button>
+            <button
+              ref={gripRef}
+              type="button"
+              className="notion-gutter-btn notion-grip"
+              aria-label="拖动重排，或点击打开块菜单"
+              title="拖动重排 / 点击菜单"
+              onClick={openBlockMenu}
+            >
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="9" cy="6" r="1.4" /><circle cx="15" cy="6" r="1.4" /><circle cx="9" cy="12" r="1.4" /><circle cx="15" cy="12" r="1.4" /><circle cx="9" cy="18" r="1.4" /><circle cx="15" cy="18" r="1.4" /></svg>
+            </button>
+          </div>
+        </DragHandle>
+      ) : null}
+
+      {blockMenu ? (
+        <div
+          ref={blockMenuRef}
+          className="notion-block-menu"
+          role="menu"
+          aria-label="块操作"
+          style={{ position: "fixed", top: blockMenu.y, left: blockMenu.x, zIndex: 320 }}
+        >
+          <p className="notion-block-menu-label">转换为</p>
+          {TURN_INTO.map((item) => (
+            <button key={item.id} type="button" role="menuitem" className="notion-block-menu-item" onClick={() => turnHoveredInto(item)}>
+              {item.label}
+            </button>
+          ))}
+          <span className="notion-block-menu-divider" aria-hidden="true" />
+          <button type="button" role="menuitem" className="notion-block-menu-item" onClick={duplicateBlock}>复制块</button>
+          <button type="button" role="menuitem" className="notion-block-menu-item danger" onClick={deleteBlock}>删除块</button>
+        </div>
+      ) : null}
+
       <BubbleMenu
         editor={editor}
         options={{ placement: "top" }}

@@ -1522,32 +1522,32 @@ export function WritingStudio() {
           </section>
         ) : null}
         <section className="writing-mode-picker" aria-label="写作模式">
-          <div className="writing-mode-buttons" role="group" aria-label="选择写作模式">
+          <div className="writing-mode-seg" role="radiogroup" aria-label="选择写作模式">
             <button
               type="button"
-              className={writingMode === "manual" ? "active" : ""}
-              aria-pressed={writingMode === "manual"}
+              role="radio"
+              className={`writing-mode-tab${writingMode === "manual" ? " active" : ""}`}
+              aria-checked={writingMode === "manual"}
               disabled={editorLocked}
               onClick={() => selectWritingMode("manual")}
             >
-              <strong>纯手写</strong>
-              <span>不调用 AI</span>
+              纯手写
             </button>
             <button
               type="button"
-              className={writingMode === "assist" ? "active" : ""}
-              aria-pressed={writingMode === "assist"}
+              role="radio"
+              className={`writing-mode-tab${writingMode === "assist" ? " active" : ""}`}
+              aria-checked={writingMode === "assist"}
               disabled={editorLocked}
               onClick={() => selectWritingMode("assist")}
             >
-              <strong>AI 辅助</strong>
-              <span>仅在你主动选择时调用</span>
+              AI 辅助
             </button>
           </div>
-          <p className="muted">
+          <p className="muted writing-mode-note">
             {writingMode === "manual"
-              ? "当前为纯手写：编辑器不会发送任何 AI 请求。"
-              : "AI 只会处理你主动选择的文字；生成结果也必须由你确认后才会写入文稿。"}
+              ? "纯手写：不发送任何 AI 请求。选中文字后可用左侧手柄或 / 命令排版。"
+              : "AI 只处理你主动选中的文字，结果需你确认后才写入。"}
           </p>
         </section>
         <div className="writing-meta-row">
@@ -1603,14 +1603,6 @@ export function WritingStudio() {
         />
 
         {completionError ? <p className="form-error writing-completion-error" role="alert">{completionError}</p> : null}
-
-        {wordCount === 0 ? (
-          <div className="writing-empty-guide" role="note">
-            <strong>直接输入就是纯手写，从一句话开始就好</strong>
-            <span>输入 <kbd>/</kbd> 可插入小标题、列表、引用或代码块</span>
-            {writingMode === "assist" ? <span>选中文字后可主动选择润色、精简、纠错或译英；AI 不会自行改稿。</span> : null}
-          </div>
-        ) : null}
 
         <NotionEditor
           docId={active.id}

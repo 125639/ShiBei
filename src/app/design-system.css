@@ -1956,26 +1956,21 @@ p {
 :root[data-theme][data-ui] .writing-title {
   color: var(--ink);
   font-family: var(--font-display);
-  font-size: 54px;
-  font-weight: 760;
-  letter-spacing: 0;
+  font-size: 40px;
+  font-weight: 720;
+  letter-spacing: -0.01em;
 }
 
-:root[data-theme][data-ui] .writing-title:focus-visible {
-  outline: 3px solid var(--focus-ring);
-  outline-offset: 5px;
-  border-radius: 6px;
-}
-
+/* 无框文档：正文区不再画整框 focus-ring（那会在半空的 48vh 盒子外圈出一个
+   大紫框，像表单而非文档）。焦点由光标 + 悬停手柄体现，符合 Notion/文档习惯。 */
 :root[data-theme][data-ui] .notion-editor .tiptap {
-  min-height: 48vh;
-  padding: 12px 10px 30vh;
-  border-radius: 10px;
+  min-height: 40vh;
+  padding: 4px 0 26vh;
+  border-radius: 0;
 }
 
 :root[data-theme][data-ui] .notion-editor .tiptap:focus-visible {
-  outline: 3px solid var(--focus-ring);
-  outline-offset: 4px;
+  outline: none;
 }
 
 :root[data-theme][data-ui] .notion-editor-loading {

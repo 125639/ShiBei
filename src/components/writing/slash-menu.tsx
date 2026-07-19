@@ -3,7 +3,7 @@
 import { Extension, type Editor, type Range } from "@tiptap/core";
 import { ReactRenderer } from "@tiptap/react";
 import Suggestion, { type SuggestionProps, type SuggestionKeyDownProps } from "@tiptap/suggestion";
-import { forwardRef, useEffect, useImperativeHandle, useState } from "react";
+import { forwardRef, useEffect, useImperativeHandle, useState, type ReactNode } from "react";
 
 // Notion 式斜杠菜单:输入 / 唤起块类型命令,支持关键词过滤与键盘导航。
 
@@ -12,7 +12,33 @@ export type SlashItem = {
   title: string;
   hint: string;
   keywords: string;
+  icon: ReactNode;
   run: (editor: Editor, range: Range) => void;
+};
+
+// 16px 线性块类型图标（与站点 ICON 风格一致）。
+const IC = {
+  width: 18,
+  height: 18,
+  viewBox: "0 0 24 24",
+  fill: "none",
+  stroke: "currentColor",
+  strokeWidth: 1.8,
+  strokeLinecap: "round" as const,
+  strokeLinejoin: "round" as const,
+  "aria-hidden": true
+};
+const SLASH_ICONS: Record<string, ReactNode> = {
+  text: <svg {...IC}><path d="M5 5h14M5 5v14M12 5v14" /></svg>,
+  h1: <svg {...IC}><path d="M4 6v12M12 6v12M4 12h8M17 9l3-1.5V18" /></svg>,
+  h2: <svg {...IC}><path d="M4 6v12M11 6v12M4 12h7M16 9.5a2 2 0 1 1 3.4 1.4L16 18h4" /></svg>,
+  h3: <svg {...IC}><path d="M4 6v12M11 6v12M4 12h7M16 8.5a1.8 1.8 0 1 1 2.8 2.2 1.8 1.8 0 1 1-2.6 2.6" /></svg>,
+  bullet: <svg {...IC}><circle cx="5" cy="7" r="1.3" fill="currentColor" stroke="none" /><circle cx="5" cy="12" r="1.3" fill="currentColor" stroke="none" /><circle cx="5" cy="17" r="1.3" fill="currentColor" stroke="none" /><path d="M10 7h10M10 12h10M10 17h10" /></svg>,
+  ordered: <svg {...IC}><path d="M10 7h10M10 12h10M10 17h10M4 6.5h1.2V10M4 15h2v1.5H4V18h2" /></svg>,
+  quote: <svg {...IC}><path d="M7 7v10M5 7h4M11 9h8M11 13h8M11 17h5" /></svg>,
+  code: <svg {...IC}><path d="m9 8-4 4 4 4M15 8l4 4-4 4" /></svg>,
+  divider: <svg {...IC}><path d="M4 12h16" /></svg>,
+  "ai-continue": <svg {...IC}><path d="m12 4 1.6 4.4L18 10l-4.4 1.6L12 16l-1.6-4.4L6 10l4.4-1.6zM18 15l.8 2.2L21 18l-2.2.8L18 21l-.8-2.2L15 18l2.2-.8z" /></svg>
 };
 
 function runIfEditable(editor: Editor, action: () => void) {
@@ -20,7 +46,7 @@ function runIfEditable(editor: Editor, action: () => void) {
 }
 
 export function buildSlashItems(onAiContinue?: () => void): SlashItem[] {
-  const items: SlashItem[] = [
+  const items: Array<Omit<SlashItem, "icon">> = [
     {
       id: "text",
       title: "正文",
@@ -98,7 +124,7 @@ export function buildSlashItems(onAiContinue?: () => void): SlashItem[] {
       }
     });
   }
-  return items;
+  return items.map((item) => ({ ...item, icon: SLASH_ICONS[item.id] ?? SLASH_ICONS.text }));
 }
 
 type SlashListProps = {
@@ -150,8 +176,11 @@ export const SlashList = forwardRef<SlashListHandle, SlashListProps>(function Sl
             command(item);
           }}
         >
-          <span className="slash-item-title">{item.title}</span>
-          <span className="slash-item-hint">{item.hint}</span>
+          <span className="slash-item-icon" aria-hidden="true">{item.icon}</span>
+          <span className="slash-item-body">
+            <span className="slash-item-title">{item.title}</span>
+            <span className="slash-item-hint">{item.hint}</span>
+          </span>
         </button>
       ))}
     </div>
