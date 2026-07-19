@@ -567,7 +567,7 @@ ensure_swap() {
     y|Y|yes|YES|1|true) : ;;  # 免询问
     *)
       local ans=""
-      ask_default ans "内存偏低（RAM ${mem_mb}MB / swap ${swap_mb}MB），构建时可能 OOM 死机。现在创建 ${want_mb}MB swap 兜底？(Y/n)" "y"
+      ask_default ans "内存偏低（RAM ${mem_mb}MB / swap ${swap_mb}MB），构建/运行时可能 OOM 死机。现在创建 ${want_mb}MB swap 兜底？(Y/n)" "y"
       case "$ans" in n|N|no|NO|0|false) ui_info "跳过创建 swap。"; return 0 ;; esac
       ;;
   esac
@@ -644,8 +644,44 @@ fi
 
 # SHIBEI_AUTO_START=y/n 用于非交互场景与单元测试；空值走交互提问。
 AUTO_START="${SHIBEI_AUTO_START:-}"
-COMPOSE_UP_ARGS=(up -d --build --force-recreate)
-COMPOSE_UP_DISPLAY="${COMPOSE_CMD_DISPLAY} ${COMPOSE_UP_ARGS[*]}"
+
+# ---------- 部署方式：本地构建 vs 拉预构建镜像 -------------------------------
+# 低配机上 Next.js 本地构建必死：builder 阶段没有 NODE_OPTIONS 时，V8 按物理内
+# 存推算的默认堆上限只有 ~300MB，够不到 Next 构建的胃口，而且这个上限只看物理
+# 内存——加 swap 也救不了。所以物理内存 <3500MB 时默认改拉 Docker Hub 预构建镜
+# 像（safg/shibei，四种 tag 与三形态一一对应）；内存充足维持本地构建（能包含
+# 本地改动）。SHIBEI_DEPLOY_SOURCE=build|pull 显式覆盖则不做检测；
+# SHIBEI_SWAP_TEST_MEM_MB 供测试伪造内存（与 ensure_swap 共用同一个开关）。
+DEPLOY_SOURCE="${SHIBEI_DEPLOY_SOURCE:-}"
+case "$DEPLOY_SOURCE" in build|pull) : ;; *) DEPLOY_SOURCE="" ;; esac
+if [ -z "$DEPLOY_SOURCE" ]; then
+  DEPLOY_MEM_MB="${SHIBEI_SWAP_TEST_MEM_MB:-$(awk '/^MemTotal:/ {printf "%d", $2/1024}' /proc/meminfo 2>/dev/null || echo 0)}"
+  [ -n "$DEPLOY_MEM_MB" ] || DEPLOY_MEM_MB=0
+  if [ "$DEPLOY_MEM_MB" -gt 0 ] && [ "$DEPLOY_MEM_MB" -lt 3500 ]; then
+    if [ -z "$AUTO_START" ]; then
+      # 交互场景：说明原因并征求意见，默认拉取。
+      echo
+      ui_warn "内存 ${DEPLOY_MEM_MB}MB 不足以本地构建 Next.js（需 4GB+，构建必然 OOM）。"
+      DEPLOY_ANS=""
+      ask_default DEPLOY_ANS "改为拉取 Docker Hub 预构建镜像（safg/shibei）？(Y=拉取/n=坚持本地构建)" "y"
+      case "$DEPLOY_ANS" in n|N|no|NO|0|false) DEPLOY_SOURCE="build" ;; *) DEPLOY_SOURCE="pull" ;; esac
+    else
+      # 非交互（curl|bash / SHIBEI_AUTO_START 已设）：不能提问，直接选拉取。
+      DEPLOY_SOURCE="pull"
+      ui_info "内存 ${DEPLOY_MEM_MB}MB 偏低，改为拉取预构建镜像；要强制本地构建请设 SHIBEI_DEPLOY_SOURCE=build。"
+    fi
+  else
+    DEPLOY_SOURCE="build"
+  fi
+fi
+
+if [ "$DEPLOY_SOURCE" = "pull" ]; then
+  COMPOSE_UP_ARGS=(up -d --force-recreate)
+  COMPOSE_UP_DISPLAY="${COMPOSE_CMD_DISPLAY} pull && ${COMPOSE_CMD_DISPLAY} up -d --force-recreate"
+else
+  COMPOSE_UP_ARGS=(up -d --build --force-recreate)
+  COMPOSE_UP_DISPLAY="${COMPOSE_CMD_DISPLAY} ${COMPOSE_UP_ARGS[*]}"
+fi
 
 if [ -z "$AUTO_START" ]; then
   echo
@@ -675,19 +711,36 @@ case "$AUTO_START" in
       if ! docker info >/dev/null 2>&1 && [ "$(id -u 2>/dev/null || echo 0)" != "0" ] && command -v sudo >/dev/null 2>&1; then
         DOCKER_SUDO="sudo"
       fi
-      # 构建前先按内存情况兜底 swap：低配机上 Next.js 构建 OOM 会拖死整机。
+      # 低配机兜底 swap：build 模式防构建 OOM 拖死整机；pull 模式运行期同样受益。
       ensure_swap
       echo
       ui_info "切到 $PROJECT_DIR 并运行 ${DOCKER_SUDO:+sudo }${COMPOSE_UP_DISPLAY} ..."
-      ui_info "测试环境默认本地 build；如要改用远程镜像，删掉 --build 并 ${COMPOSE_CMD_DISPLAY} pull。"
-      if (cd "$PROJECT_DIR" && ${DOCKER_SUDO:+sudo }docker compose "${COMPOSE_ARGS[@]}" "${COMPOSE_UP_ARGS[@]}"); then
+      START_OK=0
+      if [ "$DEPLOY_SOURCE" = "pull" ]; then
+        ui_info "镜像来源：hub.docker.com/r/safg/shibei（预构建）；本地未推送的改动不会包含在内。"
+        if (cd "$PROJECT_DIR" \
+            && ${DOCKER_SUDO:+sudo }docker compose "${COMPOSE_ARGS[@]}" pull \
+            && ${DOCKER_SUDO:+sudo }docker compose "${COMPOSE_ARGS[@]}" "${COMPOSE_UP_ARGS[@]}"); then
+          START_OK=1
+        fi
+      else
+        ui_info "本地 build；改用预构建镜像可设 SHIBEI_DEPLOY_SOURCE=pull 重跑本向导。"
+        if (cd "$PROJECT_DIR" && ${DOCKER_SUDO:+sudo }docker compose "${COMPOSE_ARGS[@]}" "${COMPOSE_UP_ARGS[@]}"); then
+          START_OK=1
+        fi
+      fi
+      if [ "$START_OK" = "1" ]; then
         AUTO_STARTED=1
         echo
         ui_success "容器已启动；用 ${COMPOSE_CMD_DISPLAY} ps 看状态、logs -f 看日志。"
       else
         DOCKER_FAILED=1
         echo
-        ui_error "${COMPOSE_UP_DISPLAY} 退出非零；常见原因：build 失败 / 端口占用 / .env 缺项。"
+        if [ "$DEPLOY_SOURCE" = "pull" ]; then
+          ui_error "${COMPOSE_UP_DISPLAY} 退出非零；常见原因：网络拉取失败 / Docker Hub 限流 / 端口占用 / .env 缺项。"
+        else
+          ui_error "${COMPOSE_UP_DISPLAY} 退出非零；常见原因：build 失败(内存不足) / 端口占用 / .env 缺项。"
+        fi
       fi
     fi
     ;;
@@ -710,9 +763,14 @@ if [ "${DOCKER_FAILED:-0}" = "1" ]; then
   echo
   ui_section "排查步骤"
   printf "  ${BOLD}1. 看错误：${NC}cd %s && %s logs --tail=100\n" "$PROJECT_DIR" "$COMPOSE_CMD_DISPLAY"
-  printf "  ${BOLD}2. 单独 build 看报错：${NC}cd %s && %s build\n" "$PROJECT_DIR" "$COMPOSE_CMD_DISPLAY"
-  printf "       ${MUTED}如果只想跳过本地 build,直接拉远程镜像:${NC}\n"
-  printf "       ${MUTED}cd %s && %s pull && %s up -d --force-recreate${NC}\n" "$PROJECT_DIR" "$COMPOSE_CMD_DISPLAY" "$COMPOSE_CMD_DISPLAY"
+  if [ "${DEPLOY_SOURCE:-build}" = "pull" ]; then
+    printf "  ${BOLD}2. 单独拉镜像看报错：${NC}cd %s && %s pull\n" "$PROJECT_DIR" "$COMPOSE_CMD_DISPLAY"
+    printf "       ${MUTED}多为网络问题或 Docker Hub 限流,稍候重试;镜像主页 hub.docker.com/r/safg/shibei${NC}\n"
+  else
+    printf "  ${BOLD}2. 单独 build 看报错：${NC}cd %s && %s build\n" "$PROJECT_DIR" "$COMPOSE_CMD_DISPLAY"
+    printf "       ${MUTED}报 OOM/SIGABRT 就是内存不够,改拉预构建镜像(小内存机器别本地 build):${NC}\n"
+    printf "       ${MUTED}cd %s && %s pull && %s up -d --force-recreate${NC}\n" "$PROJECT_DIR" "$COMPOSE_CMD_DISPLAY" "$COMPOSE_CMD_DISPLAY"
+  fi
   printf "  ${BOLD}3. 检查端口：${NC}sudo lsof -i :%s   ${MUTED}(被占用就修改 .env 的 APP_PORT)${NC}\n" "$APP_PORT"
   printf "  ${BOLD}4. 重新启动：${NC}cd %s && %s\n" "$PROJECT_DIR" "$COMPOSE_UP_DISPLAY"
   echo
