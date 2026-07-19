@@ -3228,9 +3228,33 @@ p {
   transition: transform 160ms ease, background 160ms ease, border-color 160ms ease, box-shadow 160ms ease;
 }
 
-:root[data-theme][data-ui] .button:not(.secondary):not(.ghost) {
+/* 用 :where() 排除 danger 但不抬高特异性——保持原 (0,6,0)，让主题层的 apple
+   等主按钮定制仍能正常覆盖，同时危险按钮不再被 accent 渐变吃掉。 */
+:root[data-theme][data-ui] .button:not(.secondary):not(.ghost):where(:not(.danger)):where(:not(.button-danger)) {
   background-image: linear-gradient(135deg, var(--button-bg), color-mix(in srgb, var(--button-hover) 82%, var(--accent-soft)));
   box-shadow: 0 10px 24px color-mix(in srgb, var(--accent) 20%, transparent);
+}
+
+/* 危险按钮变体：红色实心 + 同款渐变光泽与落影。排除在主按钮的 accent 渐变之外
+   （否则删除类操作会显示成主色，误导）。:not(.ghost) 把特异性顶到 (0,6,0)，
+   压过各 UI 风格自己的主按钮渐变，无需逐个改。 */
+:root[data-theme][data-ui] :is(.button.danger, .button.button-danger):not(.ghost) {
+  border-color: var(--danger-button-bg, #d1453b);
+  background-color: var(--danger-button-bg, #d1453b);
+  background-image: linear-gradient(135deg, var(--danger-button-bg, #d1453b), color-mix(in srgb, var(--danger-button-bg, #d1453b) 78%, black));
+  color: var(--danger-button-fg, #fff);
+  box-shadow: 0 10px 24px color-mix(in srgb, var(--danger-button-bg, #d1453b) 26%, transparent);
+}
+
+:root[data-theme][data-ui] :is(.button.danger, .button.button-danger):not(.ghost):hover {
+  transform: translateY(-1px);
+  background-image: linear-gradient(135deg, color-mix(in srgb, var(--danger-button-bg, #d1453b) 88%, black), var(--danger-button-bg, #d1453b));
+  box-shadow: 0 14px 30px color-mix(in srgb, var(--danger-button-bg, #d1453b) 32%, transparent);
+}
+
+:root[data-theme][data-ui] :is(.button.danger, .button.button-danger):not(.ghost):active:not(:disabled) {
+  transform: translateY(0) scale(0.975);
+  box-shadow: 0 4px 12px color-mix(in srgb, var(--danger-button-bg, #d1453b) 26%, transparent);
 }
 
 :root[data-theme][data-ui] .field :is(input, select, textarea),
