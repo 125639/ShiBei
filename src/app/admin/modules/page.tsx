@@ -47,9 +47,12 @@ export default async function ModulesPage() {
         />
       </p>
 
-      <div className="admin-grid">
-        <form className="form-card form-stack" action="/api/admin/modules" method="post">
-          <h2><I18nText zh="新增模块" en="New Module" /></h2>
+      <div className="modules-admin">
+        <details className="form-card form-stack modules-new" open>
+          <summary className="modules-new-summary">
+            <h2><I18nText zh="新增模块" en="New Module" /></h2>
+          </summary>
+          <form action="/api/admin/modules" method="post" className="form-stack modules-new-form">
           <div className="field">
             <label htmlFor="name"><I18nText zh="名称" en="Name" /></label>
             <input id="name" name="name" required placeholder="例如：AI / 娱乐 / 财经" />
@@ -68,12 +71,13 @@ export default async function ModulesPage() {
               <input id="sortOrder" name="sortOrder" type="number" defaultValue={modules.length} />
             </div>
           </div>
-          <SubmitButton className="button module-submit" pendingLabel={<I18nText zh="保存中…" en="Saving…" />}>
-            <I18nText zh="保存模块" en="Save Module" />
-          </SubmitButton>
-        </form>
+            <SubmitButton className="button module-submit" pendingLabel={<I18nText zh="保存中…" en="Saving…" />}>
+              <I18nText zh="保存模块" en="Save Module" />
+            </SubmitButton>
+          </form>
+        </details>
 
-        <div className="form-card">
+        <div className="form-card modules-existing">
           <h2><I18nText zh={`已有模块（${modules.length}）`} en={`Modules (${modules.length})`} /></h2>
           {modules.length === 0 ? (
             <p className="muted"><I18nText zh="暂无模块。" en="No modules yet." /></p>
