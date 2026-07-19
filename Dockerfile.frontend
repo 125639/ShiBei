@@ -24,6 +24,17 @@ FROM deps AS builder
 COPY . .
 RUN npx prisma generate
 RUN npm run build
+# 运行镜像瘦身（此层之后的状态才会被 runner COPY）：
+#  - .next/cache 是构建期 webpack 缓存(~380MB)，运行期无用；
+#  - 开发依赖(typescript/eslint/@types，~90MB)运行期无用——运行期要用的 tsx
+#    (seed/sync-worker)已挪进生产依赖；
+#  - @next/swc 原生二进制(~245MB)只有构建和加载 TS 配置需要，配置已是
+#    next.config.mjs，next start 不再触碰 SWC；
+#  - npm prune 可能清掉 .prisma 生成产物，prune 后重新 generate 兜底。
+RUN rm -rf .next/cache \
+ && npm prune --omit=dev \
+ && npx prisma generate \
+ && rm -rf node_modules/@next/swc-linux-x64-gnu node_modules/@next/swc-linux-x64-musl
 
 FROM base AS runner
 ARG GIT_COMMIT=unknown
@@ -36,10 +47,10 @@ ENV PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1
 ENV NODE_OPTIONS="--max-old-space-size=192"
 ENV UV_THREADPOOL_SIZE=2
 ENV MALLOC_ARENA_MAX=2
-# 仅装 ca-certificates(HTTPS 拉 backend 用) + fonts-noto-cjk(中文字体)
+# 仅装 ca-certificates(HTTPS 拉 backend 用)。不装 fonts-noto-cjk(~90MB)：
+# 前端形态没有 chromium/截图/服务端文字渲染，中文显示全靠网页字体。
 RUN apt-get update && apt-get install -y --no-install-recommends \
       ca-certificates \
-      fonts-noto-cjk \
     && rm -rf /var/lib/apt/lists/*
 COPY --from=builder /app/node_modules ./node_modules
 COPY --from=builder /app/.next ./.next
@@ -48,7 +59,7 @@ COPY --from=builder /app/package.json ./package.json
 COPY --from=builder /app/prisma ./prisma
 COPY --from=builder /app/src ./src
 COPY --from=builder /app/scripts ./scripts
-COPY --from=builder /app/next.config.ts ./next.config.ts
+COPY --from=builder /app/next.config.mjs ./next.config.mjs
 COPY --from=builder /app/tsconfig.json ./tsconfig.json
 EXPOSE 3000
 CMD ["sh", "scripts/start-app.sh"]

@@ -93,7 +93,7 @@ export async function GET(
     "X-Content-Type-Options": "nosniff",
     // 视频/音频要求 Range 支持以便边下边播。
     "Accept-Ranges": "bytes",
-    // 与 next.config.ts 里 /uploads/:path* 的 header 配置保持一致。
+    // 与 next.config.mjs 里 /uploads/:path* 的 header 配置保持一致。
     "Cache-Control": "public, max-age=3600, must-revalidate",
     "Last-Modified": stat.mtime.toUTCString(),
   });
