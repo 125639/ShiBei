@@ -415,9 +415,24 @@ export function markdownToHtml(markdown: string, opts?: MarkdownOptions): string
     '<img loading="lazy" decoding="async" '
   );
 
+  // 站内 /uploads 正文图改走 Next 图片优化端点：sharp 缩放 + WebP 协商，
+  // 实测 1.5MB 原图降到 ~100KB。srcset 三档覆盖手机到 2x 桌面；SVG/GIF
+  // 与已带 srcset 的标签原样保留。此时 HTML 已经过 DOMPurify，src 一定是
+  // 规范的双引号形式。
+  const withOptimizedImages = withLazyImages.replace(
+    /<img([^>]*?)\ssrc="(\/uploads\/[^"]+)"/g,
+    (whole, before: string, src: string) => {
+      if (/\.(svg|gif)(\?|#|$)/i.test(src) || /\bsrcset=/.test(before)) return whole;
+      const encoded = encodeURIComponent(src);
+      const variant = (w: number) => `/_next/image?url=${encoded}&amp;w=${w}&amp;q=75`;
+      const srcset = [750, 1080, 1920].map((w) => `${variant(w)} ${w}w`).join(", ");
+      return `<img${before} src="${variant(1080)}" srcset="${srcset}" sizes="(max-width: 900px) 100vw, 820px"`;
+    }
+  );
+
   // Markdown 表格可能比手机视口更宽。包一层可聚焦的滚动区域，既避免内容
   // 被页面的横向裁切吞掉，也让键盘用户能够进入区域后横向浏览。
-  return withLazyImages
+  return withOptimizedImages
     .replace(
       /<table(?:\s[^>]*)?>/g,
       (tableTag) => '<div class="prose-table-scroll" role="region" aria-label="数据表，可横向滚动 / Scrollable data table" tabindex="0">' + tableTag

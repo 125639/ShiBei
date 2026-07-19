@@ -232,7 +232,7 @@ function PostsLayout({ mode, posts }: { mode: DisplayMode; posts: PostListEntry[
     const [hero, ...rest] = posts;
     return (
       <div className="bento-grid news-bento posts-collection">
-        <article className={`bento-card bento-feature news-magazine-hero linked-card ${hero.cover ? "has-cover" : ""}`} style={postCoverStyle(hero.cover)}>
+        <article className={`bento-card bento-feature news-magazine-hero linked-card ${hero.cover ? "has-cover" : ""}`} style={postCoverStyle(hero.cover, 1200)}>
           {hero.cover ? <span className="post-cover" aria-hidden /> : null}
           <div>
             <div className="meta-row">

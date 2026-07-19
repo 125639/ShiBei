@@ -1,4 +1,5 @@
 import type { CSSProperties } from "react";
+import { optimizedLocalImageUrl, type OptimizerWidth } from "./image-optimizer-url";
 
 const MD_IMAGE_RE = /!\[[^\]]*\]\(\s*<?([^)\s>]+)/;
 const HTML_IMAGE_RE = /<img[^>]*\ssrc=["']([^"']+)["']/i;
@@ -21,9 +22,12 @@ export function extractPostCover(content: string | null | undefined): string | n
 /**
  * 把封面 URL 放进 CSS 自定义属性。样式表只在 firefly 模式下把
  * `--post-cover` 用作 background-image，其余风格不会加载这张图。
+ * 站内图先经 Next 图片优化端点缩放转码；width 对应卡片实际渲染宽度
+ * （普通卡片 828 足够，跨栏 hero 用 1200）。
  */
-export function postCoverStyle(cover: string | null): CSSProperties | undefined {
+export function postCoverStyle(cover: string | null, width: OptimizerWidth = 828): CSSProperties | undefined {
   if (!cover) return undefined;
-  const safe = cover.replace(/[\\"'()\s]/g, (ch) => encodeURIComponent(ch));
+  const optimized = optimizedLocalImageUrl(cover, width);
+  const safe = optimized.replace(/[\\"'()\s]/g, (ch) => encodeURIComponent(ch));
   return { "--post-cover": `url("${safe}")` } as CSSProperties;
 }

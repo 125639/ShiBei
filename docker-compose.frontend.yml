@@ -69,6 +69,8 @@ services:
     volumes:
       # 持久化用户上传的视频/音乐(导入的 ZIP 也会落到这里)
       - app-uploads:/app/public/uploads
+      # 图片优化结果缓存：1 核小机上重压最贵，务必跨容器保留。
+      - app-image-cache:/app/.next/cache/images
     healthcheck:
       test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
       interval: 30s
@@ -116,3 +118,4 @@ services:
 volumes:
   postgres-data:
   app-uploads:
+  app-image-cache:
