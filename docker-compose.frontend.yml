@@ -61,6 +61,11 @@ services:
       # 1 核小机不需要默认 4 线程池；限制 glibc arena 可减少长期运行的 RSS 碎片。
       UV_THREADPOOL_SIZE: 2
       MALLOC_ARENA_MAX: 2
+      # 图片优化（/_next/image 的 sharp/libvips）在 1 核上串行处理，避免一页多图
+      # 同时转码时线程数按核暴涨、CPU/内存尖峰把小机拖垮。两个变量分别覆盖
+      # libvips 与 sharp 的线程池，取最保守的 1。
+      VIPS_CONCURRENCY: "1"
+      SHARP_CONCURRENCY: "1"
       # 统计分桶按进程本地时区；默认上海，.env 里设 TZ 可覆盖。
       TZ: ${TZ:-Asia/Shanghai}
     ports:

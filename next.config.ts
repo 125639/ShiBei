@@ -20,7 +20,13 @@ const nextConfig: NextConfig = {
   // 站内封面与正文图都走 /_next/image。uploads 图片文件名是内容 sha256，
   // 内容变了 URL 必变，优化结果可以放心长缓存（31 天）。
   images: {
-    minimumCacheTTL: 2678400
+    minimumCacheTTL: 2678400,
+    // 只转 WebP：AVIF 编码在 1 核低配前端机上极耗 CPU（单张可达数秒），
+    // WebP 兼顾体积与速度；不支持 WebP 的老浏览器自动回退到原格式缩放版。
+    formats: ["image/webp"],
+    // 仅允许 q=75（站内所有 /_next/image 调用都用 75）——避免为不同 quality
+    // 值反复生成多份缓存，省磁盘也省重复转码。
+    qualities: [75]
   },
   // Metadata streaming 会在 DOMContentLoaded 后用 $RC/$RV 脚本搬动 body 中的
   // Suspense 标记；慢客户端水合与这次 DOM surgery 竞争时会偶发 React #418。
