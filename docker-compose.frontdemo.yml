@@ -71,6 +71,7 @@ services:
     command: ["sh", "scripts/start-app.sh"]
     volumes:
       - app-uploads-fro:/app/public/uploads
+      - app-image-cache-fro:/app/.next/cache/images
     mem_limit: 384m
     pids_limit: 384
     security_opt:
@@ -89,3 +90,4 @@ networks:
 volumes:
   postgres-data-fro:
   app-uploads-fro:
+  app-image-cache-fro:

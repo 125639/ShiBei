@@ -17,6 +17,11 @@ const nextConfig: NextConfig = {
   poweredByHeader: false,
   reactStrictMode: true,
   compress: true,
+  // 站内封面与正文图都走 /_next/image。uploads 图片文件名是内容 sha256，
+  // 内容变了 URL 必变，优化结果可以放心长缓存（31 天）。
+  images: {
+    minimumCacheTTL: 2678400
+  },
   // Metadata streaming 会在 DOMContentLoaded 后用 $RC/$RV 脚本搬动 body 中的
   // Suspense 标记；慢客户端水合与这次 DOM surgery 竞争时会偶发 React #418。
   // 本站 metadata 与根布局读取同一份缓存设置，本来就会等待它，因此统一改为

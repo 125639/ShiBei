@@ -77,6 +77,8 @@ services:
     command: ["sh", "scripts/start-app.sh"]
     volumes:
       - app-uploads:/app/public/uploads
+      # 图片优化结果缓存：不挂卷的话每次更新换容器都要全量重压一遍。
+      - app-image-cache:/app/.next/cache/images
     healthcheck:
       # 用 node 直接发请求，避免镜像里没有 curl/wget。
       test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
@@ -204,3 +206,4 @@ volumes:
   postgres-data:
   redis-data:
   app-uploads:
+  app-image-cache:
