@@ -467,6 +467,79 @@ fi
 chmod 600 "$ENV_FILE" 2>/dev/null || true
 ui_success ".env 已写入：$ENV_FILE"
 
+# 缺 Docker 时，征得同意后自动安装。装成功且 docker 命令可用返回 0，否则返回 1
+# （调用方回退到手动安装指引）。控制开关 SHIBEI_AUTO_INSTALL_DOCKER：
+#   y = 免询问直接装（curl|bash 等非交互场景）；n = 直接跳过（测试/受管环境）；
+#   未设 = 交互询问。安装走各平台官方渠道，不引入第三方脚本。
+maybe_install_docker() {
+  local choice="${SHIBEI_AUTO_INSTALL_DOCKER:-}"
+  case "$choice" in
+    n|N|no|NO|0|false) return 1 ;;
+    y|Y|yes|YES|1|true) : ;;  # 免询问，直接进入安装
+    *)
+      ui_warn "未检测到 Docker。"
+      local ans=""
+      case "$OS" in
+        linux)
+          ask_default ans "现在自动安装 Docker？（官方脚本 get.docker.com，需要 sudo）(Y/n)" "y" ;;
+        macos)
+          if command -v brew >/dev/null 2>&1; then
+            ask_default ans "用 Homebrew 安装 Docker Desktop？(Y/n)" "y"
+          else
+            return 1  # 无 brew，交回手动指引（引导装 Docker Desktop）
+          fi ;;
+        *) return 1 ;;
+      esac
+      case "$ans" in n|N|no|NO|0|false) return 1 ;; esac
+      ;;
+  esac
+
+  # 非 root 且有 sudo 才加 sudo 前缀；非 root 又没 sudo 直接放弃。
+  local sudo=""
+  if [ "$(id -u 2>/dev/null || echo 0)" != "0" ]; then
+    if command -v sudo >/dev/null 2>&1; then
+      sudo="sudo"
+    else
+      ui_error "安装 Docker 需要 root 权限，但当前非 root 且没有 sudo。"
+      return 1
+    fi
+  fi
+
+  case "$OS" in
+    linux)
+      local fetch=""
+      if command -v curl >/dev/null 2>&1; then fetch="curl -fsSL"
+      elif command -v wget >/dev/null 2>&1; then fetch="wget -qO-"
+      else ui_error "缺少 curl / wget，无法下载 Docker 安装脚本。"; return 1; fi
+      ui_info "下载并运行 Docker 官方安装脚本（get.docker.com）…"
+      if ! $fetch https://get.docker.com | ${sudo:+$sudo }sh; then
+        ui_error "Docker 安装脚本执行失败，请看上方输出。"
+        return 1
+      fi
+      # 启动 daemon 并设开机自启；把当前用户加进 docker 组（下次登录免 sudo）。
+      if command -v systemctl >/dev/null 2>&1; then
+        ${sudo:+$sudo }systemctl enable --now docker >/dev/null 2>&1 || true
+      fi
+      if [ -n "$sudo" ] && [ -n "${USER:-}" ] && [ "$USER" != "root" ]; then
+        $sudo usermod -aG docker "$USER" >/dev/null 2>&1 || true
+      fi ;;
+    macos)
+      ui_info "用 Homebrew 安装 Docker Desktop…"
+      if ! brew install --cask docker; then
+        ui_error "Homebrew 安装 Docker 失败。"
+        return 1
+      fi
+      ui_warn "Docker Desktop 已安装；请先启动 Docker.app、等菜单栏图标变绿后再继续。" ;;
+  esac
+
+  if ! command -v docker >/dev/null 2>&1; then
+    ui_error "安装流程结束，但仍未找到 docker 命令，请检查上方安装输出。"
+    return 1
+  fi
+  ui_success "Docker 已就绪。"
+  return 0
+}
+
 # ---------- 启动 docker compose（可跳过）-------------------------------------
 # 选择对应模式的 compose 参数。后续 ui_section "Next steps" 也复用。
 case "$APP_MODE" in
@@ -505,25 +578,31 @@ case "$AUTO_START" in
     DOCKER_MISSING=0
     ;;
   *)
+    AUTO_STARTED=0
+    DOCKER_FAILED=0
+    DOCKER_MISSING=0
+    # 没装 docker 就先征得同意后尝试自动安装；不成功再走"缺 Docker"兜底指引。
     if ! command -v docker >/dev/null 2>&1; then
-      ui_warn "未检测到 docker；请先安装后手动运行启动命令（见下方）。"
-      AUTO_STARTED=0
-      DOCKER_FAILED=0
+      maybe_install_docker || true
+    fi
+    if ! command -v docker >/dev/null 2>&1; then
       DOCKER_MISSING=1
     else
+      # 刚装完 docker 时，当前会话可能还不在 docker 组、访问不了 daemon；
+      # 非 root + 有 sudo 就用 sudo 兜住这次启动（下次登录后免 sudo）。
+      DOCKER_SUDO=""
+      if ! docker info >/dev/null 2>&1 && [ "$(id -u 2>/dev/null || echo 0)" != "0" ] && command -v sudo >/dev/null 2>&1; then
+        DOCKER_SUDO="sudo"
+      fi
       echo
-      ui_info "切到 $PROJECT_DIR 并运行 ${COMPOSE_UP_DISPLAY} ..."
+      ui_info "切到 $PROJECT_DIR 并运行 ${DOCKER_SUDO:+sudo }${COMPOSE_UP_DISPLAY} ..."
       ui_info "测试环境默认本地 build；如要改用远程镜像，删掉 --build 并 ${COMPOSE_CMD_DISPLAY} pull。"
-      if (cd "$PROJECT_DIR" && docker compose "${COMPOSE_ARGS[@]}" "${COMPOSE_UP_ARGS[@]}"); then
+      if (cd "$PROJECT_DIR" && ${DOCKER_SUDO:+sudo }docker compose "${COMPOSE_ARGS[@]}" "${COMPOSE_UP_ARGS[@]}"); then
         AUTO_STARTED=1
-        DOCKER_FAILED=0
-        DOCKER_MISSING=0
         echo
         ui_success "容器已启动；用 ${COMPOSE_CMD_DISPLAY} ps 看状态、logs -f 看日志。"
       else
-        AUTO_STARTED=0
         DOCKER_FAILED=1
-        DOCKER_MISSING=0
         echo
         ui_error "${COMPOSE_UP_DISPLAY} 退出非零；常见原因：build 失败 / 端口占用 / .env 缺项。"
       fi

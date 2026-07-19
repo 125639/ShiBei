@@ -354,7 +354,7 @@ test_auto_start_recovers_when_docker_missing() {
   local sandbox empty_path
   sandbox=$(setup_sandbox)
   empty_path=$(make_dockerless_path)
-  PATH="$empty_path" SHIBEI_AUTO_START=y \
+  PATH="$empty_path" SHIBEI_AUTO_START=y SHIBEI_AUTO_INSTALL_DOCKER=n \
     NO_COLOR=1 bash -c "printf '1\n\n\n\ns\ny\n' | bash '$sandbox/scripts/init.sh'" >/dev/null 2>&1
   local rc=$?
   if [ "$rc" -ne 0 ]; then
@@ -372,7 +372,7 @@ test_auto_start_does_not_celebrate_when_docker_missing() {
   local sandbox empty_path output
   sandbox=$(setup_sandbox)
   empty_path=$(make_dockerless_path)
-  output=$(PATH="$empty_path" SHIBEI_AUTO_START=y \
+  output=$(PATH="$empty_path" SHIBEI_AUTO_START=y SHIBEI_AUTO_INSTALL_DOCKER=n \
     NO_COLOR=1 bash -c "printf '1\n\n\n\ns\ny\n' | bash '$sandbox/scripts/init.sh'" 2>&1)
   local rc=$?
   if [ "$rc" -ne 0 ]; then
@@ -391,6 +391,32 @@ test_auto_start_does_not_celebrate_when_docker_missing() {
     echo "    FAIL: 缺 docker 时应给出 Docker 安装指引（含 get.docker.com）"
     rm -rf "$sandbox" "$empty_path"; return 1
   fi
+  rm -rf "$sandbox" "$empty_path"
+}
+
+test_offers_docker_install_and_respects_decline() {
+  # docker 缺失且未设 SHIBEI_AUTO_INSTALL_DOCKER 时，向导应征询是否自动安装；
+  # 用户回 n 则回退到手动指引，不 crash，.env 照写。
+  local sandbox empty_path output
+  sandbox=$(setup_sandbox)
+  empty_path=$(make_dockerless_path)
+  # 末尾多一个 n 回答"是否自动安装 Docker"的询问（拒绝）。
+  output=$(PATH="$empty_path" SHIBEI_AUTO_START=y \
+    NO_COLOR=1 bash -c "printf '1\n\n\n\ns\ny\nn\n' | bash '$sandbox/scripts/init.sh'" 2>&1)
+  local rc=$?
+  if [ "$rc" -ne 0 ]; then
+    echo "    FAIL: 询问安装被拒后向导以非零退出 (rc=$rc)"
+    rm -rf "$sandbox" "$empty_path"; return 1
+  fi
+  if ! printf '%s' "$output" | grep -qF '自动安装 Docker'; then
+    echo "    FAIL: docker 缺失时未征询是否自动安装"
+    rm -rf "$sandbox" "$empty_path"; return 1
+  fi
+  if ! printf '%s' "$output" | grep -qE 'Docker 未安装'; then
+    echo "    FAIL: 拒绝安装后应回退到 'Docker 未安装' 指引"
+    rm -rf "$sandbox" "$empty_path"; return 1
+  fi
+  assert_grep "$sandbox/.env" '^APP_MODE="full"$' || { rm -rf "$sandbox" "$empty_path"; return 1; }
   rm -rf "$sandbox" "$empty_path"
 }
 
