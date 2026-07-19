@@ -5212,6 +5212,52 @@ button:disabled {
    Module cards (information source modules)
    ============================================================== */
 
+/* 来源模块页：竖向堆叠——新增表单在顶部（限宽、可折叠），已有模块占满整宽，
+   避免原来 50/50 两栏里短表单旁边留出一大条竖向空白。 */
+.modules-admin {
+  display: grid;
+  gap: 20px;
+}
+
+.modules-admin .modules-new {
+  max-width: 640px;
+}
+
+.modules-admin .modules-new-summary {
+  cursor: pointer;
+  list-style: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.modules-admin .modules-new-summary::-webkit-details-marker {
+  display: none;
+}
+
+.modules-admin .modules-new-summary h2 {
+  margin: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* 折叠三角：收起指右、展开指下 */
+.modules-admin .modules-new-summary h2::before {
+  content: "▸";
+  font-size: 0.8em;
+  color: var(--muted);
+  transition: transform 0.15s ease;
+}
+
+.modules-admin .modules-new[open] .modules-new-summary h2::before {
+  transform: rotate(90deg);
+}
+
+.modules-admin .modules-new-form {
+  margin-top: 14px;
+}
+
 .module-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
