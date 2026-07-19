@@ -307,7 +307,7 @@ STUB
   chmod +x "$stub_dir/docker"
 
   local log="$sandbox/docker.log"
-  PATH="$stub_dir:$PATH" DOCKER_LOG="$log" SHIBEI_AUTO_START=y \
+  PATH="$stub_dir:$PATH" DOCKER_LOG="$log" SHIBEI_AUTO_START=y SHIBEI_AUTO_SWAP=n \
     NO_COLOR=1 bash -c "printf '2\n\n\n\n3\nsk-x\ny\n' | bash '$sandbox/scripts/init.sh'" >/dev/null 2>&1
 
   if [ ! -f "$log" ]; then
@@ -418,6 +418,50 @@ test_offers_docker_install_and_respects_decline() {
   fi
   assert_grep "$sandbox/.env" '^APP_MODE="full"$' || { rm -rf "$sandbox" "$empty_path"; return 1; }
   rm -rf "$sandbox" "$empty_path"
+}
+
+test_offers_swap_on_low_memory_and_respects_decline() {
+  # 伪造低内存时，启动前应征询是否创建 swap；用户回 n 则跳过、绝不触碰 swap，
+  # 并继续 docker compose 启动。用会 panic 的 swap 工具 stub 确保拒绝后没被调用。
+  local sandbox stub_dir log panic output tool
+  sandbox=$(setup_sandbox)
+  stub_dir=$(mktemp -d)
+  cat > "$stub_dir/docker" <<'STUB'
+#!/usr/bin/env bash
+echo "ARGS=$*" >> "$DOCKER_LOG"
+exit 0
+STUB
+  for tool in swapon mkswap fallocate; do
+    cat > "$stub_dir/$tool" <<'STUB'
+#!/usr/bin/env bash
+touch "$SWAP_PANIC"
+exit 0
+STUB
+    chmod +x "$stub_dir/$tool"
+  done
+  chmod +x "$stub_dir/docker"
+
+  log="$sandbox/docker.log"
+  panic="$sandbox/swap.panic"
+  # 末尾多一个 n 回答"是否创建 swap"的询问（拒绝）。
+  output=$(PATH="$stub_dir:$PATH" DOCKER_LOG="$log" SWAP_PANIC="$panic" \
+    SHIBEI_AUTO_START=y SHIBEI_SWAP_TEST_MEM_MB=512 SHIBEI_SWAP_TEST_SWAP_MB=0 \
+    NO_COLOR=1 bash -c "printf '2\n\n\n\n3\nsk-x\ny\nn\n' | bash '$sandbox/scripts/init.sh'" 2>&1)
+
+  if ! printf '%s' "$output" | grep -qF '内存偏低'; then
+    echo "    FAIL: 低内存时未征询是否创建 swap"
+    rm -rf "$sandbox" "$stub_dir"; return 1
+  fi
+  if [ -f "$panic" ]; then
+    echo "    FAIL: 用户拒绝后仍调用了 swap 工具"
+    rm -rf "$sandbox" "$stub_dir"; return 1
+  fi
+  if ! grep -qF 'ARGS=compose' "$log"; then
+    echo "    FAIL: 拒绝 swap 后未继续 docker compose 启动"
+    rm -rf "$sandbox" "$stub_dir"; return 1
+  fi
+
+  rm -rf "$sandbox" "$stub_dir"
 }
 
 # ---------- runner -----------------------------------------------------------
