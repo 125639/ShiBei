@@ -630,6 +630,31 @@ ensure_swap() {
   return 0
 }
 
+# ---------- 启动后健康等待 ---------------------------------------------------
+# `up -d` 返回 ≠ 应用可用:首次启动要跑数据库迁移+种子,低配机可能要一两分钟。
+# 之前的版本容器一起来就打 Setup complete,应用起没起来全靠用户自己访问发现。
+# 轮询本机健康端点给出明确结论;SHIBEI_HEALTH_WAIT_SECS=0 跳过(测试/脚本用)。
+wait_app_health() {
+  local wait_secs="${SHIBEI_HEALTH_WAIT_SECS:-120}"
+  case "$wait_secs" in ''|*[!0-9]*) wait_secs=120 ;; esac
+  [ "$wait_secs" -gt 0 ] || return 0
+  command -v curl >/dev/null 2>&1 || return 0
+  local url="http://127.0.0.1:${APP_PORT:-3000}/api/health"
+  ui_info "等待应用就绪（首次启动含数据库迁移与种子，低配机可能要 1-2 分钟）…"
+  local waited=0
+  while [ "$waited" -lt "$wait_secs" ]; do
+    if curl -sf --max-time 3 "$url" >/dev/null 2>&1; then
+      ui_success "应用已就绪（${url} 健康检查通过）。"
+      return 0
+    fi
+    sleep 3
+    waited=$(( waited + 3 ))
+  done
+  ui_warn "等了 ${wait_secs}s 应用还没就绪——多半仍在初始化，但也可能启动失败了。先看日志："
+  printf "    ${MUTED}cd %s && %s logs --tail=50 app${NC}\n" "$PROJECT_DIR" "$COMPOSE_CMD_DISPLAY"
+  return 0
+}
+
 # ---------- 启动 docker compose（可跳过）-------------------------------------
 # 选择对应模式的 compose 参数。后续 ui_section "Next steps" 也复用。
 case "$APP_MODE" in
@@ -732,6 +757,12 @@ case "$AUTO_START" in
       if ! docker info >/dev/null 2>&1 && [ "$(id -u 2>/dev/null || echo 0)" != "0" ] && command -v sudo >/dev/null 2>&1; then
         DOCKER_SUDO="sudo"
       fi
+      # 端口预检:APP_PORT 已被占用时 up 大概率失败,提前把话说明白。只提醒
+      # 不阻断——占用者若是旧 ShiBei 容器,up 会正常顶替它。/dev/tcp 是 bash
+      # 内建,极简环境没有 lsof/ss 也能用。
+      if (exec 3<>"/dev/tcp/127.0.0.1/${APP_PORT:-3000}") 2>/dev/null; then
+        ui_warn "端口 ${APP_PORT:-3000} 当前已被占用。若是旧 ShiBei 容器会被顶替,否则启动会失败(可改 .env 的 APP_PORT)。"
+      fi
       # 低配机兜底 swap：build 模式防构建 OOM 拖死整机；pull 模式运行期同样受益。
       ensure_swap
       echo
@@ -762,6 +793,7 @@ case "$AUTO_START" in
         AUTO_STARTED=1
         echo
         ui_success "容器已启动；用 ${COMPOSE_CMD_DISPLAY} ps 看状态、logs -f 看日志。"
+        wait_app_health
       else
         DOCKER_FAILED=1
         echo

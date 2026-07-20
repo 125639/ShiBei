@@ -10,8 +10,17 @@ SYNC_MODE="${SYNC_MODE:-auto}"
 
 echo "[start-app] APP_MODE=$APP_MODE SYNC_MODE=$SYNC_MODE"
 
-npx prisma migrate deploy
-npm run db:seed
+# 直接调 node_modules 里的入口,不走 npm/npx 包装:
+#  - npm run 的父进程会常驻 ~30-60MB,1核1G 机器上 app + sync-worker 两个包装
+#    就是近百 MB 白烧;
+#  - npm 对 SIGTERM 的转发不可靠,docker stop 常要等满 10s 宽限期再被 SIGKILL;
+#    exec node 让服务进程直接收信号,秒级优雅退出;
+#  - 顺带省去每次启动 npm 解析 package.json 的开销(低配机上每次数秒)。
+PRISMA=node_modules/.bin/prisma
+TSX=node_modules/.bin/tsx
+
+node "$PRISMA" migrate deploy
+node "$TSX" prisma/seed.ts
 
 case "$APP_MODE" in
   frontend)
@@ -25,7 +34,7 @@ case "$APP_MODE" in
     (
       set +e
       while :; do
-        NODE_OPTIONS="${SYNC_WORKER_NODE_OPTIONS:---max-old-space-size=128}" npm run sync-worker
+        NODE_OPTIONS="${SYNC_WORKER_NODE_OPTIONS:---max-old-space-size=128}" node "$TSX" src/sync-worker/index.ts
         echo "[start-app] sync-worker 退出(code=$?),5 秒后自动重启"
         sleep 5
       done
@@ -33,13 +42,13 @@ case "$APP_MODE" in
     SYNC_WORKER_PID=$!
     # 主进程退出时干掉监督循环；容器停止时残余子进程随之回收
     trap 'kill $SYNC_WORKER_PID 2>/dev/null || true' INT TERM EXIT
-    exec npm run start
+    exec node scripts/trusted-next-server.mjs
     ;;
   backend)
     # backend 模式不在容器里跑 BullMQ worker;worker 由 docker-compose 单独起。
-    exec npm run start
+    exec node scripts/trusted-next-server.mjs
     ;;
   full|*)
-    exec npm run start
+    exec node scripts/trusted-next-server.mjs
     ;;
 esac

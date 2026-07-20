@@ -71,6 +71,9 @@ services:
     ports:
       - "${APP_BIND_IP:-0.0.0.0}:${APP_PORT:-3000}:3000"
     command: ["sh", "scripts/start-app.sh"]
+    # docker-init 当 PID 1：转发停止信号并回收孤儿进程(sync-worker 崩溃重启
+    # 循环会孤儿化 tsx/esbuild 子进程,没人收尸就积僵尸)。
+    init: true
     volumes:
       # 持久化用户上传的视频/音乐(导入的 ZIP 也会落到这里)
       - app-uploads:/app/public/uploads
@@ -108,6 +111,7 @@ services:
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - .:/repo
+    init: true
     healthcheck:
       test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:9080/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
       interval: 60s
