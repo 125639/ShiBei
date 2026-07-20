@@ -167,8 +167,8 @@ export default async function SourcesPage({
               <label><I18nText zh="所属模块（可多选）" en="Modules (multiple)" /></label>
               <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
                 {modules.map((m) => (
-                  <label key={m.id} className="tag" style={{ cursor: "pointer", borderColor: m.color }}>
-                    <input type="checkbox" name="moduleIds" value={m.id} style={{ marginRight: 6 }} />
+                  <label key={m.id} className="tag" style={{ "--tag-accent": m.color } as React.CSSProperties}>
+                    <input type="checkbox" name="moduleIds" value={m.id} />
                     {m.name}
                   </label>
                 ))}

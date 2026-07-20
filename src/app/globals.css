@@ -1027,6 +1027,59 @@ a.bento-card:hover {
   color: var(--accent-dark);
 }
 
+/* 模块多选：<label class="tag"> 包一个原生 checkbox + 文字。原生方块勾选框
+   糊在圆角胶囊里既不搭调、选中态也几乎看不出来。这里把 checkbox 视觉隐藏
+   （保留可聚焦/可读，用 sr-only 手法而非 display:none），整个胶囊本身
+   随 :checked 变成模块自定义色的实心态，点哪里都能触发（label 天然转发点击）。 */
+.tag:has(> input[type="checkbox"]) {
+  --tag-accent: var(--accent);
+  position: relative;
+  cursor: pointer;
+  user-select: none;
+  border-color: color-mix(in srgb, var(--tag-accent) 55%, var(--line));
+  color: var(--tag-accent);
+  transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease, transform 0.1s ease;
+}
+
+.tag:has(> input[type="checkbox"]) input[type="checkbox"] {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.tag:has(> input[type="checkbox"]:hover) {
+  background: color-mix(in srgb, var(--tag-accent) 12%, var(--surface-soft));
+}
+
+.tag:has(> input[type="checkbox"]:checked) {
+  border-color: var(--tag-accent);
+  background: var(--tag-accent);
+  color: var(--white, #fff);
+  box-shadow: 0 2px 8px color-mix(in srgb, var(--tag-accent) 30%, transparent);
+}
+
+.tag:has(> input[type="checkbox"]:checked)::before {
+  content: "✓";
+  margin-right: 4px;
+  font-size: 10px;
+  font-weight: 700;
+}
+
+.tag:has(> input[type="checkbox"]:active) {
+  transform: scale(0.97);
+}
+
+.tag:has(> input[type="checkbox"]:focus-visible) {
+  outline: none;
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--tag-accent) 35%, transparent);
+}
+
 .button,
 .danger-button {
   display: inline-flex;
