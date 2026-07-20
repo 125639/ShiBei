@@ -21,7 +21,7 @@ export type DensityKey = "compact" | "normal" | "cozy";
 export type CursorStyleKey = "classic" | "fairydust" | "rainbow" | "bubbles" | "fireflies";
 
 /** 界面风格：整体设计语言（排版/装饰/质感），与色彩主题（data-theme）正交组合。 */
-export type UiStyleKey = "classic" | "glass" | "editorial" | "paper" | "firefly" | "cyber" | "dynamic";
+export type UiStyleKey = "classic" | "glass" | "editorial" | "paper" | "firefly" | "meow" | "cyber" | "dynamic";
 
 export const UI_STYLES: Array<{
   key: UiStyleKey;
@@ -64,6 +64,13 @@ export const UI_STYLES: Array<{
     en: "Firefly",
     zhDesc: "Material 3 卡片、壁纸感背景、双侧栏小组件与网格文章",
     enDesc: "Material 3 cards, wallpaper backdrop, side widgets & post grids"
+  },
+  {
+    key: "meow",
+    zh: "魔法喵喵 (Meow)",
+    en: "Meow",
+    zhDesc: "奶油纸底、墨线描边、硬投影贴纸与糖果撞色的卡通杂志",
+    enDesc: "Cream paper, chunky ink outlines, sticker shadows & candy pops"
   },
   {
     key: "cyber",

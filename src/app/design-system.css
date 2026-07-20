@@ -149,6 +149,80 @@
   --code-fg: #d9f6ff;
 }
 
+/* Meow：卡通贴纸/新粗野主义。奶油纸底 + 墨色描边 + 玫红/柠檬绿撞色；
+   dark / midnight 主题下翻转为深紫墨底、亮描边，硬投影身份保持不变。 */
+:root[data-theme][data-ui="meow"]:not([data-theme="dark"]):not([data-theme="midnight"]) {
+  --paper: #fff7e8;
+  --paper-deep: #f2e9d7;
+  --surface: #fffdf7;
+  --surface-soft: #fbf3e2;
+  --surface-strong: #fffdf7;
+  --ink: #171021;
+  --ink-soft: #3c3247;
+  --muted: #6d6373;
+  --line: #d8cdd8;
+  --line-strong: #171021;
+  --accent: #e63279;
+  --accent-dark: #c2205f;
+  --accent-soft: #f272a3;
+  --accent-contrast: #fffdf7;
+  --focus-ring: #7c3aed;
+  --code-bg: #1d1528;
+  --code-fg: #f2e9ff;
+  --bg-image: none;
+  --meow-lime: #d6f46a;
+  --meow-lav: #f0e6ff;
+  --meow-purple: #7c3aed;
+  --meow-shadow: #171021;
+  --meow-footer-bg: #171021;
+  --meow-footer-fg: #fff7e8;
+  --hero-card-bg: #f4e9ff;
+  --hero-card-fg: #171021;
+  --hero-card-muted: #675d76;
+  --chart-1: #e63279;
+  --chart-2: #7c3aed;
+  --chart-3: #0d9488;
+  --chart-4: #d97706;
+  --chart-5: #4f7df8;
+  --chart-6: #65a30d;
+}
+
+:root[data-theme][data-ui="meow"]:is([data-theme="dark"], [data-theme="midnight"]) {
+  --paper: #14101f;
+  --paper-deep: #0f0c18;
+  --surface: #1f1832;
+  --surface-soft: #1a142a;
+  --surface-strong: #251c3a;
+  --ink: #f4edff;
+  --ink-soft: #d6cbe8;
+  --muted: #a294bb;
+  --line: #3b2f55;
+  --line-strong: #f4edff;
+  --accent: #ff5c9d;
+  --accent-dark: #ff86b5;
+  --accent-soft: #e63279;
+  --accent-contrast: #1d1029;
+  --focus-ring: #c4b5fd;
+  --code-bg: #120d1d;
+  --code-fg: #ead9ff;
+  --bg-image: none;
+  --meow-lime: #d6f46a;
+  --meow-lav: #322650;
+  --meow-purple: #a78bfa;
+  --meow-shadow: #060310;
+  --meow-footer-bg: #0d0a16;
+  --meow-footer-fg: #f4edff;
+  --hero-card-bg: #2a2044;
+  --hero-card-fg: #f4edff;
+  --hero-card-muted: #b4a6cc;
+  --chart-1: #ff5c9d;
+  --chart-2: #a78bfa;
+  --chart-3: #2dd4bf;
+  --chart-4: #fbbf24;
+  --chart-5: #93c5fd;
+  --chart-6: #a3e635;
+}
+
 :root[data-theme][data-ui="dynamic"] {
   --paper: #171040;
   --paper-deep: #1d1450;
@@ -4290,6 +4364,690 @@ p {
     .button
   ):hover,
   :root[data-theme][data-ui] :is(.post-card, .news-magazine-hero).has-cover:hover .post-cover {
+    transform: none;
+  }
+}
+
+/* ==========================================================================
+   Style: MEOW — 魔法喵喵（卡通贴纸 / 新粗野主义）
+   参照 magicalmeowmeowcartoon.com：奶油纸底、2px 墨色描边、无模糊硬投影、
+   玫红/柠檬绿/薰衣草紫撞色、Bricolage Grotesque 展示字体、✦ 星标点缀、
+   三色条纹、贴纸旋转与页脚巨型水印。调色板在文件上方与其它风格并列；
+   本块只管结构与装饰。必须放在共享层（Final shared pass）之后才能生效。
+   ========================================================================== */
+
+:root[data-ui="meow"] {
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --radius-lg: 16px;
+  --ui-radius-xs: 7px;
+  --ui-radius-sm: 10px;
+  --ui-radius-md: 14px;
+  --ui-radius-lg: 18px;
+  --ui-shadow-sm: 4px 4px 0 var(--meow-shadow);
+  --ui-shadow-md: 6px 6px 0 var(--meow-shadow);
+  --ui-shadow-lg: 10px 10px 0 var(--meow-shadow);
+  --shadow-card: 4px 4px 0 var(--meow-shadow);
+  --border-w: 2px;
+  --border-w-strong: 2px;
+  --button-bg: var(--accent);
+  --button-hover: var(--accent-dark);
+  --font-display: "Bricolage Grotesque", ui-sans-serif, var(--font-cjk-sans);
+}
+
+@keyframes meow-twinkle {
+  0%, 100% { opacity: 1; transform: scale(1) rotate(var(--meow-rot, 0deg)); }
+  50% { opacity: 0.4; transform: scale(0.78) rotate(var(--meow-rot, 0deg)); }
+}
+
+:root[data-ui="meow"] ::selection {
+  background: var(--accent);
+  color: var(--accent-contrast);
+}
+
+/* 网格底纹换成糖果波点 */
+:root[data-ui="meow"] .site-shell::before {
+  background-image: radial-gradient(color-mix(in srgb, var(--accent) 60%, transparent) 1.4px, transparent 1.4px);
+  background-size: 26px 26px;
+  opacity: 0.1;
+  mask-image: linear-gradient(to bottom, rgba(0, 0, 0, 0.9), transparent 58%);
+}
+
+/* ---------- 顶栏：全宽横幅 + 墨线 + 三色条纹 ---------- */
+
+:root[data-theme][data-ui="meow"] .site-header {
+  top: 0;
+  width: 100%;
+  margin: 0;
+  padding: 10px clamp(14px, 3vw, 28px);
+  border: 0;
+  border-bottom: 2px solid var(--line-strong);
+  border-radius: 0;
+  /* 卡通风格用不透明实底：半透明+模糊在无 GPU 环境会露出正文文字 */
+  background: var(--paper);
+  box-shadow: none;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+
+:root[data-theme][data-ui="meow"] .site-header::after {
+  content: "";
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  height: 5px;
+  margin-top: 2px;
+  /* 各色之间留 0.8% 微混合区：硬停靠点在 Chromium 亚像素渲染下会出现露底白缝 */
+  background: linear-gradient(90deg,
+    var(--accent) 0 33.6%,
+    var(--meow-purple) 34.4% 66.6%,
+    var(--meow-lime) 67.4% 100%);
+  pointer-events: none;
+}
+
+:root[data-theme][data-ui="meow"] .brand-symbol {
+  border-radius: 12px;
+  border: 2px solid var(--line-strong);
+  background: #171021;
+  color: #d6f46a;
+  box-shadow: 3px 3px 0 var(--accent);
+  transform: rotate(-4deg);
+}
+
+:root[data-ui="meow"] .brand-copy strong {
+  font-family: var(--font-display);
+  font-weight: 800;
+  font-size: 17px;
+}
+
+:root[data-ui="meow"] .brand-copy .brand-tagline {
+  color: var(--accent-dark);
+  font-weight: 800;
+  font-size: 9.5px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  opacity: 1;
+}
+
+:root[data-theme][data-ui="meow"] .nav {
+  border-color: transparent;
+  background: transparent;
+}
+
+:root[data-theme][data-ui="meow"] .nav a,
+:root[data-ui="meow"] .nav-more > summary {
+  color: var(--ink-soft);
+  font-weight: 750;
+}
+
+:root[data-theme][data-ui="meow"] .nav a:hover,
+:root[data-ui="meow"] .nav-more > summary:hover {
+  background: var(--meow-lav);
+  color: var(--ink);
+}
+
+:root[data-theme][data-ui="meow"] .nav a.active {
+  background: transparent;
+  color: var(--accent-dark);
+}
+
+:root[data-theme][data-ui="meow"] .nav-more-menu {
+  border: 2px solid var(--line-strong);
+  border-radius: 12px;
+  background: var(--surface);
+  box-shadow: var(--ui-shadow-md);
+}
+
+:root[data-theme][data-ui="meow"] .header-account-link {
+  border: 2px solid var(--line-strong);
+  border-radius: 10px;
+  background: var(--accent);
+  color: var(--accent-contrast);
+  font-weight: 750;
+  box-shadow: 3px 3px 0 var(--meow-shadow);
+  transition: transform 140ms ease, box-shadow 140ms ease, background 140ms ease;
+}
+
+:root[data-theme][data-ui="meow"] .header-account-link:hover {
+  background: var(--accent-dark);
+  color: var(--accent-contrast);
+  border-color: var(--line-strong);
+  transform: translate(-1px, -1px);
+  box-shadow: 4px 4px 0 var(--meow-shadow);
+}
+
+:root[data-theme][data-ui="meow"] .theme-switcher-trigger {
+  border: 2px solid var(--line-strong);
+  border-radius: 10px;
+  background: var(--surface);
+  box-shadow: 3px 3px 0 var(--meow-shadow);
+  font-weight: 700;
+}
+
+:root[data-theme][data-ui="meow"] .theme-switcher-trigger:hover,
+:root[data-theme][data-ui="meow"] .theme-switcher-trigger[aria-expanded="true"] {
+  border-color: var(--line-strong);
+  background: var(--meow-lav);
+  color: var(--ink);
+}
+
+:root[data-theme][data-ui="meow"] :is(.theme-switcher-menu, .quick-style-menu) {
+  border: 2px solid var(--line-strong);
+  border-radius: 14px;
+  background: var(--surface);
+  box-shadow: var(--ui-shadow-md);
+}
+
+/* ---------- 卡片：贴纸化（墨线 + 硬投影 + 按压反馈） ---------- */
+
+:root[data-theme][data-ui="meow"] :is(.bento-card, .card, .form-card, .admin-panel, .metric-card, .chart-card, .module-card, .news-list-item) {
+  border: 2px solid var(--line-strong);
+  border-radius: var(--ui-radius-md);
+  background: var(--surface);
+  box-shadow: var(--ui-shadow-sm);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+
+:root[data-theme][data-ui="meow"] .bento-card::before {
+  display: none;
+}
+
+:root[data-theme][data-ui="meow"] :is(a.bento-card, .bento-card.linked-card, .news-list-item, .module-card):hover {
+  transform: translate(-3px, -3px);
+  border-color: var(--line-strong);
+  background: var(--surface);
+  box-shadow: 7px 7px 0 var(--meow-shadow);
+}
+
+:root[data-theme][data-ui="meow"] :is(a.bento-card, .bento-card.linked-card):active {
+  transform: translate(1px, 1px);
+  box-shadow: 2px 2px 0 var(--meow-shadow);
+}
+
+:root[data-theme][data-ui="meow"] .empty-grid-card {
+  border: 2px dashed color-mix(in srgb, var(--ink) 45%, transparent);
+  background: transparent;
+  box-shadow: none;
+}
+
+/* 卡片标题吃展示字体（CJK 自动回退到粗黑体） */
+:root[data-ui="meow"] :is(.bento-card h3, .post-card h3, .video-card h3, .bento-route-card h3) {
+  font-weight: 780;
+  letter-spacing: -0.01em;
+}
+
+/* ---------- 按钮：实色 + 墨线 + 硬投影按压 ---------- */
+
+:root[data-theme][data-ui="meow"] :is(.button, .danger-button) {
+  border: 2px solid var(--line-strong);
+  border-radius: 11px;
+  font-weight: 750;
+  box-shadow: 3px 3px 0 var(--meow-shadow);
+}
+
+:root[data-theme][data-ui="meow"] .button:not(.secondary):not(.ghost):where(:not(.danger)):where(:not(.button-danger)) {
+  background-color: var(--accent);
+  background-image: none;
+  color: var(--accent-contrast);
+  box-shadow: 3px 3px 0 var(--meow-shadow);
+}
+
+:root[data-theme][data-ui="meow"] .button:hover {
+  transform: translate(-2px, -2px);
+  box-shadow: 5px 5px 0 var(--meow-shadow);
+}
+
+:root[data-theme][data-ui="meow"] .button:not(.secondary):not(.ghost):where(:not(.danger)):where(:not(.button-danger)):hover {
+  background-color: var(--accent-dark);
+  background-image: none;
+}
+
+:root[data-theme][data-ui="meow"] .button:active:not(:disabled) {
+  transform: translate(2px, 2px);
+  box-shadow: 1px 1px 0 var(--meow-shadow);
+}
+
+:root[data-theme][data-ui="meow"] :is(.button.secondary, .button.ghost) {
+  background: var(--surface);
+  color: var(--ink);
+  border-color: var(--line-strong);
+}
+
+:root[data-theme][data-ui="meow"] :is(.button.secondary, .button.ghost):hover {
+  background: var(--meow-lav);
+  color: var(--ink);
+}
+
+:root[data-theme][data-ui="meow"] :is(.button.danger, .button.button-danger):not(.ghost) {
+  border-color: var(--line-strong);
+  background-image: none;
+  box-shadow: 3px 3px 0 var(--meow-shadow);
+}
+
+/* ---------- 标签 / 眉题：柠檬绿贴纸 ---------- */
+
+:root[data-theme][data-ui="meow"] .tag {
+  border: 2px solid #171021;
+  border-radius: 8px;
+  background: var(--meow-lime);
+  color: #171021;
+  font-weight: 700;
+  box-shadow: 2px 2px 0 var(--meow-shadow);
+  transition: transform 140ms ease, background 140ms ease, color 140ms ease, box-shadow 140ms ease;
+}
+
+:root[data-theme][data-ui="meow"] a.tag:hover {
+  background: var(--accent);
+  color: #fffdf7;
+  transform: translate(-1px, -1px) rotate(-2deg);
+  box-shadow: 3px 3px 0 var(--meow-shadow);
+}
+
+:root[data-ui="meow"] :is(.eyebrow, .eyebrow-apple) {
+  width: fit-content;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border: 2px solid #171021;
+  border-radius: 8px;
+  background: var(--meow-lime);
+  color: #171021;
+  font-weight: 750;
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  box-shadow: 2px 2px 0 var(--meow-shadow);
+}
+
+:root[data-ui="meow"] :is(.eyebrow, .eyebrow-apple)::before {
+  content: "✦";
+  color: var(--meow-purple);
+}
+
+/* ---------- 首页 Hero ---------- */
+
+:root[data-theme][data-ui="meow"] .home-kicker {
+  border: 2px solid #171021;
+  border-radius: 8px;
+  background: var(--meow-lime);
+  color: #171021;
+  font-weight: 750;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  box-shadow: 3px 3px 0 var(--meow-shadow);
+  transform: rotate(-1deg);
+}
+
+:root[data-theme][data-ui="meow"] .home-kicker > .home-kicker-dot {
+  background: var(--accent);
+  box-shadow: none;
+}
+
+:root[data-ui="meow"] .home-hero-copy h1 {
+  font-weight: 800;
+  letter-spacing: -0.015em;
+}
+
+/* 标题强调：从渐变字改为柠檬荧光笔划线（inline + clone 让每行高亮贴合文字） */
+:root[data-ui="meow"] .home-hero-copy h1 .home-title-accent {
+  display: inline;
+  background: linear-gradient(180deg, transparent 56%, var(--meow-lime) 56% 90%, transparent 90%);
+  -webkit-background-clip: initial;
+  background-clip: initial;
+  color: var(--ink);
+  -webkit-text-fill-color: var(--ink);
+  -webkit-box-decoration-break: clone;
+  box-decoration-break: clone;
+}
+
+/* 暗色主题下文字是浅色，宽荧光带会吃掉笔画；改为贴底粗下划线 */
+:root[data-ui="meow"]:is([data-theme="dark"], [data-theme="midnight"]) .home-hero-copy h1 .home-title-accent {
+  background: linear-gradient(180deg, transparent 78%, var(--meow-lime) 78% 97%, transparent 97%);
+}
+
+/* 星标点缀（纯装饰，动画尊重减少动态偏好） */
+:root[data-ui="meow"] .home-hero-v2::before,
+:root[data-ui="meow"] .home-hero-v2::after {
+  position: absolute;
+  z-index: -1;
+  font-size: 34px;
+  line-height: 1;
+  pointer-events: none;
+  animation: meow-twinkle 3.4s ease-in-out infinite;
+}
+
+:root[data-ui="meow"] .home-hero-v2::before {
+  content: "✦";
+  top: 12%;
+  right: 44%;
+  color: var(--accent);
+  --meow-rot: 14deg;
+}
+
+:root[data-ui="meow"] .home-hero-v2::after {
+  content: "✦";
+  right: 1%;
+  bottom: 10%;
+  font-size: 24px;
+  color: var(--meow-purple);
+  --meow-rot: -10deg;
+  animation-delay: 1.4s;
+}
+
+:root[data-ui="meow"] .home-signal-row dd {
+  font-family: var(--font-display);
+  font-size: 22px;
+  font-weight: 800;
+  color: var(--accent-dark);
+}
+
+/* 简报卡：薰衣草贴纸 + 虚线内框 + 轻微旋转 */
+:root[data-theme][data-ui="meow"] .home-brief-card {
+  border: 2px solid var(--line-strong);
+  border-radius: var(--ui-radius-lg);
+  background: linear-gradient(160deg, color-mix(in srgb, var(--accent) 10%, var(--hero-card-bg)), var(--hero-card-bg));
+  color: var(--hero-card-fg);
+  box-shadow: var(--ui-shadow-lg);
+  transform: rotate(1.2deg);
+}
+
+:root[data-ui="meow"] .home-brief-card::before {
+  content: "";
+  position: absolute;
+  inset: 10px;
+  z-index: 0;
+  border: 2px dashed color-mix(in srgb, var(--meow-purple) 52%, transparent);
+  border-radius: calc(var(--ui-radius-lg) - 8px);
+  pointer-events: none;
+}
+
+:root[data-ui="meow"] .home-brief-card::after {
+  color: color-mix(in srgb, var(--accent) 9%, transparent);
+}
+
+:root[data-ui="meow"] .home-live-indicator i {
+  background: var(--accent);
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--accent) 16%, transparent);
+}
+
+/* ---------- 区块标题：✦ + 粗墨顶线 ---------- */
+
+:root[data-theme][data-ui="meow"] .apple-section-head {
+  border-top: 3px solid var(--line-strong);
+  padding-top: 18px;
+}
+
+:root[data-ui="meow"] .apple-section-head h2 {
+  color: var(--accent-dark);
+  font-weight: 780;
+}
+
+:root[data-ui="meow"] .apple-section-head h2::before {
+  content: "✦ ";
+  color: var(--accent);
+}
+
+:root[data-theme][data-ui="meow"] .page-intro:not(.prose) {
+  border: 2px solid var(--line-strong);
+  border-radius: var(--ui-radius-md);
+  background: var(--surface);
+  box-shadow: var(--ui-shadow-md);
+}
+
+/* 左侧装饰条换成三色条纹 */
+:root[data-theme][data-ui="meow"] .page-intro:not(.prose)::before {
+  width: 6px;
+  background: linear-gradient(180deg,
+    var(--accent) 0 33.6%,
+    var(--meow-purple) 34.4% 66.6%,
+    var(--meow-lime) 67.4% 100%);
+}
+
+/* 首页概览数据：迷你贴纸 */
+:root[data-ui="meow"] .home-signal-row > div,
+:root[data-ui="meow"] .home-signal-row > div:first-child {
+  border: 2px solid var(--line-strong);
+  border-radius: 10px;
+  background: var(--surface);
+  box-shadow: 3px 3px 0 var(--meow-shadow);
+}
+
+:root[data-ui="meow"] .page-title {
+  font-weight: 800;
+  letter-spacing: -0.015em;
+}
+
+/* ---------- 文章排版 ---------- */
+
+:root[data-theme][data-ui="meow"] .prose h2 {
+  padding-top: 20px;
+  border-top: 3px solid var(--line-strong);
+  color: var(--accent-dark);
+  font-weight: 780;
+}
+
+:root[data-ui="meow"] .prose h2::before {
+  content: "✦ ";
+  color: var(--accent);
+}
+
+:root[data-theme][data-ui="meow"] .prose a:not(.button),
+:root[data-theme][data-ui="meow"] .text-link {
+  color: var(--accent-dark);
+  text-decoration-thickness: 2px;
+  text-underline-offset: 3px;
+}
+
+:root[data-theme][data-ui="meow"] .prose a:not(.button):hover {
+  background: var(--meow-lav);
+}
+
+:root[data-theme][data-ui="meow"] .prose blockquote {
+  border-left: 5px solid var(--accent);
+  border-radius: 0 12px 12px 0;
+  background: var(--meow-lav);
+}
+
+:root[data-theme][data-ui="meow"] .prose :not(pre) > code {
+  border: 1px solid color-mix(in srgb, var(--meow-purple) 32%, transparent);
+  border-radius: 6px;
+  background: var(--meow-lav);
+  color: var(--ink);
+}
+
+:root[data-theme][data-ui="meow"] .prose table {
+  border: 2px solid var(--line-strong);
+  border-radius: 10px;
+  box-shadow: var(--ui-shadow-sm);
+}
+
+:root[data-theme][data-ui="meow"] .prose th {
+  background: var(--paper-deep);
+}
+
+:root[data-theme][data-ui="meow"] .prose hr {
+  border: 0;
+  border-top: 3px dashed color-mix(in srgb, var(--accent) 55%, var(--line));
+}
+
+/* ---------- 封面卡片：漫画分格（图上文下，墨线分隔） ---------- */
+
+:root[data-theme][data-ui="meow"] :is(.post-card, .news-magazine-hero).has-cover {
+  padding: 0;
+  gap: 0;
+  justify-content: flex-start;
+}
+
+:root[data-theme][data-ui="meow"] .post-cover {
+  display: block;
+  flex: none;
+  height: 190px;
+  border-bottom: 2px solid var(--line-strong);
+  background-image: var(--post-cover);
+  background-size: cover;
+  background-position: center;
+  background-color: var(--meow-lav);
+}
+
+:root[data-theme][data-ui="meow"] .news-magazine-hero .post-cover {
+  height: 258px;
+}
+
+:root[data-theme][data-ui="meow"] :is(.post-card, .news-magazine-hero).has-cover > div {
+  position: relative;
+  z-index: 1;
+  padding: 16px 20px 0;
+  background: var(--surface);
+}
+
+:root[data-theme][data-ui="meow"] :is(.post-card, .news-magazine-hero).has-cover > .text-link,
+:root[data-theme][data-ui="meow"] :is(.post-card, .news-magazine-hero).has-cover > div:last-child:not(:first-child) {
+  position: relative;
+  z-index: 1;
+  margin: 0;
+  padding: 10px 20px 16px;
+  background: var(--surface);
+}
+
+/* ---------- 页签 / 话题 ---------- */
+
+:root[data-theme][data-ui="meow"] .topic-tabs :is(a, button) {
+  border: 2px solid transparent;
+  border-radius: 10px;
+  font-weight: 700;
+}
+
+:root[data-theme][data-ui="meow"] .topic-tabs :is(a, button):hover {
+  background: var(--meow-lav);
+  color: var(--ink);
+}
+
+:root[data-theme][data-ui="meow"] .topic-tabs :is(a.active, button.active) {
+  border-color: var(--line-strong);
+  background: var(--accent);
+  color: var(--accent-contrast);
+  box-shadow: 2px 2px 0 var(--meow-shadow);
+}
+
+/* ---------- KPI ---------- */
+
+:root[data-ui="meow"] :is(.kpi-belt .kpi-value, .bento-kpi) {
+  font-family: var(--font-display);
+  font-weight: 800;
+  color: var(--accent-dark);
+}
+
+/* ---------- 页脚：墨色底 + 三色条 + 巨型水印 ---------- */
+
+:root[data-theme][data-ui="meow"] .site-footer {
+  position: relative;
+  overflow: hidden;
+  isolation: isolate;
+  width: 100%;
+  margin-top: 64px;
+  padding: 46px clamp(18px, 4vw, 40px) max(56px, env(safe-area-inset-bottom));
+  border-top: 5px solid;
+  border-image: linear-gradient(90deg,
+    var(--accent) 0 33.6%,
+    var(--meow-purple) 34.4% 66.6%,
+    var(--meow-lime) 67.4% 100%) 1;
+  background: var(--meow-footer-bg);
+  color: color-mix(in srgb, var(--meow-footer-fg) 78%, transparent);
+}
+
+:root[data-ui="meow"] .site-footer::before {
+  content: attr(data-brand);
+  position: absolute;
+  left: -1%;
+  bottom: -0.3em;
+  z-index: -1;
+  font-family: var(--font-display);
+  font-size: clamp(88px, 15vw, 190px);
+  font-weight: 800;
+  letter-spacing: 0.02em;
+  line-height: 1;
+  white-space: nowrap;
+  color: color-mix(in srgb, var(--accent) 13%, transparent);
+  transform: rotate(-3deg);
+  transform-origin: left bottom;
+  pointer-events: none;
+}
+
+:root[data-theme][data-ui="meow"] .site-footer .text-link {
+  color: var(--meow-lime);
+  text-decoration-thickness: 2px;
+  text-underline-offset: 3px;
+}
+
+:root[data-theme][data-ui="meow"] .site-footer .text-link:hover {
+  color: var(--accent-soft);
+}
+
+/* ---------- 悬浮组件：AI 助手 / 音乐播放器 ---------- */
+
+:root[data-theme][data-ui="meow"] .ai-assistant-launcher {
+  border: 2px solid var(--line-strong);
+  border-radius: 14px;
+  background: var(--accent);
+  color: var(--accent-contrast);
+  box-shadow: 4px 4px 0 var(--meow-shadow);
+}
+
+:root[data-theme][data-ui="meow"] .ai-assistant-launcher:hover {
+  transform: translate(-2px, -2px);
+  box-shadow: 6px 6px 0 var(--meow-shadow);
+}
+
+:root[data-theme][data-ui="meow"] :is(.ai-assistant-panel, .music-player) {
+  border: 2px solid var(--line-strong);
+  border-radius: 16px;
+  background: var(--surface);
+  box-shadow: var(--ui-shadow-md);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+
+:root[data-theme][data-ui="meow"] .assistant-suggestion-card {
+  border: 2px solid var(--line-strong);
+  border-radius: 10px;
+  box-shadow: 2px 2px 0 var(--meow-shadow);
+}
+
+/* ---------- 移动端与可访问性 ---------- */
+
+@media (max-width: 820px) {
+  :root[data-theme][data-ui="meow"] .site-header {
+    top: 0;
+    width: 100%;
+    margin: 0;
+    border-radius: 0;
+  }
+
+  :root[data-theme][data-ui="meow"] .home-brief-card {
+    transform: rotate(0.6deg);
+  }
+
+  :root[data-ui="meow"] .site-footer::before {
+    font-size: clamp(64px, 22vw, 120px);
+  }
+
+  :root[data-theme][data-ui="meow"] :is(.bento-card, .card, .form-card, .admin-panel, .metric-card, .chart-card, .module-card, .news-list-item) {
+    box-shadow: 3px 3px 0 var(--meow-shadow);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root[data-ui="meow"] .home-hero-v2::before,
+  :root[data-ui="meow"] .home-hero-v2::after {
+    animation: none;
+  }
+
+  :root[data-theme][data-ui="meow"] :is(.button, .header-account-link, .tag, .ai-assistant-launcher):hover,
+  :root[data-theme][data-ui="meow"] .button:active:not(:disabled),
+  :root[data-theme][data-ui="meow"] :is(a.bento-card, .bento-card.linked-card, .news-list-item, .module-card):hover {
     transform: none;
   }
 }

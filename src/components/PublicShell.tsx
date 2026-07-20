@@ -212,7 +212,8 @@ export async function PublicShell({ children }: { children: React.ReactNode }) {
         </aside>
       </div>
 
-      <footer className="site-footer muted">
+      {/* data-brand: Meow 风格用 CSS attr() 渲染页脚巨型水印字 */}
+      <footer className="site-footer muted" data-brand={siteName}>
         <p className="site-footer-note">
           <I18nText
             zh="由管理员审核发布。AI 生成内容仅作为信息整理与写作辅助，具体事实请以原始来源为准。"
