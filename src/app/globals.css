@@ -4503,20 +4503,37 @@ button[aria-busy="true"] {
   width: 100%;
   min-width: 0;
   margin-top: 2px;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
 }
 
+/* 任务分工 / 保存更改的收尾行：从贴着细分割线的裸按钮，改成独立的圆角
+   操作条——说明文字与主按钮同框，避免宽屏下大片留白让按钮显得孤零零。
+   两处复用此类名的父容器 padding 不同（.model-routing-panel 用
+   var(--sp-lg)，.model-config-create 用 clamp()），所以用内嵌边框卡片
+   而非贴边负外边距，不依赖父容器的具体 padding 值。 */
 .model-routing-actions,
 .model-config-save-row {
   justify-content: space-between;
-  margin-top: 16px;
-  padding-top: 16px;
-  border-top: 1px solid var(--line);
+  gap: 16px;
+  margin-top: 20px;
+  padding: 16px 20px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  background: color-mix(in srgb, var(--surface-soft) 65%, transparent);
 }
 
 .model-routing-actions p,
 .model-config-save-row p {
-  max-width: 620px;
+  max-width: 560px;
   margin: 0;
+  font-size: 13px;
+}
+
+.model-routing-actions .button,
+.model-config-save-row .button {
+  flex: none;
 }
 
 .model-config-add,
