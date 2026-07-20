@@ -75,6 +75,8 @@ services:
     ports:
       - "${APP_BIND_IP:-0.0.0.0}:${APP_PORT:-3000}:3000"
     command: ["sh", "scripts/start-app.sh"]
+    # docker-init 当 PID 1:转发停止信号并回收孤儿进程。
+    init: true
     volumes:
       - app-uploads:/app/public/uploads
       # 图片优化结果缓存：不挂卷的话每次更新换容器都要全量重压一遍。
@@ -154,7 +156,9 @@ services:
       RESEARCH_WORKER_CONCURRENCY: 1
       AUDIENCE_WORKER_CONCURRENCY: 1
       SCHEDULE_WORKER_CONCURRENCY: 1
-    command: ["npm", "run", "worker"]
+    # 直调 tsx,不走 npm run:省常驻 ~50MB 的 npm 父进程,SIGTERM 直达 worker
+    command: ["node", "node_modules/.bin/tsx", "src/worker/index.ts"]
+    init: true
     volumes:
       - app-uploads:/app/public/uploads
     healthcheck:
@@ -190,6 +194,7 @@ services:
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - .:/repo
+    init: true
     healthcheck:
       test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:9080/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
       interval: 60s

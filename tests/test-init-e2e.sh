@@ -41,6 +41,8 @@ make_dockerless_path() {
 
 # 默认在所有 e2e 用例里关掉自动启动；想测启动逻辑的用例显式 unset。
 export SHIBEI_AUTO_START=n
+# 默认关掉启动后的健康轮询,免得每个用例干等两分钟;专测它的用例显式覆盖。
+export SHIBEI_HEALTH_WAIT_SECS=0
 
 assert_grep() {
   local file="$1" pattern="$2" msg="${3:-pattern not found in file}"
@@ -359,6 +361,33 @@ STUB
   assert_grep "$sandbox/.env" '^DEPLOY_SOURCE="pull"$' \
     'DEPLOY_SOURCE 未写入 .env' || { rm -rf "$sandbox" "$stub_dir"; return 1; }
 
+  rm -rf "$sandbox" "$stub_dir"
+}
+
+test_health_wait_reports_ready_after_start() {
+  # up -d 成功 ≠ 应用可用:必须轮询健康端点给出明确结论,而不是容器一起来就庆祝。
+  local sandbox stub_dir
+  sandbox=$(setup_sandbox)
+  stub_dir=$(mktemp -d)
+  cat > "$stub_dir/docker" <<'STUB'
+#!/usr/bin/env bash
+exit 0
+STUB
+  cat > "$stub_dir/curl" <<'STUB'
+#!/usr/bin/env bash
+exit 0
+STUB
+  chmod +x "$stub_dir/docker" "$stub_dir/curl"
+
+  local output
+  output=$(PATH="$stub_dir:$PATH" SHIBEI_AUTO_START=y SHIBEI_AUTO_SWAP=n \
+    SHIBEI_HEALTH_WAIT_SECS=30 SHIBEI_SWAP_TEST_MEM_MB=8192 SHIBEI_DEPLOY_SOURCE=build \
+    NO_COLOR=1 bash -c "printf '2\n\n\n\n3\nsk-x\ny\n' | bash '$sandbox/scripts/init.sh'" 2>&1)
+
+  if ! printf '%s' "$output" | grep -qF '应用已就绪'; then
+    echo "    FAIL: 健康等待未报告应用就绪"
+    rm -rf "$sandbox" "$stub_dir"; return 1
+  fi
   rm -rf "$sandbox" "$stub_dir"
 }
 

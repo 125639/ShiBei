@@ -89,8 +89,26 @@ export async function startTrustedNextServer() {
 
 const isMain = process.argv[1] && fileURLToPath(import.meta.url) === resolve(process.argv[1]);
 if (isMain) {
-  startTrustedNextServer().catch((error) => {
-    console.error("[server] startup failed", error);
-    process.exit(1);
-  });
+  startTrustedNextServer()
+    .then((server) => {
+      // 容器里本进程就是 PID 1：内核不会替 PID 1 执行默认信号动作，不装处理
+      // 器的话 docker stop 要干等满 10s 宽限期再被 SIGKILL（npm 当 PID 1 的
+      // 年代同样如此）。收到停止信号：停止接新连接、掐掉空闲 keep-alive，
+      // 在途请求最多再给 5s 排干，然后退出——别拖住滚动更新。
+      let shuttingDown = false;
+      const shutdown = (signal) => {
+        if (shuttingDown) return;
+        shuttingDown = true;
+        console.log(`[server] ${signal} received, shutting down`);
+        server.close(() => process.exit(0));
+        server.closeIdleConnections();
+        setTimeout(() => process.exit(0), 5000).unref();
+      };
+      process.on("SIGTERM", () => shutdown("SIGTERM"));
+      process.on("SIGINT", () => shutdown("SIGINT"));
+    })
+    .catch((error) => {
+      console.error("[server] startup failed", error);
+      process.exit(1);
+    });
 }
