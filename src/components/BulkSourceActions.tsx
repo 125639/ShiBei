@@ -231,13 +231,12 @@ export function BulkSourceActions({
                         <legend><I18nText zh="所属模块（可多选）" en="Modules (multiple)" /></legend>
                         <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
                           {modules.map((module) => (
-                            <label key={module.id} className="tag" style={{ cursor: "pointer", borderColor: module.color }}>
+                            <label key={module.id} className="tag" style={{ "--tag-accent": module.color } as React.CSSProperties}>
                               <input
                                 type="checkbox"
                                 name="moduleIds"
                                 value={module.id}
                                 defaultChecked={source.moduleIds.includes(module.id)}
-                                style={{ marginRight: 6 }}
                               />
                               {module.name}
                             </label>
