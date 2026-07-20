@@ -326,6 +326,25 @@
   --font-base-size: 15px;
 }
 
+/* Meow 风格专用展示字体（OFL 开源，自托管；仅当规则实际用到该
+   family 时浏览器才会下载，其它风格零开销）。CJK 回退到用户所选字体。 */
+@font-face {
+  font-family: "Bricolage Grotesque";
+  font-style: normal;
+  font-weight: 200 800;
+  font-display: swap;
+  src: url("/fonts/bricolage-latin.woff2") format("woff2");
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+2000-206F, U+2074, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: "Bricolage Grotesque";
+  font-style: normal;
+  font-weight: 200 800;
+  font-display: swap;
+  src: url("/fonts/bricolage-latin-ext.woff2") format("woff2");
+  unicode-range: U+0100-02AF, U+0304, U+0308, U+0329, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+
 /* Density preference (compact / normal / cozy) */
 :root[data-density="compact"] {
   --space-scale: 0.85;
@@ -8106,9 +8125,11 @@ button:disabled {
 
 /* ==============================================================
    UI Styles v2 — 界面风格体系（与 data-theme 色彩主题正交）
-   data-ui: classic(基线) / glass / editorial / paper / firefly / cyber / dynamic
+   data-ui: classic(基线) / glass / editorial / paper / firefly / meow / cyber / dynamic
    原则：只用主题令牌（--paper/--ink/--accent/--line…）派生颜色，
    任意风格 × 任意主题都成立。
+   注意：meow 的结构规则在 design-system.css 末尾（该文件后加载且
+   共享层选择器为 :root[data-theme][data-ui]，放这里会被盖掉）。
    ============================================================== */
 
 /* ---------- 设置页风格预览小样 ---------- */
@@ -8230,6 +8251,18 @@ button:disabled {
   background: rgba(255, 255, 255, 0.78);
   border: 1px solid rgba(111, 136, 121, 0.24);
   box-shadow: 0 6px 14px rgba(70, 92, 82, 0.14);
+}
+
+.ui-preview-meow { background: #fff7e8; }
+.ui-preview-meow .ui-preview-bar {
+  height: 5px;
+  background: linear-gradient(90deg, #e63279 0 33.6%, #7c3aed 34.4% 66.6%, #d6f46a 67.4% 100%);
+}
+.ui-preview-meow .ui-preview-block {
+  background: #fffdf7;
+  border: 2px solid #171021;
+  border-radius: 7px;
+  box-shadow: 3px 3px 0 #171021;
 }
 
 /* ==============================================================
