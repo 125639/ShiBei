@@ -10,7 +10,8 @@ import { appModeSupports, getAppMode, type AppCapability, type AppMode } from "@
 type NavItem = { href: string; zh: string; en: string; modes?: AppMode[]; capability?: AppCapability };
 type NavGroup = { zh: string; en: string; items: NavItem[] };
 
-// 后台导航按工作流分组；桌面侧栏与移动菜单复用同一份信息架构。
+// 后台导航按心智模型分组：总览 / 人工内容与治理 / AI 与自动化工具 / 媒体库 / 系统。
+// 桌面侧栏与移动菜单复用同一份信息架构（见下方 AdminNavigation）。
 const NAV_GROUPS: NavGroup[] = [
   {
     zh: "总览",
@@ -26,21 +27,27 @@ const NAV_GROUPS: NavGroup[] = [
     en: "Content",
     items: [
       { href: "/admin/posts", zh: "文章与草稿", en: "Posts", modes: ["frontend", "backend", "full"] },
-      { href: "/admin/ai", zh: "AI 管理员", en: "AI Admin", capability: "local-worker" },
       { href: "/admin/comments", zh: "评论管理", en: "Comments", modes: ["frontend", "full"] },
       { href: "/admin/community", zh: "社区治理", en: "Community Moderation", modes: ["frontend", "full"] },
-      { href: "/admin/invites", zh: "邀请码", en: "Invites", modes: ["frontend", "full"] },
-      { href: "/admin/videos", zh: "视频库", en: "Videos", modes: ["frontend", "backend", "full"] },
-      { href: "/admin/music", zh: "背景音乐", en: "Music", modes: ["frontend", "backend", "full"] }
+      { href: "/admin/invites", zh: "邀请码", en: "Invites", modes: ["frontend", "full"] }
     ]
   },
   {
-    zh: "信息采集",
-    en: "Curation",
+    zh: "内容自动化",
+    en: "Automation",
     items: [
+      { href: "/admin/ai", zh: "AI 管理员", en: "AI Admin", capability: "local-worker" },
       { href: "/admin/sources", zh: "来源库", en: "Sources", capability: "local-worker" },
       { href: "/admin/modules", zh: "来源模块", en: "Modules", capability: "local-worker" },
       { href: "/admin/auto-curation", zh: "自动内容", en: "Auto-Curation", capability: "local-worker" }
+    ]
+  },
+  {
+    zh: "媒体库",
+    en: "Media",
+    items: [
+      { href: "/admin/videos", zh: "视频库", en: "Videos", modes: ["frontend", "backend", "full"] },
+      { href: "/admin/music", zh: "背景音乐", en: "Music", modes: ["frontend", "backend", "full"] }
     ]
   },
   {
@@ -86,12 +93,7 @@ export function AdminShell({ children }: { children: React.ReactNode }) {
       {/* 原生 details/summary 在脚本失效时仍可完整使用。 */}
       <header className="admin-mobile-header">
         <Link className="admin-mobile-brand" href="/admin">
-          <span className="admin-brand-mark" aria-hidden="true">拾</span>
-          <span className="admin-mobile-brand-copy">
-            <strong>ShiBei Admin</strong>
-            <span><I18nText zh="管理工作区" en="Workspace" /></span>
-          </span>
-          {mode !== "full" ? <ModeBadge mode={mode} /> : null}
+          <AdminBrand mode={mode} variant="mobile" />
         </Link>
         <RouteDisclosure className="admin-mobile-menu">
           <summary className="admin-mobile-menu-trigger">
@@ -114,14 +116,23 @@ export function AdminShell({ children }: { children: React.ReactNode }) {
   );
 }
 
-function AdminBrand({ mode }: { mode: AppMode }) {
-  return (
-    <div className="admin-brand">
+function AdminBrand({ mode, variant = "desktop" }: { mode: AppMode; variant?: "desktop" | "mobile" }) {
+  const content = (
+    <>
       <span className="admin-brand-mark" aria-hidden="true">拾</span>
-      <span className="admin-brand-text">ShiBei Admin</span>
+      {variant === "mobile" ? (
+        <span className="admin-mobile-brand-copy">
+          <strong>ShiBei Admin</strong>
+          <span><I18nText zh="管理工作区" en="Workspace" /></span>
+        </span>
+      ) : (
+        <span className="admin-brand-text">ShiBei Admin</span>
+      )}
       {mode !== "full" ? <ModeBadge mode={mode} /> : null}
-    </div>
+    </>
   );
+  if (variant === "mobile") return content;
+  return <div className="admin-brand">{content}</div>;
 }
 
 function ModeBadge({ mode }: { mode: Exclude<AppMode, "full"> }) {

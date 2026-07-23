@@ -24,8 +24,12 @@ export default async function AdminStatsPage({
 
   return (
     <AdminShell>
-      <p className="eyebrow">Statistics</p>
-      <h1><I18nText zh="数据看板" en="Statistics" /></h1>
+      <div className="admin-page-header">
+        <div>
+          <p className="eyebrow">Statistics</p>
+          <h1><I18nText zh="数据看板" en="Statistics" /></h1>
+        </div>
+      </div>
 
       <div className="topic-tabs">
         {(["today", "week", "total"] as const).map((tab) => (
@@ -106,7 +110,9 @@ export default async function AdminStatsPage({
             <ol className="visit-top-list">
               {visits.topPaths.map((item) => (
                 <li key={item.path}>
-                  <span className="visit-top-path" title={item.path}>{item.title || item.path}</span>
+                  <span className="visit-top-path" title={item.path}>
+                    {item.title || <code>{item.path}</code>}
+                  </span>
                   <span className="visit-top-count">{item.count}</span>
                 </li>
               ))}

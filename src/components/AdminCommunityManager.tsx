@@ -113,7 +113,9 @@ export function AdminCommunityManager({
         ) : null}
 
         {works.length === 0 ? (
-          <p className="muted"><I18nText zh="当前没有公开社区作品。" en="There are no public community works." /></p>
+          <div className="empty-state">
+            <p><I18nText zh="当前没有公开社区作品。" en="There are no public community works." /></p>
+          </div>
         ) : (
           <ul className="admin-community-work-list">
             {works.map((work) => {
@@ -173,7 +175,9 @@ export function AdminCommunityManager({
       <section className="admin-panel">
         <h2><I18nText zh="最近治理审计" en="Recent moderation audit" /></h2>
         {audits.length === 0 ? (
-          <p className="muted"><I18nText zh="还没有治理记录。" en="No moderation actions yet." /></p>
+          <div className="empty-state">
+            <p><I18nText zh="还没有治理记录。" en="No moderation actions yet." /></p>
+          </div>
         ) : (
           <div className="table-scroll">
             <table className="admin-table">
@@ -189,7 +193,7 @@ export function AdminCommunityManager({
                 {audits.map((audit) => (
                   <tr key={audit.id}>
                     <td>{new Date(audit.createdAt).toLocaleString()}<br /><span className="muted">{audit.adminUsername}</span></td>
-                    <td><span className="tag"><I18nText zh={audit.action === "DELETE" ? "永久删除" : "下架"} en={audit.action === "DELETE" ? "Deleted" : "Unpublished"} /></span></td>
+                    <td><span className={audit.action === "DELETE" ? "status-pill tone-danger" : "status-pill tone-warn"}><I18nText zh={audit.action === "DELETE" ? "永久删除" : "下架"} en={audit.action === "DELETE" ? "Deleted" : "Unpublished"} /></span></td>
                     <td>
                       {audit.titleSnapshot}
                       {audit.summarySnapshot ? <><br /><span className="muted">{audit.summarySnapshot}</span></> : null}

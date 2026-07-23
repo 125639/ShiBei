@@ -2280,7 +2280,7 @@ p {
   min-width: 0;
 }
 
-:root[data-theme][data-ui] .settings-side-nav {
+:root[data-theme][data-ui] .admin-tabs {
   top: 24px;
   overflow: hidden;
   border: 1px solid var(--line);
@@ -2289,7 +2289,7 @@ p {
   box-shadow: var(--ui-shadow-sm);
 }
 
-:root[data-theme][data-ui] .settings-side-nav button {
+:root[data-theme][data-ui] .admin-tabs button {
   border-radius: 9px;
 }
 
@@ -3091,7 +3091,7 @@ p {
     gap: 16px;
   }
 
-  :root[data-theme][data-ui] .settings-side-nav {
+  :root[data-theme][data-ui] .admin-tabs {
     position: static;
     flex-direction: row;
     overflow-x: auto;
@@ -3101,11 +3101,11 @@ p {
     scrollbar-width: thin;
   }
 
-  :root[data-theme][data-ui] .settings-side-nav-header {
+  :root[data-theme][data-ui] .admin-tabs-heading {
     display: none;
   }
 
-  :root[data-theme][data-ui] .settings-side-nav button {
+  :root[data-theme][data-ui] .admin-tabs button {
     width: auto;
     flex: 0 0 auto;
     padding: 7px 12px;

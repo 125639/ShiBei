@@ -364,12 +364,14 @@ export default async function AdminPostEditPage({
       <section className="form-card form-stack" style={{ marginTop: 24 }}>
         <h2 style={{ marginTop: 0 }}><I18nText zh="已挂载视频" en="Attached Videos" /></h2>
         {post.videos.length === 0 ? (
-          <p className="muted-block">
-            <I18nText
-              zh={<>暂无视频。可在下方上传或在 <a className="text-link" href="/admin/videos">视频管理</a> 把已有视频挂到本文章。</>}
-              en={<>No videos yet. Upload below or attach an existing one from <a className="text-link" href="/admin/videos">Videos</a>.</>}
-            />
-          </p>
+          <div className="empty-state">
+            <p>
+              <I18nText
+                zh={<>暂无视频。可在下方上传或在 <a className="text-link" href="/admin/videos">视频管理</a> 把已有视频挂到本文章。</>}
+                en={<>No videos yet. Upload below or attach an existing one from <a className="text-link" href="/admin/videos">Videos</a>.</>}
+              />
+            </p>
+          </div>
         ) : (
           <ul className="form-stack" style={{ listStyle: "none", padding: 0 }}>
             {post.videos.map((video) => (
@@ -508,7 +510,9 @@ export default async function AdminPostEditPage({
       <section className="form-card form-stack" style={{ marginTop: 16 }}>
         <h2 style={{ marginTop: 0 }}><I18nText zh="把已有视频插入文章" en="Insert an Existing Video" /></h2>
         {allVideos.length === 0 ? (
-          <p className="muted-block"><I18nText zh="暂无可选择的视频，可先在上方上传。" en="No videos available yet — upload one above first." /></p>
+          <div className="empty-state">
+            <p><I18nText zh="暂无可选择的视频，可先在上方上传。" en="No videos available yet — upload one above first." /></p>
+          </div>
         ) : (
           <form action="/api/admin/videos/insert" method="post" className="form-stack">
             <input type="hidden" name="redirect" value={`/admin/posts/${post.id}`} />

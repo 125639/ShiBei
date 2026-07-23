@@ -11,6 +11,21 @@ export function buildKeywordResearchUrl(keyword: string, scope: ResearchScope, c
   return url.toString();
 }
 
+// RawItem.url 用的是更简单的 keyword://<编码后的关键词> 形式（见
+// src/worker/index.ts 的 createDraftFromKeyword/upsertResearchRawItem）——
+// 没有 research 路径段也没有 scope/count/depth 参数，这些参数只存在于
+// 它所属 FetchJob 的 sourceUrl 上。跟 parseKeywordResearchUrl 分开是因为
+// 两种 URL 形状本来就不兼容，硬塞进一个函数只会让两边的判断都变脆弱。
+export function parseRawItemKeywordUrl(value: string) {
+  if (!value.startsWith("keyword://") || value.startsWith("keyword://research")) return null;
+  try {
+    const keyword = decodeURIComponent(value.slice("keyword://".length)).trim();
+    return keyword ? { keyword } : null;
+  } catch {
+    return null;
+  }
+}
+
 export function parseKeywordResearchUrl(value: string) {
   if (!value.startsWith("keyword://research")) return null;
 
@@ -64,6 +79,12 @@ export function researchScopeLabel(scope: ResearchScope) {
   if (scope === "domestic") return "国内";
   if (scope === "international") return "国外";
   return "国内+国外";
+}
+
+export function researchDepthLabel(depth: ResearchDepth) {
+  if (depth === "standard") return "标准";
+  if (depth === "deep") return "深度长文";
+  return "长文";
 }
 
 export function isResearchScope(value: string): value is ResearchScope {

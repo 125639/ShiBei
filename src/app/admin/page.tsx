@@ -1,13 +1,10 @@
 import Link from "next/link";
 import type { Prisma } from "@prisma/client";
 import { AdminShell } from "@/components/AdminShell";
-import { ContentStyleSelect } from "@/components/ContentStyleSelect";
 import { I18nText } from "@/components/I18nText";
 import { MetricCard } from "@/components/MetricCard";
 import { RelativeTime } from "@/components/RelativeTime";
 import { StatusPill } from "@/components/StatusPill";
-import { SubmitButton } from "@/components/SubmitButton";
-import { VideoAttachModeSelect } from "@/components/VideoAttachModeSelect";
 import { requireAdmin } from "@/lib/auth";
 import { hasLocalWorker } from "@/lib/app-mode";
 import { getBuildInfo } from "@/lib/build-info";
@@ -33,7 +30,7 @@ export default async function AdminDashboardPage() {
   await requireAdmin();
   const workerEnabled = hasLocalWorker();
   const since = await getSevenDayWindowStart();
-  const [sources, defaultSources, drafts, published, videos, jobs, jobStatusSummary, postsCreated7d, published7d, failed7d, runningJobs, contentStyles] = await Promise.all([
+  const [sources, defaultSources, drafts, published, videos, jobs, jobStatusSummary, postsCreated7d, published7d, failed7d, runningJobs] = await Promise.all([
     prisma.source.count(),
     prisma.source.count({ where: { isDefault: true, status: "ACTIVE" } }),
     prisma.post.count({ where: { status: "DRAFT" } }),
@@ -44,12 +41,7 @@ export default async function AdminDashboardPage() {
     prisma.post.count({ where: { createdAt: { gte: since } } }),
     prisma.post.count({ where: { status: "PUBLISHED", publishedAt: { gte: since } } }),
     prisma.fetchJob.count({ where: { status: "FAILED", updatedAt: { gte: since } } }),
-    prisma.fetchJob.count({ where: { status: "RUNNING" } }),
-    prisma.contentStyle.findMany({
-      orderBy: [{ isDefault: "desc" }, { updatedAt: "desc" }],
-      select: { id: true, name: true, contentMode: true, isDefault: true },
-      take: 100
-    })
+    prisma.fetchJob.count({ where: { status: "RUNNING" } })
   ]);
   const jobStats = jobStatusSummary.map((item) => ({ status: item.status, count: item._count._all }));
   const maxMetric = Math.max(postsCreated7d, published7d, failed7d, 1);
@@ -78,55 +70,15 @@ export default async function AdminDashboardPage() {
         <MetricCard value={videos} label={<I18nText zh="视频资源" en="Videos" />} action={{ href: "/admin/videos", label: <I18nText zh="打开" en="Open" /> }} />
       </div>
 
-      {workerEnabled ? <div className="admin-action-grid" style={{ marginTop: 24 }}>
-        <section className="admin-panel">
-          <h2><I18nText zh="默认来源抓取" en="Fetch Default Sources" /></h2>
-          <form className="form-stack" action="/api/admin/run" method="post">
-            <ContentStyleSelect styles={contentStyles} id="defaultContentStyleId" />
-            <SubmitButton pendingLabel={<I18nText zh="正在创建任务…" en="Creating jobs…" />}><I18nText zh="开始抓取" en="Start Fetching" /></SubmitButton>
-            <p className="muted">
-              <I18nText
-                zh={`当前会从 ${defaultSources} 个启用的默认来源创建任务。`}
-                en={`Jobs will be created from ${defaultSources} enabled default sources.`}
-              />
-            </p>
-          </form>
-        </section>
-        <section className="admin-panel">
-          <h2><I18nText zh="关键词生成文章" en="Generate from Keyword" /></h2>
-          <form className="form-stack" action="/api/admin/run" method="post">
-            <div className="field">
-              <label htmlFor="keyword"><I18nText zh="关键词或选题" en="Keyword or topic" /></label>
-              <input id="keyword" name="keyword" required placeholder="例如：人工智能监管 / Nvidia 财报" />
-            </div>
-            <div className="field-row">
-              <div className="field">
-                <label htmlFor="keywordScope"><I18nText zh="搜索范围" en="Search scope" /></label>
-                <select id="keywordScope" name="keywordScope" defaultValue="all">
-                  <option value="all">国内 + 国外 / All</option>
-                  <option value="domestic">国内来源 / Domestic</option>
-                  <option value="international">国外来源 / International</option>
-                </select>
-              </div>
-              <div className="field">
-                <label htmlFor="articleCount"><I18nText zh="生成篇数" en="Article count" /></label>
-                <input id="articleCount" name="articleCount" type="number" min="1" max="5" defaultValue="1" />
-              </div>
-            </div>
-            <div className="field">
-              <label htmlFor="articleDepth"><I18nText zh="文章长度" en="Article length" /></label>
-              <select id="articleDepth" name="articleDepth" defaultValue="long">
-                <option value="standard">标准（≥1100 字）/ Standard</option>
-                <option value="long">长文（≥1900 字）/ Long</option>
-                <option value="deep">深度长文（≥3000 字）/ In-depth</option>
-              </select>
-            </div>
-            <ContentStyleSelect styles={contentStyles} id="keywordContentStyleId" />
-            <VideoAttachModeSelect id="keywordVideoAttachMode" />
-            <SubmitButton pendingLabel={<I18nText zh="正在创建任务…" en="Creating jobs…" />}><I18nText zh="生成草稿" en="Generate Draft" /></SubmitButton>
-          </form>
-        </section>
-      </div> : null}
+      {workerEnabled ? <section className="admin-panel" style={{ marginTop: 24 }}>
+        <h2><I18nText zh="内容生成" en="Generate Content" /></h2>
+        <p className="muted"><I18nText zh="按来源抓取、让 AI 管理员规划任务，或配置定时自动内容——具体操作都在各自的页面里。" en="Fetch from sources, delegate a task to the AI admin, or set up scheduled auto-curation — each lives on its own page." /></p>
+        <div className="row-actions" style={{ justifyContent: "flex-start" }}>
+          <Link className="button secondary" href="/admin/sources"><I18nText zh="来源库" en="Sources" /></Link>
+          <Link className="button secondary" href="/admin/ai"><I18nText zh="AI 管理员" en="AI Admin" /></Link>
+          <Link className="button secondary" href="/admin/auto-curation"><I18nText zh="自动内容" en="Auto-Curation" /></Link>
+        </div>
+      </section> : null}
 
       <section className="admin-panel" style={{ marginTop: 24 }}>
         <h2><I18nText zh="工作成效" en="Throughput" /></h2>

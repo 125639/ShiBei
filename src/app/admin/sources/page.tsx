@@ -97,11 +97,16 @@ export default async function SourcesPage({
 
   const infoSources = sources.filter((s) => s.type === "WEB" || s.type === "RSS" || s.type === "EXA");
   const videoSources = sources.filter((s) => s.type === "VIDEO");
+  const defaultActiveCount = allSources.filter((s) => s.isDefault && s.status === "ACTIVE").length;
 
   return (
     <AdminShell>
-      <p className="eyebrow">Sources</p>
-      <h1><I18nText zh="信息源与视频源" en="Information & Video Sources" /></h1>
+      <div className="admin-page-header">
+        <div>
+          <p className="eyebrow">Sources</p>
+          <h1><I18nText zh="信息源与视频源" en="Information & Video Sources" /></h1>
+        </div>
+      </div>
 
       {modules.length > 0 && (
         <div className="topic-tabs">
@@ -123,13 +128,15 @@ export default async function SourcesPage({
       )}
 
       {filterModule && sources.length === 0 ? (
-        <p className="muted-block">
-          <I18nText
-            zh={`模块「${modules.find((m) => m.slug === filterModule)?.name || filterModule}」下还没有信息源。`}
-            en={`No sources in module "${modules.find((m) => m.slug === filterModule)?.name || filterModule}" yet.`}
-          />{" "}
+        <div className="empty-state">
+          <p>
+            <I18nText
+              zh={`模块「${modules.find((m) => m.slug === filterModule)?.name || filterModule}」下还没有信息源。`}
+              en={`No sources in module "${modules.find((m) => m.slug === filterModule)?.name || filterModule}" yet.`}
+            />
+          </p>
           <Link className="text-link" href="/admin/sources"><I18nText zh="查看全部来源" en="View all sources" /></Link>
-        </p>
+        </div>
       ) : null}
 
       <div className="admin-grid">
@@ -165,7 +172,7 @@ export default async function SourcesPage({
           {modules.length > 0 && (
             <div className="field">
               <label><I18nText zh="所属模块（可多选）" en="Modules (multiple)" /></label>
-              <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+              <div className="tag-group">
                 {modules.map((m) => (
                   <label key={m.id} className="tag" style={{ "--tag-accent": m.color } as React.CSSProperties}>
                     <input type="checkbox" name="moduleIds" value={m.id} />
@@ -234,6 +241,19 @@ export default async function SourcesPage({
           <ContentStyleSelect styles={contentStyles} id="sourceKeywordContentStyleId" />
           <VideoAttachModeSelect id="sourceKeywordVideoAttachMode" />
           <SubmitButton pendingLabel={<I18nText zh="正在创建任务…" en="Creating job…" />}><I18nText zh="搜索资料并生成文章草稿" en="Search & Generate Draft" /></SubmitButton>
+        </form>
+
+        <form className="form-card form-stack" action="/api/admin/run" method="post">
+          <h2><I18nText zh="默认来源抓取" en="Fetch Default Sources" /></h2>
+          <p><I18nText zh="按启用的默认来源批量创建抓取任务。" en="Create fetch jobs for every enabled default source." /></p>
+          <ContentStyleSelect styles={contentStyles} id="defaultFetchContentStyleId" />
+          <SubmitButton pendingLabel={<I18nText zh="正在创建任务…" en="Creating jobs…" />}><I18nText zh="开始抓取" en="Start Fetching" /></SubmitButton>
+          <p className="muted">
+            <I18nText
+              zh={`当前会从 ${defaultActiveCount} 个启用的默认来源创建任务。`}
+              en={`Jobs will be created from ${defaultActiveCount} enabled default sources.`}
+            />
+          </p>
         </form>
       </div>
 

@@ -67,8 +67,12 @@ export default async function VideosAdminPage() {
 
   return (
     <AdminShell>
-      <p className="eyebrow">Videos</p>
-      <h1><I18nText zh="视频管理" en="Videos" /></h1>
+      <div className="admin-page-header">
+        <div>
+          <p className="eyebrow">Videos</p>
+          <h1><I18nText zh="视频管理" en="Videos" /></h1>
+        </div>
+      </div>
       {!videosEnabled ? (
         <p className="muted-block" role="status" style={{ maxWidth: 720, borderLeft: "3px solid var(--color-danger, #c44)", paddingLeft: 12 }}>
           <I18nText
@@ -216,7 +220,9 @@ export default async function VideosAdminPage() {
       <section className="admin-panel" style={{ marginTop: 24 }}>
         <h2 style={{ marginTop: 0 }}><I18nText zh={`当前视频（${videos.length}）`} en={`Videos (${videos.length})`} /></h2>
         {videos.length === 0 ? (
-          <p className="muted"><I18nText zh="暂无视频。在上方上传一个开始。" en="No videos yet — upload one above to start." /></p>
+          <div className="empty-state">
+            <p><I18nText zh="暂无视频。在上方上传一个开始。" en="No videos yet — upload one above to start." /></p>
+          </div>
         ) : (
           <VideoReorderList
             videos={videoRows}

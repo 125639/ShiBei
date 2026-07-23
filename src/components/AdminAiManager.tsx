@@ -90,6 +90,22 @@ const MODE_LABELS: Record<RecurringPlan["mode"], { zh: string; en: string }> = {
 
 const WEEKDAYS_ZH = ["一", "二", "三", "四", "五", "六", "日"];
 
+// 拆解计划在确认执行前只是 AI 返回的草案,没有写库;之前一离开 /admin/ai
+// 页面(哪怕只是切到别的后台页看一眼)组件卸载,草案就随 state 一起消失,
+// 得重新描述需求等 AI 重新想一遍。这里把草案镜像进 sessionStorage,离开
+// 再回来时能恢复;确认执行后草案转正为真实批次,顺手清掉暂存。
+const DRAFT_KEY = "shibei.admin-ai.draft";
+
+type AiDraft = {
+  request: string;
+  scope: PlannedTask["scope"];
+  depth: PlannedTask["depth"];
+  articleCount: number;
+  contentStyleId: string;
+  feedback: string;
+  plan: PlanResult;
+};
+
 function cadenceText(item: RecurringPlan) {
   const hour = String(item.hour).padStart(2, "0");
   if (item.cadence === "weekly") return `每周${WEEKDAYS_ZH[item.weekday - 1] || "一"} ${hour}:00`;
@@ -123,6 +139,46 @@ export function AdminAiManager({
 
   const planRef = useRef<HTMLElement | null>(null);
   const batchesRef = useRef<HTMLElement | null>(null);
+  const draftRestoredRef = useRef(false);
+
+  // 挂载时先尝试恢复上次未确认的草案(仅一次)。
+  useEffect(() => {
+    try {
+      const raw = sessionStorage.getItem(DRAFT_KEY);
+      if (raw) {
+        const draft = JSON.parse(raw) as Partial<AiDraft>;
+        if (draft.plan) {
+          setRequest(draft.request ?? EXAMPLE);
+          setScope(draft.scope ?? "all");
+          setDepth(draft.depth ?? "long");
+          setArticleCount(draft.articleCount ?? 1);
+          setContentStyleId(draft.contentStyleId ?? "");
+          setFeedback(draft.feedback ?? "");
+          setPlan(draft.plan);
+        }
+      }
+    } catch {
+      // sessionStorage 不可用或草案数据损坏,忽略,按默认态启动
+    } finally {
+      draftRestoredRef.current = true;
+    }
+  }, []);
+
+  // 有草案时持续镜像进 sessionStorage;草案清空(取消/执行完成)时清掉暂存。
+  // 用 ref 挡住挂载首轮 —— 否则会在恢复生效前用初始默认值把刚读到的草案覆盖掉。
+  useEffect(() => {
+    if (!draftRestoredRef.current) return;
+    try {
+      if (plan) {
+        const draft: AiDraft = { request, scope, depth, articleCount, contentStyleId, feedback, plan };
+        sessionStorage.setItem(DRAFT_KEY, JSON.stringify(draft));
+      } else {
+        sessionStorage.removeItem(DRAFT_KEY);
+      }
+    } catch {
+      // 存储配额已满等情况,放弃暂存,不影响正常使用
+    }
+  }, [request, scope, depth, articleCount, contentStyleId, feedback, plan]);
 
   // 结果不在视口内时(计划在表单下方/批次条在页顶),出结果后滚过去,避免用户以为没反应。
   // 执行后计划面板卸载会让页面高度骤变,平滑滚动会被打断,这种场景用瞬时定位。

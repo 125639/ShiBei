@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { AdminUser, ContentStyle, ModelConfig, SiteSettings } from "@prisma/client";
 import { ConfirmButton } from "@/components/ConfirmButton";
 import { I18nText } from "@/components/I18nText";
@@ -194,6 +194,37 @@ export function SettingsClient({
   const [activeTab, setActiveTab] = useState<SettingsTab>(initialTabAvailable ? initialTab : "site");
   const [savedVisible, setSavedVisible] = useState<boolean>(savedFlag);
 
+  // 已有内容风格列表：单击只高亮选中，双击才展开编辑表单——避免一次性
+  // 展开全部风格把右栏拉得很长。<summary> 原生单击即展开，得自己拦截
+  // 再用计时器分辨"这是单击"还是"这是双击的第一下"。
+  const [expandedStyleIds, setExpandedStyleIds] = useState<Set<string>>(new Set());
+  const [selectedStyleId, setSelectedStyleId] = useState<string | null>(null);
+  const styleClickTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  function handleStyleSummaryClick(event: React.MouseEvent, styleId: string) {
+    event.preventDefault();
+    if (styleClickTimer.current) return; // 双击的第二下，交给 onDoubleClick 处理
+    styleClickTimer.current = setTimeout(() => {
+      styleClickTimer.current = null;
+      setSelectedStyleId(styleId);
+    }, 250);
+  }
+
+  function handleStyleSummaryDoubleClick(event: React.MouseEvent, styleId: string) {
+    event.preventDefault();
+    if (styleClickTimer.current) {
+      clearTimeout(styleClickTimer.current);
+      styleClickTimer.current = null;
+    }
+    setSelectedStyleId(styleId);
+    setExpandedStyleIds((current) => {
+      const next = new Set(current);
+      if (next.has(styleId)) next.delete(styleId);
+      else next.add(styleId);
+      return next;
+    });
+  }
+
   // 切换标签时同步到 ?tab=，这样刷新 / 分享链接不会丢当前所在的设置页。
   // 用 replaceState 而不是 router.replace：纯 URL 记录，不需要触发服务端重取。
   function switchTab(next: SettingsTab) {
@@ -226,7 +257,7 @@ export function SettingsClient({
   return (
     <div className="settings-layout">
       <aside
-        className="settings-side-nav"
+        className="admin-tabs"
         aria-label="Settings sections"
         role="tablist"
         aria-orientation="vertical"
@@ -248,7 +279,7 @@ export function SettingsClient({
           }
         }}
       >
-        <div className="settings-side-nav-header">
+        <div className="admin-tabs-heading">
           <I18nText zh="导航" en="Sections" />
         </div>
         {visibleTabs.map((tab) => {
@@ -265,7 +296,7 @@ export function SettingsClient({
               className={isActive ? "active" : ""}
               onClick={() => switchTab(tab.key)}
             >
-              <span className="settings-side-nav-icon" aria-hidden="true">{TAB_ICONS[tab.key]}</span>
+              <span className="admin-tabs-icon" aria-hidden="true">{TAB_ICONS[tab.key]}</span>
               <I18nText zh={tab.zh} en={tab.en} />
             </button>
           );
@@ -553,15 +584,27 @@ export function SettingsClient({
             <h2 style={{ marginTop: 0 }}><I18nText zh="已有内容风格" en="Existing Styles" /></h2>
             <div className="table-list">
               {styles.map((style) => (
-                <div className="table-item" key={style.id} style={{ display: "block" }}>
-                  <form className="form-stack" action={`/api/admin/content-styles/${style.id}`} method="post">
-                    <div className="meta-row" style={{ alignItems: "center", justifyContent: "space-between" }}>
+                <details
+                  className={`table-item${selectedStyleId === style.id ? " is-selected" : ""}`}
+                  key={style.id}
+                  style={{ display: "block" }}
+                  open={expandedStyleIds.has(style.id)}
+                >
+                  <summary
+                    className="disclosure-summary"
+                    title="单击选中；双击展开编辑"
+                    onClick={(event) => handleStyleSummaryClick(event, style.id)}
+                    onDoubleClick={(event) => handleStyleSummaryDoubleClick(event, style.id)}
+                  >
+                    <div className="meta-row" style={{ alignItems: "center", justifyContent: "space-between", flex: 1 }}>
                       <div>
                         <strong>{style.name}</strong>
                         <div className="muted">{contentModeLabel(style.contentMode)} · {style.tone} · {style.length} · {style.focus}</div>
                       </div>
                       <span className="tag">{style.isDefault ? <I18nText zh="默认" en="Default" /> : <I18nText zh="备用" en="Backup" />}</span>
                     </div>
+                  </summary>
+                  <form className="form-stack" action={`/api/admin/content-styles/${style.id}`} method="post" style={{ marginTop: 14 }}>
                     <div className="field-row">
                       <div className="field">
                         <label htmlFor={`style-name-${style.id}`}><I18nText zh="名称" en="Name" /></label>
@@ -614,9 +657,13 @@ export function SettingsClient({
                       </ConfirmButton>
                     </div>
                   </form>
-                </div>
+                </details>
               ))}
-              {styles.length === 0 ? <p className="muted"><I18nText zh="暂无风格。" en="No styles." /></p> : null}
+              {styles.length === 0 ? (
+                <div className="empty-state">
+                  <p><I18nText zh="暂无风格。" en="No styles." /></p>
+                </div>
+              ) : null}
             </div>
           </section>
         </div>

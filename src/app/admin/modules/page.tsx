@@ -38,8 +38,12 @@ export default async function ModulesPage() {
 
   return (
     <AdminShell>
-      <p className="eyebrow">Modules</p>
-      <h1><I18nText zh="信息源模块" en="Source Modules" /></h1>
+      <div className="admin-page-header">
+        <div>
+          <p className="eyebrow">Modules</p>
+          <h1><I18nText zh="信息源模块" en="Source Modules" /></h1>
+        </div>
+      </div>
       <p className="muted-block" style={{ maxWidth: 760 }}>
         <I18nText
           zh="模块用来把信息源按主题归类（如「AI」「娱乐」「财经」）。Topic 抓取时只会用关联到对应模块的源，互不干扰。一个源可以同时属于多个模块。"
@@ -49,8 +53,8 @@ export default async function ModulesPage() {
 
       <div className="modules-admin">
         <details className="form-card form-stack modules-new" open>
-          <summary className="modules-new-summary">
-            <h2><I18nText zh="新增模块" en="New Module" /></h2>
+          <summary className="disclosure-summary">
+            <h2 style={{ margin: 0 }}><I18nText zh="新增模块" en="New Module" /></h2>
           </summary>
           <form action="/api/admin/modules" method="post" className="form-stack modules-new-form">
           <div className="field">
@@ -80,7 +84,9 @@ export default async function ModulesPage() {
         <div className="form-card modules-existing">
           <h2><I18nText zh={`已有模块（${modules.length}）`} en={`Modules (${modules.length})`} /></h2>
           {modules.length === 0 ? (
-            <p className="muted"><I18nText zh="暂无模块。" en="No modules yet." /></p>
+            <div className="empty-state">
+              <p><I18nText zh="暂无模块。" en="No modules yet." /></p>
+            </div>
           ) : (
             <div className="module-grid">
               {modules.map((module) => (
