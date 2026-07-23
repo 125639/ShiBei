@@ -16,8 +16,12 @@ export function buildKeywordResearchUrl(keyword: string, scope: ResearchScope, c
 // 没有 research 路径段也没有 scope/count/depth 参数，这些参数只存在于
 // 它所属 FetchJob 的 sourceUrl 上。跟 parseKeywordResearchUrl 分开是因为
 // 两种 URL 形状本来就不兼容，硬塞进一个函数只会让两边的判断都变脆弱。
+// 任务 URL 的判别式必须带 "?"：buildKeywordResearchUrl 产出的 URL 永远有
+// 查询串，而 RawItem URL 里的关键词经过 encodeURIComponent，字面 "?" 会被
+// 编码成 %3F——因此以 "research" 开头的普通关键词（keyword://research%20tips）
+// 不会被误判成任务 URL。
 export function parseRawItemKeywordUrl(value: string) {
-  if (!value.startsWith("keyword://") || value.startsWith("keyword://research")) return null;
+  if (!value.startsWith("keyword://") || value.startsWith("keyword://research?")) return null;
   try {
     const keyword = decodeURIComponent(value.slice("keyword://".length)).trim();
     return keyword ? { keyword } : null;

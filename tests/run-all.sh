@@ -82,6 +82,7 @@ run_suite "admin Markdown workspace" bash -c "cd '$PROJECT_DIR' && $TSX_CMD --te
 run_suite "AI post publication repair" bash -c "cd '$PROJECT_DIR' && $TSX_CMD --test tests/test-post-repair.ts"
 run_suite "signed internal cache revalidation" bash -c "cd '$PROJECT_DIR' && $TSX_CMD --test tests/test-internal-revalidation.ts"
 run_suite "task progress" bash -c "cd '$PROJECT_DIR' && $TSX_CMD --test tests/test-task-progress.ts"
+run_suite "research URL parsing" bash -c "cd '$PROJECT_DIR' && $TSX_CMD --test tests/test-research.ts"
 run_suite "manual writing handoff" bash -c "cd '$PROJECT_DIR' && $TSX_CMD --test tests/test-manual-writing.ts"
 run_suite "storage cleanup policy" bash -c "cd '$PROJECT_DIR' && $TSX_CMD --test tests/test-storage-cleanup.ts"
 
