@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { configuredSiteOrigin } from "./site-url";
+import { configuredSiteOrigin, trustedForwardedSiteOrigin } from "./site-url";
 
 const MUTATING_METHODS = new Set(["POST", "PUT", "PATCH", "DELETE"]);
 
@@ -30,7 +30,10 @@ export function isSameOriginMutation(request: Pick<Request, "method" | "url" | "
 
   const requestOrigin = normalizedOrigin(request.url);
   const configuredOrigin = configuredSiteOrigin();
-  const allowed = new Set([requestOrigin, configuredOrigin].filter((value): value is string => Boolean(value)));
+  const forwardedOrigin = normalizedOrigin(trustedForwardedSiteOrigin(request));
+  const allowed = new Set(
+    [requestOrigin, configuredOrigin, forwardedOrigin].filter((value): value is string => Boolean(value))
+  );
   const rawOrigin = request.headers.get("origin");
   const origin = normalizedOrigin(rawOrigin);
   const fetchSite = request.headers.get("sec-fetch-site")?.trim().toLowerCase();

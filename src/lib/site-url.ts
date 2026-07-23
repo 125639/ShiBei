@@ -87,6 +87,20 @@ export function requestSiteOrigin(request: Pick<Request, "url" | "headers">): st
   return requestOrigin;
 }
 
+export function trustedForwardedSiteOrigin(
+  request: Pick<Request, "url" | "headers">
+): string | null {
+  if (trustedProxyHops() <= 0) return null;
+
+  const host = lastForwardedValue(request.headers.get("x-forwarded-host"));
+  const forwardedProto = lastForwardedValue(request.headers.get("x-forwarded-proto"));
+  const requestOrigin = parseHttpOrigin(request.url);
+  const requestProtocol = requestOrigin ? new URL(requestOrigin).protocol.slice(0, -1) : "";
+  const proto = (forwardedProto || requestProtocol).toLowerCase();
+  if (!host || (proto !== "http" && proto !== "https")) return null;
+  return parseHttpOrigin(`${proto}://${host}`);
+}
+
 function lastForwardedValue(value: string | null): string {
   return value?.split(",").at(-1)?.trim() || "";
 }

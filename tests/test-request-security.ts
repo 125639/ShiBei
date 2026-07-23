@@ -7,7 +7,10 @@ import { backendProxyHeaders } from "../src/lib/sync/proxy";
 
 const mutableEnv = process.env as Record<string, string | undefined>;
 
-function restoreEnv(name: "PUBLIC_URL" | "NEXT_PUBLIC_SITE_URL", value: string | undefined) {
+function restoreEnv(
+  name: "PUBLIC_URL" | "NEXT_PUBLIC_SITE_URL" | "TRUST_PROXY_HOPS",
+  value: string | undefined
+) {
   if (value === undefined) delete mutableEnv[name];
   else mutableEnv[name] = value;
 }
@@ -102,6 +105,58 @@ describe("request mutation security", () => {
         }
       });
       assert.equal(isSameOriginMutation(forged), false, site);
+    }
+  });
+
+  test("allows a trusted forwarded origin for route handlers behind the ingress proxy", () => {
+    const previousPublicUrl = process.env.PUBLIC_URL;
+    const previousLegacyUrl = process.env.NEXT_PUBLIC_SITE_URL;
+    const previousTrustedProxyHops = process.env.TRUST_PROXY_HOPS;
+    try {
+      process.env.PUBLIC_URL = "https://canonical.example.test";
+      delete mutableEnv.NEXT_PUBLIC_SITE_URL;
+      process.env.TRUST_PROXY_HOPS = "1";
+      const request = new Request("http://internal:3000/api/admin/sync/pull", {
+        method: "POST",
+        headers: {
+          Host: "internal:3000",
+          Origin: "https://front.example.test",
+          "Sec-Fetch-Site": "same-origin",
+          "X-Forwarded-Host": "front.example.test",
+          "X-Forwarded-Proto": "https"
+        }
+      });
+      assert.equal(isSameOriginMutation(request), true);
+    } finally {
+      restoreEnv("PUBLIC_URL", previousPublicUrl);
+      restoreEnv("NEXT_PUBLIC_SITE_URL", previousLegacyUrl);
+      restoreEnv("TRUST_PROXY_HOPS", previousTrustedProxyHops);
+    }
+  });
+
+  test("ignores forged forwarded origins without an explicitly trusted proxy", () => {
+    const previousPublicUrl = process.env.PUBLIC_URL;
+    const previousLegacyUrl = process.env.NEXT_PUBLIC_SITE_URL;
+    const previousTrustedProxyHops = process.env.TRUST_PROXY_HOPS;
+    try {
+      process.env.PUBLIC_URL = "https://canonical.example.test";
+      delete mutableEnv.NEXT_PUBLIC_SITE_URL;
+      process.env.TRUST_PROXY_HOPS = "0";
+      const request = new Request("http://internal:3000/api/admin/sync/pull", {
+        method: "POST",
+        headers: {
+          Host: "internal:3000",
+          Origin: "https://front.example.test",
+          "Sec-Fetch-Site": "same-origin",
+          "X-Forwarded-Host": "front.example.test",
+          "X-Forwarded-Proto": "https"
+        }
+      });
+      assert.equal(isSameOriginMutation(request), false);
+    } finally {
+      restoreEnv("PUBLIC_URL", previousPublicUrl);
+      restoreEnv("NEXT_PUBLIC_SITE_URL", previousLegacyUrl);
+      restoreEnv("TRUST_PROXY_HOPS", previousTrustedProxyHops);
     }
   });
 
