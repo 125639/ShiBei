@@ -1,4 +1,4 @@
-import { parseKeywordResearchUrl, researchScopeLabel } from "@/lib/research";
+import { parseKeywordResearchUrl, researchDepthLabel, researchScopeLabel } from "@/lib/research";
 import { parsePostRepairUrl } from "@/lib/post-repair";
 
 /**
@@ -44,7 +44,7 @@ export function getJobTitleLabel(job: JobLabelFields) {
 export function getJobKindLabel(job: JobLabelFields) {
   const keywordResearch = parseKeywordResearchUrl(job.sourceUrl);
   if (keywordResearch) {
-    return `关键词研究 · ${researchScopeLabel(keywordResearch.scope)} · ${keywordResearch.count} 篇 · ${keywordResearch.depth}`;
+    return `关键词研究 · ${researchScopeLabel(keywordResearch.scope)} · ${keywordResearch.count} 篇 · ${researchDepthLabel(keywordResearch.depth)}`;
   }
   if (parsePostRepairUrl(job.sourceUrl)) return "AI 发布审核 · 最多 3 轮返修";
   return job.sourceType;

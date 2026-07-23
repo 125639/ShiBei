@@ -19,6 +19,12 @@ const STATUS_LABELS: Record<string, { zh: string; en: string }> = {
   REVOKED: { zh: "已作废", en: "Revoked" }
 };
 
+const STATUS_TONES: Record<string, string> = {
+  UNUSED: "tone-info",
+  USED: "tone-success",
+  REVOKED: "tone-danger"
+};
+
 export function AdminInviteManager({ initialCodes, page = 1 }: { initialCodes: InviteCodeView[]; page?: number }) {
   const [codes, setCodes] = useState(initialCodes);
   const [count, setCount] = useState(5);
@@ -134,7 +140,9 @@ export function AdminInviteManager({ initialCodes, page = 1 }: { initialCodes: I
       <section className="admin-panel">
         <h2><I18nText zh="邀请码列表" en="All codes" /></h2>
         {codes.length === 0 ? (
-          <p className="muted"><I18nText zh="还没有生成过邀请码。" en="No codes yet." /></p>
+          <div className="empty-state">
+            <p><I18nText zh="还没有生成过邀请码。" en="No codes yet." /></p>
+          </div>
         ) : (
           <div className="table-scroll">
             <table className="admin-table">
@@ -159,7 +167,7 @@ export function AdminInviteManager({ initialCodes, page = 1 }: { initialCodes: I
                       )}
                     </td>
                     <td>
-                      <span className={`tag invite-status-${row.status.toLowerCase()}`}>
+                      <span className={`status-pill ${STATUS_TONES[row.status] || ""}`}>
                         <I18nText
                           zh={(STATUS_LABELS[row.status] || { zh: row.status }).zh}
                           en={(STATUS_LABELS[row.status] || { en: row.status }).en || row.status}

@@ -37,7 +37,9 @@ export function AdminCommentManager({ initialComments }: { initialComments: Admi
     <section className="admin-panel">
       {error ? <p className="form-error" role="alert">{error}</p> : null}
       {comments.length === 0 ? (
-        <p className="muted"><I18nText zh="还没有评论。" en="No comments yet." /></p>
+        <div className="empty-state">
+          <p><I18nText zh="还没有评论。" en="No comments yet." /></p>
+        </div>
       ) : (
         <ul className="admin-comment-list">
           {comments.map((comment) => (

@@ -59,8 +59,12 @@ export default async function SyncAdminPage({
 
   return (
     <AdminShell>
-      <p className="eyebrow">Sync</p>
-      <h1><I18nText zh="数据同步" en="Data Sync" /></h1>
+      <div className="admin-page-header">
+        <div>
+          <p className="eyebrow">Sync</p>
+          <h1><I18nText zh="数据同步" en="Data Sync" /></h1>
+        </div>
+      </div>
       <p className="muted-block" style={{ maxWidth: 720 }}>
         <I18nText zh="在「前端 / 后端 / 完整版」之间转移文章和视频。后端导出 ZIP；前端拉取 ZIP 或手动上传。" en="Move posts and videos between frontend / backend / full deployments. The backend exports a ZIP; the frontend pulls it or you upload it manually." />
         <I18nText zh="共享密钥与 backend 入口可以在本页保存；环境变量仍可作为兜底。" en="The shared token and backend URL can be saved here; environment variables remain the fallback." />

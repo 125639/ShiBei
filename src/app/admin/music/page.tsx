@@ -34,8 +34,12 @@ export default async function MusicAdminPage() {
 
   return (
     <AdminShell>
-      <p className="eyebrow">Music</p>
-      <h1><I18nText zh="背景音乐" en="Background Music" /></h1>
+      <div className="admin-page-header">
+        <div>
+          <p className="eyebrow">Music</p>
+          <h1><I18nText zh="背景音乐" en="Background Music" /></h1>
+        </div>
+      </div>
       <p className="muted-block" style={{ maxWidth: 720 }}>
         <I18nText
           zh="上传 MP3 / M4A / OGG / WAV 等格式的背景音乐。前台用户可以在「设置」页中开启与选曲。默认上传后即启用；删除会同时清理本地文件。"
@@ -76,7 +80,9 @@ export default async function MusicAdminPage() {
       <section className="admin-panel" style={{ marginTop: 24 }}>
         <h2><I18nText zh={`当前曲目（${tracks.length}）`} en={`Tracks (${tracks.length})`} /></h2>
         {tracks.length === 0 ? (
-          <p className="muted"><I18nText zh="暂无音乐。上传后用户即可在前台「设置」中启用。" en="No music yet. Once uploaded, visitors can enable it in Settings." /></p>
+          <div className="empty-state">
+            <p><I18nText zh="暂无音乐。上传后用户即可在前台「设置」中启用。" en="No music yet. Once uploaded, visitors can enable it in Settings." /></p>
+          </div>
         ) : (
           <div className="table-list">
             {tracks.map((track) => (

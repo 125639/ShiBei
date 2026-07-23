@@ -229,7 +229,7 @@ export function BulkSourceActions({
                     {modules.length ? (
                       <fieldset className="field">
                         <legend><I18nText zh="所属模块（可多选）" en="Modules (multiple)" /></legend>
-                        <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+                        <div className="tag-group">
                           {modules.map((module) => (
                             <label key={module.id} className="tag" style={{ "--tag-accent": module.color } as React.CSSProperties}>
                               <input

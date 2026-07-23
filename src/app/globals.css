@@ -1009,6 +1009,14 @@ a.bento-card:hover {
   font-size: 14px;
 }
 
+/* Wrapper for a row of .tag pills (e.g. module multi-select) — replaces
+   ad hoc inline flex/gap styles scattered across admin forms. */
+.tag-group {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
 .tag {
   display: inline-flex;
   align-items: center;
@@ -2766,6 +2774,13 @@ button[aria-busy="true"] {
   transform: translateY(-1px);
 }
 
+/* 单击选中态（不展开）：比 hover 更明显的常驻高亮，双击才展开的列表用它
+   标出"当前点的是哪一条"。 */
+.table-item.is-selected {
+  border-color: color-mix(in srgb, var(--accent) 55%, var(--line));
+  background: color-mix(in srgb, var(--accent) 8%, var(--surface-strong));
+}
+
 .icon-button {
   width: 40px;
   height: 40px;
@@ -2947,19 +2962,6 @@ button[aria-busy="true"] {
 
 .auto-topic-main-button:active {
   transform: translateY(1px);
-}
-
-.auto-topic-gear {
-  width: 30px;
-  height: 30px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  border: 1px solid var(--line);
-  border-radius: var(--radius-sm);
-  background: var(--surface-soft);
-  color: var(--accent-dark);
-  line-height: 1;
 }
 
 .auto-topic-main {
@@ -4257,6 +4259,34 @@ button[aria-busy="true"] {
   line-height: 1;
 }
 
+/* Generic tone modifiers for .status-pill, distinct from the job-status-only
+   .status-completed/-failed/-running/-queued rules above. Use these for any
+   other kind of pill (enabled/disabled, moderation flags, etc.) so they don't
+   need their own bespoke color rules. */
+.status-pill.tone-success {
+  border-color: var(--success-border);
+  color: var(--success-fg);
+  background: var(--success-bg);
+}
+
+.status-pill.tone-warn {
+  border-color: var(--warning-border);
+  color: var(--warning-fg);
+  background: var(--warning-bg);
+}
+
+.status-pill.tone-danger {
+  border-color: var(--danger-border);
+  color: var(--danger-fg);
+  background: var(--danger-bg);
+}
+
+.status-pill.tone-info {
+  border-color: var(--info-border);
+  color: var(--info-fg);
+  background: var(--info-bg);
+}
+
 .empty-state {
   margin-top: 12px;
   padding: 28px 20px;
@@ -4940,10 +4970,6 @@ button[aria-busy="true"] {
   margin-top: 10px;
 }
 
-.settings-tabs {
-  align-items: stretch;
-}
-
 /* ==============================================================
    Settings: ChatGPT/Claude 风格的左侧 sidebar + 右侧内容布局
    ============================================================== */
@@ -4955,7 +4981,9 @@ button[aria-busy="true"] {
   align-items: start;
 }
 
-.settings-side-nav {
+/* .admin-tabs — shared vertical tab-bar primitive (originally settings-only,
+   renamed so other admin pages can reuse the same tablist pattern). */
+.admin-tabs {
   position: sticky;
   top: 88px;
   display: flex;
@@ -4967,7 +4995,7 @@ button[aria-busy="true"] {
   border-radius: var(--radius-md);
 }
 
-.settings-side-nav-header {
+.admin-tabs-heading {
   font-size: 11px;
   letter-spacing: 0.12em;
   text-transform: uppercase;
@@ -4977,7 +5005,7 @@ button[aria-busy="true"] {
   margin-bottom: 6px;
 }
 
-.settings-side-nav button {
+.admin-tabs button {
   display: flex;
   align-items: center;
   gap: 10px;
@@ -4994,17 +5022,17 @@ button[aria-busy="true"] {
   transition: background 0.12s ease, color 0.12s ease, border-color 0.12s ease;
 }
 
-.settings-side-nav button:hover {
+.admin-tabs button:hover {
   background: var(--surface);
 }
 
-.settings-side-nav button.active {
+.admin-tabs button.active {
   background: var(--accent);
   color: var(--white);
   border-color: var(--accent);
 }
 
-.settings-side-nav-icon {
+.admin-tabs-icon {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -5014,12 +5042,12 @@ button[aria-busy="true"] {
   opacity: 0.75;
 }
 
-.settings-side-nav-icon svg {
+.admin-tabs-icon svg {
   width: 16px;
   height: 16px;
 }
 
-.settings-side-nav button.active .settings-side-nav-icon {
+.admin-tabs button.active .admin-tabs-icon {
   opacity: 1;
 }
 
@@ -5051,7 +5079,7 @@ button[aria-busy="true"] {
     grid-template-columns: 1fr;
     gap: 16px;
   }
-  .settings-side-nav {
+  .admin-tabs {
     position: static;
     flex-direction: row;
     overflow-x: auto;
@@ -5059,10 +5087,10 @@ button[aria-busy="true"] {
     gap: 4px;
     scrollbar-width: thin;
   }
-  .settings-side-nav-header {
+  .admin-tabs-heading {
     display: none;
   }
-  .settings-side-nav button {
+  .admin-tabs button {
     white-space: nowrap;
     padding: 6px 12px;
     flex-shrink: 0;
@@ -5312,7 +5340,14 @@ button:disabled {
   max-width: 640px;
 }
 
-.modules-admin .modules-new-summary {
+.modules-admin .modules-new-form {
+  margin-top: 14px;
+}
+
+/* 通用 <details>/<summary> 折叠头：隐藏原生三角，换成随展开状态旋转的
+   ▸ 箭头。任何"默认收起、点了才展开"的区块都能直接用，不用每个页面
+   各写一遍——模块页的"新增模块"、设置页的"已有内容风格"列表都靠它。 */
+.disclosure-summary {
   cursor: pointer;
   list-style: none;
   display: flex;
@@ -5320,31 +5355,20 @@ button:disabled {
   gap: 8px;
 }
 
-.modules-admin .modules-new-summary::-webkit-details-marker {
+.disclosure-summary::-webkit-details-marker {
   display: none;
 }
 
-.modules-admin .modules-new-summary h2 {
-  margin: 0;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-/* 折叠三角：收起指右、展开指下 */
-.modules-admin .modules-new-summary h2::before {
+.disclosure-summary::before {
   content: "▸";
   font-size: 0.8em;
   color: var(--muted);
   transition: transform 0.15s ease;
+  flex-shrink: 0;
 }
 
-.modules-admin .modules-new[open] .modules-new-summary h2::before {
+details[open] > .disclosure-summary::before {
   transform: rotate(90deg);
-}
-
-.modules-admin .modules-new-form {
-  margin-top: 14px;
 }
 
 .module-grid {
@@ -7938,60 +7962,6 @@ button:disabled {
   border: 1px solid var(--line);
 }
 
-/* ==============================================================
-   Admin shell readability fix for non-classic UI modes
-   --------------------------------------------------------------
-   `.admin-layout` forces a light `var(--paper)` background even
-   under data-ui="dynamic" / "cyber", whose body-level rules paint
-   text white/cyan for their own dark backgrounds. The mismatch
-   leaves admin headings, metric values and panel bodies almost
-   invisible. Restore theme colors inside `.admin-main`; the
-   sidebar keeps its own dark surface so it is unaffected.
-   ============================================================== */
-:root:is([data-ui="dynamic"], [data-ui="cyber"]) .admin-main {
-  color: var(--ink);
-}
-
-:root:is([data-ui="dynamic"], [data-ui="cyber"]) .admin-main :is(h1, h2, h3, h4, strong, p) {
-  color: var(--ink);
-}
-
-:root:is([data-ui="dynamic"], [data-ui="cyber"]) .admin-main :is(.muted, .eyebrow, .meta-row) {
-  color: var(--muted);
-}
-
-:root:is([data-ui="dynamic"], [data-ui="cyber"]) .admin-main :is(.admin-panel, .card, .form-card, .hero-panel, .chart-card) {
-  background: var(--surface-strong);
-  border: 1px solid var(--line);
-  color: var(--ink);
-  backdrop-filter: none;
-  -webkit-backdrop-filter: none;
-  clip-path: none;
-}
-
-:root:is([data-ui="dynamic"], [data-ui="cyber"]) .admin-main .button.secondary {
-  background: var(--surface-strong);
-  color: var(--accent-dark);
-  border: 1px solid var(--line-strong);
-  text-shadow: none;
-}
-
-:root:is([data-ui="dynamic"], [data-ui="cyber"]) .admin-main .button:not(.secondary):not(.ghost) {
-  background: var(--accent);
-  color: var(--white);
-  border: 1px solid var(--accent);
-  text-shadow: none;
-}
-
-:root:is([data-ui="dynamic"], [data-ui="cyber"]) .admin-main .topic-tabs :is(a, button) {
-  color: var(--ink-soft);
-}
-
-:root:is([data-ui="dynamic"], [data-ui="cyber"]) .admin-main .tag {
-  background: var(--surface-soft);
-  border: 1px solid var(--line);
-  color: var(--ink-soft);
-}
 
 /* ==============================================================
    Frontend polish pass (2026-07)
@@ -8065,9 +8035,29 @@ button:disabled {
   animation: route-enter 0.25s ease backwards;
 }
 
+/* 后台页切换过场（vue-element-admin fade-transform 同款）：主内容区从左侧
+   淡入滑入，侧栏保持静止。由 admin/template.tsx 在每次客户端导航重挂载
+   .admin-main 触发。transform 只在 0.3s 动画期间存在，结束即归位（backwards
+   非 forwards），不会长期影响内部 fixed 元素。 */
+@keyframes admin-page-slide {
+  from {
+    opacity: 0;
+    transform: translateX(-30px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.admin-main {
+  animation: admin-page-slide 0.3s cubic-bezier(0.2, 0.6, 0.3, 1) backwards;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .route-transition,
-  .route-loading {
+  .route-loading,
+  .admin-main {
     animation: none;
   }
 }

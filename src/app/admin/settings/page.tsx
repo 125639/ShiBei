@@ -127,8 +127,12 @@ export default async function SettingsPage({
 
   return (
     <AdminShell>
-      <p className="eyebrow"><I18nText zh="Settings" en="Settings" /></p>
-      <h1 style={{ marginBottom: "28px" }}><I18nText zh="系统设置" en="System Settings" /></h1>
+      <div className="admin-page-header">
+        <div>
+          <p className="eyebrow"><I18nText zh="Settings" en="Settings" /></p>
+          <h1><I18nText zh="系统设置" en="System Settings" /></h1>
+        </div>
+      </div>
 
       <SettingsClient
         site={siteProps}

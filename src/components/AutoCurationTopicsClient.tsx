@@ -176,11 +176,7 @@ export function AutoCurationTopicsClient({ topics, styles, modules }: Props) {
                             toggleChecked(topic.id);
                             setSelectedId(topic.id);
                           }}
-                          onDoubleClick={() => {
-                            setSelectedId(topic.id);
-                            setEditingId(topic.id);
-                          }}
-                          title="单击勾选，双击编辑"
+                          title="勾选以批量操作"
                           aria-label={`选择主题 ${topic.name}`}
                         />
                         <span className="round-checkbox-dot" aria-hidden="true" />
@@ -190,20 +186,15 @@ export function AutoCurationTopicsClient({ topics, styles, modules }: Props) {
                       type="button"
                       className="auto-topic-main-button"
                       aria-pressed={selected}
-                      title="单击选择，双击设置"
+                      title="查看详情；编辑请用右侧「设置」"
                       onClick={() => setSelectedId(topic.id)}
-                      onDoubleClick={() => {
-                        setSelectedId(topic.id);
-                        setEditingId(topic.id);
-                      }}
                     >
                       <span className="auto-topic-main">
                         <strong>{topic.name}</strong>
                         <small>{describeAlarmCron(topic.scheduleCron)} · {previewKeywords(topic.keywords) || "—"}</small>
                       </span>
                       <span className="auto-topic-status">
-                        <span className="tag">{topic.isEnabled ? <I18nText zh="启用" en="On" /> : <I18nText zh="停用" en="Off" />}</span>
-                        <span className="auto-topic-gear" aria-hidden="true">⚙</span>
+                        <span className={topic.isEnabled ? "status-pill tone-success" : "status-pill"}>{topic.isEnabled ? <I18nText zh="启用" en="On" /> : <I18nText zh="停用" en="Off" />}</span>
                       </span>
                     </button>
                   </div>
@@ -432,9 +423,9 @@ function TopicSettingsDialog({
                   en="When selected, collection only uses sources in these modules; leave empty to use every source matching the region scope."
                 />
               </p>
-              <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+              <div className="tag-group">
                 {modules.map((module) => (
-                  <label key={module.id} className="tag" style={{ cursor: "pointer", borderColor: module.color }}>
+                  <label key={module.id} className="tag" style={{ "--tag-accent": module.color } as React.CSSProperties}>
                     <input
                       type="checkbox"
                       name="moduleIds"

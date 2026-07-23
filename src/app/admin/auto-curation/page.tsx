@@ -59,8 +59,12 @@ export default async function AutoCurationPage() {
 
   return (
     <AdminShell>
-      <p className="eyebrow">Content Automation</p>
-      <h1><I18nText zh="自动内容生产" en="Auto Curation" /></h1>
+      <div className="admin-page-header">
+        <div>
+          <p className="eyebrow">Content Automation</p>
+          <h1><I18nText zh="自动内容生产" en="Auto Curation" /></h1>
+        </div>
+      </div>
       <p className="muted">
         <I18nText
           zh="管理员配置主题、关键词、生成风格和定时表后,worker 会按计划整理资料并生成博客草稿。可在站点设置开启「自动发布」,让产物直接上线。"

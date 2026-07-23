@@ -9,8 +9,24 @@ import { TaskProgress } from "@/components/TaskProgress";
 import { requireAdmin } from "@/lib/auth";
 import { formatDateTime, getJobDuration, getJobKindLabel, getJobTitleLabel } from "@/lib/job-utils";
 import { decodePostRepairResult, parsePostRepairUrl, type PostRepairResult } from "@/lib/post-repair";
+import { BUNDLED_STYLE_PRESETS } from "@/lib/content-style";
+import { parseKeywordResearchUrl, parseRawItemKeywordUrl, researchDepthLabel, researchScopeLabel } from "@/lib/research";
 import { prisma } from "@/lib/prisma";
 import { formatBytes } from "@/lib/storage";
+
+// 来源 URL / 原始条目 URL 对关键词研究任务来说是内部伪 URL
+// （keyword://research?q=...），直接展示是一串没人看得懂的编码垃圾。
+// 能解析出关键词就还原成一句人话；不是关键词研究（比如真实网页/RSS
+// 链接）就原样展示，那本身就是有意义的信息。
+function friendlySourceLabel(sourceUrl: string) {
+  const keywordResearch = parseKeywordResearchUrl(sourceUrl);
+  if (keywordResearch) {
+    return `关键词搜索：${keywordResearch.keyword}（${researchScopeLabel(keywordResearch.scope)} · ${keywordResearch.count} 篇 · ${researchDepthLabel(keywordResearch.depth)}）`;
+  }
+  const rawItemKeyword = parseRawItemKeywordUrl(sourceUrl);
+  if (rawItemKeyword) return `关键词：${rawItemKeyword.keyword}`;
+  return sourceUrl;
+}
 
 export const dynamic = "force-dynamic";
 
@@ -52,6 +68,24 @@ export default async function AdminJobDetailPage({
   if (!job) notFound();
   const postRepair = parsePostRepairUrl(job.sourceUrl);
   const repairResult = decodePostRepairResult(job.error);
+
+  // job.modelConfigId/contentStyleId 只是裸字符串外键，schema 里没声明
+  // Prisma relation（历史遗留：一个还可能指向内置预设而非表行），得单独查。
+  const [modelConfigRow, contentStyleRow] = await Promise.all([
+    job.modelConfigId
+      ? prisma.modelConfig.findUnique({ where: { id: job.modelConfigId }, select: { name: true } })
+      : null,
+    job.contentStyleId
+      ? prisma.contentStyle.findUnique({ where: { id: job.contentStyleId }, select: { name: true } })
+      : null
+  ]);
+  const bundledStylePreset = job.contentStyleId
+    ? BUNDLED_STYLE_PRESETS.find((preset) => preset.id === job.contentStyleId)
+    : null;
+  const modelConfigLabel = job.modelConfigId ? modelConfigRow?.name || job.modelConfigId : "默认 / default";
+  const contentStyleLabel = job.contentStyleId
+    ? contentStyleRow?.name || bundledStylePreset?.name || job.contentStyleId
+    : "默认 / default";
 
   const rawItemsWithPosts = job.rawItems.filter((item) => item.post);
   const videos = rawItemsWithPosts.flatMap((item) => item.post?.videos || []);
@@ -116,14 +150,14 @@ export default async function AdminJobDetailPage({
         <h2><I18nText zh="执行信息" en="Execution Info" /></h2>
         <div className="diagnostic-grid">
           <Info label={<I18nText zh="任务 ID" en="Job ID" />} value={job.id} mono />
-          <Info label={<I18nText zh="来源 URL" en="Source URL" />} value={job.sourceUrl} />
+          <Info label={<I18nText zh="来源 URL" en="Source URL" />} value={friendlySourceLabel(job.sourceUrl)} />
           <Info label={<I18nText zh="来源类型" en="Source type" />} value={job.sourceType} />
           <Info label={<I18nText zh="创建时间" en="Created" />} value={formatDateTime(job.createdAt)} />
           <Info label={<I18nText zh="更新时间" en="Updated" />} value={formatDateTime(job.updatedAt)} />
           <Info label={<I18nText zh="完成时间" en="Completed" />} value={formatDateTime(job.completedAt)} />
           <Info label={<I18nText zh="耗时" en="Duration" />} value={getJobDuration(job)} />
-          <Info label={<I18nText zh="模型配置" en="Model config" />} value={job.modelConfigId || "默认 / default"} mono={Boolean(job.modelConfigId)} />
-          <Info label={<I18nText zh="内容风格" en="Content style" />} value={job.contentStyleId || "默认 / default"} mono={Boolean(job.contentStyleId)} />
+          <Info label={<I18nText zh="模型配置" en="Model config" />} value={modelConfigLabel} />
+          <Info label={<I18nText zh="内容风格" en="Content style" />} value={contentStyleLabel} />
           <Info label={<I18nText zh="自动主题" en="Topic" />} value={job.contentTopic?.name || "—"} />
         </div>
         {repairResult ? (
@@ -153,7 +187,7 @@ export default async function AdminJobDetailPage({
                   <div className="muted">
                     <I18nText zh="原始条目：" en="Raw item: " /><code>{rawItem.id}</code> · <I18nText zh="创建" en="created" /> {formatDateTime(rawItem.createdAt)}
                   </div>
-                  <div className="muted">{shortText(rawItem.url, 220)}</div>
+                  <div className="muted">{shortText(friendlySourceLabel(rawItem.url), 220)}</div>
                   {rawItem.post ? (
                     <div className="artifact-post">
                       <div className="meta-row" style={{ alignItems: "center" }}>

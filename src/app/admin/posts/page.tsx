@@ -74,8 +74,12 @@ export default async function AdminPostsPage({ searchParams }: { searchParams: P
 
   return (
     <AdminShell>
-      <p className="eyebrow">Posts</p>
-      <h1><I18nText zh="草稿与文章" en="Drafts & Posts" /></h1>
+      <div className="admin-page-header">
+        <div>
+          <p className="eyebrow">Posts</p>
+          <h1><I18nText zh="草稿与文章" en="Drafts & Posts" /></h1>
+        </div>
+      </div>
       {params.publishError === "blocked" || params.publishError === "pending_revision" ? (
         <div className="form-error" role="alert">
           {params.publishError === "pending_revision" ? (

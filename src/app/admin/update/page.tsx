@@ -26,10 +26,14 @@ export default async function UpdateAdminPage() {
 
   return (
     <AdminShell>
-      <p className="eyebrow">Update</p>
-      <h1>
-        <I18nText zh="系统更新" en="System Update" />
-      </h1>
+      <div className="admin-page-header">
+        <div>
+          <p className="eyebrow">Update</p>
+          <h1>
+            <I18nText zh="系统更新" en="System Update" />
+          </h1>
+        </div>
+      </div>
       <p className="muted-block" style={{ maxWidth: 720 }}>
         <I18nText
           zh="检查 GitHub 仓库的新版本，并在网页上一键完成「拉取代码 → 重建镜像 → 滚动重启」，无需登录服务器终端。更新期间站点会短暂中断几十秒；数据库与上传文件不受影响。"
