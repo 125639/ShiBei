@@ -56,6 +56,9 @@ services:
 
   app:
     image: safg/shibei:backend
+    # 本地没有该镜像时优先从 Docker Hub 拉取，而不是触发本地构建——
+    # 低内存机器上 next build + Chromium 下载几乎必然 OOM(README ❼)。
+    pull_policy: missing
     build:
       context: .
       dockerfile: Dockerfile.backend
@@ -72,7 +75,9 @@ services:
     environment:
       APP_MODE: backend
       TRUST_PROXY_HOPS: ${TRUST_PROXY_HOPS:-0}
-      NODE_OPTIONS: --max-old-space-size=768
+      # 堆上限须显著低于 mem_limit(768m)：V8 老生代涨满上限时，堆外内存
+      # 会先触发 cgroup OOMKill 而不是 GC。
+      NODE_OPTIONS: --max-old-space-size=512
       # 统计分桶按进程本地时区；默认上海，.env 里设 TZ 可覆盖。
       TZ: ${TZ:-Asia/Shanghai}
     ports:
@@ -82,6 +87,8 @@ services:
     init: true
     volumes:
       - app-uploads:/app/public/uploads
+      # 图片优化缓存持久化（full/frontend 一直有）：少了它每次换容器都全量重压。
+      - app-image-cache:/app/.next/cache/images
     healthcheck:
       test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
       interval: 30s
@@ -95,6 +102,9 @@ services:
 
   worker:
     image: safg/shibei:backend
+    # 本地没有该镜像时优先从 Docker Hub 拉取，而不是触发本地构建——
+    # 低内存机器上 next build + Chromium 下载几乎必然 OOM(README ❼)。
+    pull_policy: missing
     build:
       context: .
       dockerfile: Dockerfile.backend
@@ -112,6 +122,9 @@ services:
       APP_MODE: backend
       NODE_OPTIONS: --max-old-space-size=768
       TZ: ${TZ:-Asia/Shanghai}
+      # worker 发布内容后要通知 app 进程失效公开页缓存；缺了它每次发布都会
+      # 打「缓存刷新通知失败」告警（完整版 compose 一直有这一行）。
+      SHIBEI_INTERNAL_APP_URL: ${SHIBEI_INTERNAL_APP_URL:-http://app:3000}
       FETCH_WORKER_CONCURRENCY: 1
       RESEARCH_WORKER_CONCURRENCY: 1
       AUDIENCE_WORKER_CONCURRENCY: 1
@@ -137,6 +150,9 @@ services:
   # 挂载 docker.sock = 宿主 root 权限，只在内网监听，绝不暴露端口。
   updater:
     image: safg/shibei:updater
+    # 本地没有该镜像时优先从 Docker Hub 拉取，而不是触发本地构建——
+    # 低内存机器上 next build + Chromium 下载几乎必然 OOM(README ❼)。
+    pull_policy: missing
     build:
       context: .
       dockerfile: Dockerfile.updater
@@ -167,3 +183,4 @@ volumes:
   postgres-data:
   redis-data:
   app-uploads:
+  app-image-cache:

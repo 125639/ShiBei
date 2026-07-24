@@ -52,3 +52,19 @@ export async function ensureBackendCallerAllowed(request: Request): Promise<Resp
     { status: 401 }
   );
 }
+
+/**
+ * 公开 AI 端点的限流身份。必须在 ensureBackendCallerAllowed 放行之后调用。
+ *
+ * backend 模式下走到这里的调用方必然是持有共享密钥的前端代理（无密钥请求已被
+ * 401 拦下）；此时采信代理转发的原始访客 IP，否则全站访客在 backend 侧都折叠
+ * 成前端出口 IP 的同一个限流桶，一个访客就能打满所有人共享的 per-IP 额度。
+ * full / frontend 模式下该头不可信（任何人都能直接设置），返回 undefined
+ * 让限流退回本机解析的客户端 IP。
+ */
+export function publicAiRateLimitIdentity(request: Request): string | undefined {
+  if (!isBackend()) return undefined;
+  const forwarded = request.headers.get("x-shibei-proxy-client-ip")?.trim();
+  if (!forwarded) return undefined;
+  return `proxied:${forwarded.slice(0, 80)}`;
+}

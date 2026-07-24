@@ -241,7 +241,7 @@ export function UpdateClient({ mode, composeFile, runningCommit, builtAt }: Prop
             />
           </p>
           <pre className="update-log" style={{ maxHeight: 120 }}>
-            {`cd <仓库目录>\ndocker compose -f ${composeFile} up -d --build updater`}
+            {`cd <仓库目录>\ndocker compose -f ${composeFile} up -d updater\n# 若拉取镜像失败(网络受限)，改为本地构建（该镜像很小）:\n# docker compose -f ${composeFile} up -d --build updater`}
           </pre>
           <p className="muted-block" style={{ margin: 0 }}>
             <I18nText

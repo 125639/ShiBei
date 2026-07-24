@@ -117,6 +117,9 @@ export async function GET(
       } else {
         start = Number(startRaw || 0);
         end = endRaw === "" ? total - 1 : Number(endRaw);
+        // RFC 9110：last-byte-pos 超出文件末尾时按「到末尾」截断返回 206，
+        // 而不是 416——不少下载器/播放器会发 bytes=0-999999999 探测。
+        if (Number.isFinite(end) && end >= total) end = total - 1;
       }
       if (
         Number.isNaN(start) ||
@@ -155,11 +158,14 @@ function streamToWeb(nodeStream: fs.ReadStream): ReadableStream<Uint8Array> {
   return Readable.toWeb(nodeStream) as ReadableStream<Uint8Array>;
 }
 
-// HEAD 走同一逻辑但不带 body。
+// HEAD 走同一逻辑但不带 body。GET 已经为 body 打开了文件流，丢弃 Response
+// 而不取消它会让 fd 等到 GC 才释放——爬虫/播放器批量 HEAD 时会累积句柄，
+// 必须显式 cancel 让底层 ReadStream 立即销毁。
 export async function HEAD(
   request: Request,
   ctx: { params: Promise<{ path: string[] }> }
 ) {
   const res = await GET(request, ctx);
+  await res.body?.cancel().catch(() => undefined);
   return new Response(null, { status: res.status, headers: res.headers });
 }

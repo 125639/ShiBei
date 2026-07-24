@@ -10,6 +10,17 @@ UPDATE "WritingDoc"
 SET "ownerId" = NULL
 WHERE "ownerId" IS NOT NULL AND "anonId" IS NOT NULL;
 
+-- 双空行（历史代码路径可能残留的无主记录）会让下方 CHECK 在校验存量数据时
+-- 直接失败：prisma migrate deploy 退出 → 容器 crash-loop，升级即宕机。
+-- 归为不可猜测的合成匿名身份：不删除任何数据，行变为不可访问但约束可通过。
+UPDATE "CreativeWork"
+SET "anonId" = 'orphan-' || md5(random()::text || clock_timestamp()::text || "id")
+WHERE "ownerId" IS NULL AND "anonId" IS NULL;
+
+UPDATE "WritingDoc"
+SET "anonId" = 'orphan-' || md5(random()::text || clock_timestamp()::text || "id")
+WHERE "ownerId" IS NULL AND "anonId" IS NULL;
+
 -- 每条私有创作数据必须且只能有一种身份，防止以后代码回归制造双重身份
 -- 或无主内容。约束也覆盖 WritingDoc -> CreativeWork 转换后的两端记录。
 ALTER TABLE "CreativeWork"

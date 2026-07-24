@@ -116,7 +116,13 @@ export type StorageCleanupDatabase = {
   rawItem: { deleteMany: (args: Prisma.RawItemDeleteManyArgs) => Promise<CleanupCount> };
   post: { updateMany: (args: Prisma.PostUpdateManyArgs) => Promise<CleanupCount> };
   video: {
-    findMany: (args: Prisma.VideoFindManyArgs) => Promise<Array<{ id: string; localPath: string | null; postId: string | null }>>;
+    findMany: (args: Prisma.VideoFindManyArgs) => Promise<Array<{
+      id: string;
+      localPath: string | null;
+      postId: string | null;
+      url: string;
+      sourcePageUrl: string | null;
+    }>>;
     update: (args: Prisma.VideoUpdateArgs) => Promise<unknown>;
   };
 };
@@ -201,17 +207,22 @@ export async function runStorageCleanup(
     }).then((r) => r.count);
   }
 
-  // Delete local video files for ARCHIVED posts (we keep metadata).
+  // Delete local video files for ARCHIVED posts (we keep metadata). Orphan
+  // videos (post deleted → postId set null) share the same retention rule —
+  // without it their files could never be reclaimed by anything.
   let videoFilesDeleted = 0;
   const videosToTrim = reclaimOldPostStorage
     ? await database.video.findMany({
         where: {
           localPath: { not: null },
-          // Keep videos for recently/manual-archived posts outside the configured
-          // age window. The destructive rule is tied to cleanupAfterDays too.
-          post: { status: "ARCHIVED", publishedAt: { lt: cutoff } }
+          OR: [
+            // Keep videos for recently/manual-archived posts outside the configured
+            // age window. The destructive rule is tied to cleanupAfterDays too.
+            { post: { status: "ARCHIVED", publishedAt: { lt: cutoff } } },
+            { postId: null, updatedAt: { lt: cutoff } }
+          ]
       },
-      select: { id: true, localPath: true, postId: true }
+      select: { id: true, localPath: true, postId: true, url: true, sourcePageUrl: true }
       })
     : [];
 
@@ -232,9 +243,17 @@ export async function runStorageCleanup(
       // I/O and database errors are not silently reported as a successful cleanup.
       if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
     }
+    // 文件删了就不能再留 type=LOCAL + url=/uploads/…：归档文章被重新发布或
+    // 元数据被同步到前端时会渲染出 404 播放器。降级为指向来源页的链接卡片
+    // （与 sync/import.ts 缺文件时的降级同口径）。
+    const fallbackUrl = /^https?:\/\//i.test(video.url || "")
+      ? video.url
+      : /^https?:\/\//i.test(video.sourcePageUrl || "")
+        ? (video.sourcePageUrl as string)
+        : "";
     await database.video.update({
       where: { id: video.id },
-      data: { localPath: null, fileSizeBytes: null }
+      data: { localPath: null, fileSizeBytes: null, type: "LINK", url: fallbackUrl }
     });
     if (deleted) videoFilesDeleted += 1;
   }

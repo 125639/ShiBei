@@ -41,6 +41,9 @@ services:
 
   app:
     image: safg/shibei:frontend
+    # 本地没有该镜像时优先从 Docker Hub 拉取，而不是触发本地构建——
+    # 低内存机器上 next build + Chromium 下载几乎必然 OOM(README ❼)。
+    pull_policy: missing
     build:
       context: .
       dockerfile: Dockerfile.frontend
@@ -99,6 +102,9 @@ services:
   # 内存点评：构建由宿主 dockerd 执行，updater 本身只是转发命令，192m 足够。
   updater:
     image: safg/shibei:updater
+    # 本地没有该镜像时优先从 Docker Hub 拉取，而不是触发本地构建——
+    # 低内存机器上 next build + Chromium 下载几乎必然 OOM(README ❼)。
+    pull_policy: missing
     build:
       context: .
       dockerfile: Dockerfile.updater

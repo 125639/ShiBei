@@ -26,6 +26,11 @@ const PER_FILE_MAX_BYTES = 150 * 1024 * 1024;
 const MIN_BUDGET_BYTES = 20 * 1024 * 1024;
 /** yt-dlp 整体超时。B 站/YouTube 480p 一般几分钟内完成；超时视为失败并清理残件。 */
 const DOWNLOAD_TIMEOUT_MS = 15 * 60 * 1000;
+/**
+ * 单条视频最长时长（README 承诺「限时长 ≤ 20 分钟」）。已知时长的在入口快速
+ * 失败；未知时长的交给 yt-dlp 的 --match-filters 在解析元数据后拦截。
+ */
+const MAX_DOWNLOAD_DURATION_SEC = 20 * 60;
 
 const YT_DLP_BIN = process.env.YT_DLP_PATH || "yt-dlp";
 
@@ -43,18 +48,21 @@ export class PendingRevisionVideoDownloadError extends Error {
 }
 
 export async function videoTouchesPendingRevision(videoId: string) {
-  const [video, posts] = await Promise.all([
-    prisma.video.findUnique({ where: { id: videoId }, select: { postId: true } }),
-    prisma.post.findMany({ select: { id: true, content: true, contentEn: true, pendingRevision: true } })
-  ]);
+  const video = await prisma.video.findUnique({ where: { id: videoId }, select: { postId: true } });
   if (!video) return false;
   const token = `[[video:${videoId}]]`;
-  return posts.some((post) => post.pendingRevision !== null && (
+  // 只取带待审修订的文章（数量极少）——旧实现把全站所有文章的完整正文拉进
+  // 内存，开销随文章数线性增长。语义不变：原判定本就要求 pendingRevision 非空。
+  const pending = await prisma.post.findMany({
+    where: { pendingRevision: { not: Prisma.AnyNull } },
+    select: { id: true, content: true, contentEn: true, pendingRevision: true }
+  });
+  return pending.some((post) =>
     post.id === video.postId
     || post.content.includes(token)
     || Boolean(post.contentEn?.includes(token))
     || JSON.stringify(post.pendingRevision).includes(token)
-  ));
+  );
 }
 
 /**
@@ -155,6 +163,11 @@ async function runYtDlp(target: TrustedVideoDownloadTarget, videoId: string, max
     "--socket-timeout", "30",
     "--retries", "3",
     "--max-filesize", String(maxFileBytes),
+    // 多个 --match-filters 之间是 OR：时长未知的放行（由 --max-filesize 与整体
+    // 超时兜底），已知时长超过 20 分钟的在下载前拦截（--max-filesize 对 HLS
+    // 这类未知大小的流并不可靠，不能只依赖它）。
+    "--match-filters", "!duration",
+    "--match-filters", `duration<=${MAX_DOWNLOAD_DURATION_SEC}`,
     "-S", "res:480,ext",
     "--remux-video", "mp4",
     ...(cookies ? ["--cookies", cookies.path] : []),
@@ -193,13 +206,21 @@ export async function downloadVideoToLocal(videoId: string): Promise<VideoDownlo
   await ensureUploadDirs();
   const video = await prisma.video.findUnique({
     where: { id: videoId },
-    select: { id: true, type: true, url: true, localPath: true, sourcePageUrl: true, attribution: true }
+    select: { id: true, type: true, url: true, localPath: true, sourcePageUrl: true, attribution: true, durationSec: true }
   });
   if (!video) throw new Error(`视频不存在：${videoId}`);
   if (video.type === "LOCAL" && video.localPath) {
     // 已经是本地文件，无事可做（防止重复任务）。
     await prisma.video.update({ where: { id: videoId }, data: { downloadStatus: null, downloadError: null } });
     return { videoId, fileName: path.basename(video.localPath), fileSizeBytes: 0 };
+  }
+  if (typeof video.durationSec === "number" && video.durationSec > MAX_DOWNLOAD_DURATION_SEC) {
+    const message = `视频时长超过 ${Math.round(MAX_DOWNLOAD_DURATION_SEC / 60)} 分钟上限，不做本地存档；可在原站观看完整版`;
+    await prisma.video.update({
+      where: { id: videoId },
+      data: { downloadStatus: "failed", downloadError: message }
+    }).catch(() => undefined);
+    throw new Error(message);
   }
 
   await prisma.video.update({
@@ -265,24 +286,52 @@ export async function downloadVideoToLocal(videoId: string): Promise<VideoDownlo
       `);
       if (!lockedVideo.length) throw new Error(`视频不存在：${videoId}`);
       // Long downloads can overlap an editor creating a pending revision. Lock
-      // and inspect every possible shortcode owner immediately before switching
+      // and inspect every current shortcode owner immediately before switching
       // the live player, then bump referencing Post versions so an editor that
       // loaded the old player state cannot save stale work afterward.
-      await tx.$queryRaw(Prisma.sql`SELECT "id" FROM "Post" ORDER BY "id" FOR UPDATE`);
-      const posts = await tx.post.findMany({
-        select: { id: true, content: true, contentEn: true, pendingRevision: true }
-      });
+      //
+      // 旧实现整表 SELECT ... FOR UPDATE + 全量加载所有正文：文章上千后该事务
+      // 必然超过 Prisma 默认 5s 超时，15 分钟的下载成果被整体回滚删除，且期间
+      // 阻塞全站 Post 写入。这里改为只查/只锁真正引用本视频的行；带待审修订的
+      // 文章数量极少，其 JSON 引用在应用侧判断。
       const currentVideo = await tx.video.findUnique({ where: { id: videoId }, select: { postId: true } });
       if (!currentVideo) throw new Error(`视频不存在：${videoId}`);
       const token = `[[video:${videoId}]]`;
-      const references = posts.filter((post) =>
-        post.id === currentVideo.postId
-        || post.content.includes(token)
-        || Boolean(post.contentEn?.includes(token))
-        || (post.pendingRevision !== null && JSON.stringify(post.pendingRevision).includes(token))
+      const [referencing, pendingHolders] = await Promise.all([
+        tx.post.findMany({
+          where: {
+            OR: [
+              ...(currentVideo.postId ? [{ id: currentVideo.postId }] : []),
+              { content: { contains: token } },
+              { contentEn: { contains: token } }
+            ]
+          },
+          select: { id: true, pendingRevision: true }
+        }),
+        tx.post.findMany({
+          where: { pendingRevision: { not: Prisma.AnyNull } },
+          select: { id: true, pendingRevision: true }
+        })
+      ]);
+      const pendingReferencing = pendingHolders.filter(
+        (post) => JSON.stringify(post.pendingRevision).includes(token)
       );
-      if (references.some((post) => post.pendingRevision !== null)) {
+      if (
+        referencing.some((post) => post.pendingRevision !== null)
+        || pendingReferencing.length
+      ) {
         throw new PendingRevisionVideoDownloadError();
+      }
+      const referenceIds = [...new Set([
+        ...referencing.map((post) => post.id),
+        ...pendingReferencing.map((post) => post.id)
+      ])].sort();
+      if (referenceIds.length) {
+        // 行级锁定引用行（按 id 排序防死锁），阻止编辑器在本事务提交前
+        // 基于旧播放器状态创建待审版本。
+        await tx.$queryRaw(Prisma.sql`
+          SELECT "id" FROM "Post" WHERE "id" IN (${Prisma.join(referenceIds)}) FOR UPDATE
+        `);
       }
 
       await tx.video.update({
@@ -303,10 +352,10 @@ export async function downloadVideoToLocal(videoId: string): Promise<VideoDownlo
         }
       });
       const version = new Date();
-      for (const post of references) {
-        await tx.post.update({ where: { id: post.id }, data: { updatedAt: version } });
+      for (const postId of referenceIds) {
+        await tx.post.update({ where: { id: postId }, data: { updatedAt: version } });
       }
-    });
+    }, { timeout: 30_000, maxWait: 10_000 });
     return { videoId, fileName: finalDownloaded.fileName, fileSizeBytes: finalDownloaded.size };
   } catch (error) {
     await cleanupDownloadArtifacts(videoId);

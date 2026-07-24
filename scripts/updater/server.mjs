@@ -45,10 +45,31 @@ const UPDATE_BRANCH = (process.env.UPDATE_BRANCH || "").trim();
 // 低配机形态：本机 build 必然 OOM（Next 构建需 4GB+ 内存），改为拉取
 // Docker Hub 上的预构建镜像；其余值一律按 "build" 处理。.env 里的值可能带
 // 引号（godotenv 通常会剥掉，防御性再剥一次）。
-const DEPLOY_SOURCE =
-  (process.env.DEPLOY_SOURCE || "build").trim().replace(/^["']|["']$/g, "") === "pull"
-    ? "pull"
-    : "build";
+// 未显式配置时按宿主内存自动决定：<3.5GB 的机器上 build 是必败选项
+// （老版本 init 生成的 .env 没有 DEPLOY_SOURCE，一键更新会在小机上 OOM）。
+const DEPLOY_SOURCE = resolveDeploySource();
+
+function resolveDeploySource() {
+  const raw = (process.env.DEPLOY_SOURCE || "").trim().replace(/^["']|["']$/g, "");
+  if (raw === "pull") return "pull";
+  if (raw) return "build";
+  try {
+    const meminfo = readFileSync("/proc/meminfo", "utf8");
+    const totalKb = Number(/^MemTotal:\s+(\d+)\s+kB/m.exec(meminfo)?.[1] || 0);
+    if (totalKb > 0 && totalKb < 3.5 * 1024 * 1024) {
+      console.log(`[updater] DEPLOY_SOURCE 未配置且宿主内存约 ${Math.round(totalKb / 1024)}MB（<3.5GB），自动采用 pull 模式（本机构建必 OOM）`);
+      return "pull";
+    }
+  } catch {
+    /* /proc 读不到就按 build 处理 */
+  }
+  return "build";
+}
+
+// git fetch 的超时：GFW 类网络阻断表现为无限挂而不是快速失败。检查路径
+// 用短超时让面板尽快给出结论；build 模式的更新必须拿到新源码，保留长超时。
+const CHECK_FETCH_TIMEOUT_MS = 45_000;
+const UPDATE_FETCH_TIMEOUT_MS = DEPLOY_SOURCE === "pull" ? 45_000 : 180_000;
 
 const LOG_LIMIT = 800; // ring buffer 行数上限
 
@@ -181,10 +202,17 @@ async function composeProject() {
 async function doCheck() {
   const fetched = await run("git", ["-C", REPO_DIR, "fetch", "origin", "--prune"], {
     quiet: true,
-    timeoutMs: 120_000
+    timeoutMs: CHECK_FETCH_TIMEOUT_MS
   });
   if (fetched.code !== 0) {
-    return { error: `git fetch 失败（exit ${fetched.code}）：${fetched.out.slice(-400)}` };
+    return {
+      error:
+        `git fetch 失败（exit ${fetched.code}）：git 远端不可达（国内服务器访问 GitHub 常见）。` +
+        (DEPLOY_SOURCE === "pull"
+          ? "pull 模式下仍可点「立即更新」：将跳过仓库对比、直接从镜像仓库拉取最新预构建镜像。"
+          : "build 模式需要先拿到最新源码；请检查服务器到 git 远端的网络（或改用 DEPLOY_SOURCE=pull + 预构建镜像）。") +
+        `${fetched.out ? `\n${fetched.out.slice(-300)}` : ""}`
+    };
   }
   const branch = await resolveBranch();
   const remoteRef = `origin/${branch}`;
@@ -233,49 +261,65 @@ async function doUpdate() {
 
     state.phase = "fetching";
     logLine(`开始更新：分支 ${branch}，compose 文件 ${COMPOSE_FILE_NAME}，project ${project}，部署方式 ${DEPLOY_SOURCE}，${DEPLOY_SOURCE === "pull" ? "拉取" : "构建"} ${(DEPLOY_SOURCE === "pull" ? UPDATE_SERVICES : BUILD_SERVICES).join(" ")}，重启应用服务 ${UPDATE_SERVICES.join(" ")}`);
-    const [dirty, currentBranch, oldHead] = await Promise.all([
-      git(["status", "--porcelain"]),
-      git(["rev-parse", "--abbrev-ref", "HEAD"]),
-      git(["rev-parse", "HEAD"])
-    ]);
-    if (dirty.code !== 0) throw new Error("无法检查仓库工作区状态，已拒绝更新");
-    if (dirty.out) {
-      throw new Error(
-        `仓库存在未提交或未跟踪文件，已拒绝更新以防数据丢失。请先由管理员备份并处理这些改动：\n${dirty.out.slice(0, 1200)}`
-      );
+    const oldHead = await git(["rev-parse", "HEAD"]);
+    let repoSynced = false;
+    let r = await run("git", ["-C", REPO_DIR, "fetch", "origin", "--prune"], { timeoutMs: UPDATE_FETCH_TIMEOUT_MS });
+    if (r.code !== 0) {
+      if (DEPLOY_SOURCE !== "pull") {
+        throw new Error(
+          `git fetch 失败（exit ${r.code}）：git 远端不可达。build 模式必须先拿到最新源码；` +
+          "请检查服务器到 git 远端的网络，或改用 DEPLOY_SOURCE=pull + 预构建镜像。"
+        );
+      }
+      // pull 模式的交付物是镜像，不是源码。国内服务器到 GitHub 的链路经常
+      // 不通，而镜像仓库通常走 daemon 配置的加速器可达——此时坚持要求
+      // git fetch 成功等于让一键更新永远不可用。跳过仓库同步，仅更新镜像。
+      logLine("! git 远端不可达（国内服务器访问 GitHub 常见）。跳过仓库同步，直接拉取预构建镜像更新应用；compose 文件/脚本层面的改动需等仓库可同步时才会生效。");
+    } else {
+      const [dirty, currentBranch] = await Promise.all([
+        git(["status", "--porcelain"]),
+        git(["rev-parse", "--abbrev-ref", "HEAD"])
+      ]);
+      if (dirty.code !== 0) throw new Error("无法检查仓库工作区状态，已拒绝更新");
+      if (dirty.out) {
+        throw new Error(
+          `仓库存在未提交或未跟踪文件，已拒绝更新以防数据丢失。请先由管理员备份并处理这些改动：\n${dirty.out.slice(0, 1200)}`
+        );
+      }
+      if (currentBranch.code !== 0 || currentBranch.out !== branch) {
+        throw new Error(
+          `当前分支为 ${currentBranch.out || "未知"}，目标分支为 ${branch}；为避免更新错误分支，已拒绝自动切换。`
+        );
+      }
+      const divergence = await git(["rev-list", "--left-right", "--count", `HEAD...origin/${branch}`]);
+      if (divergence.code !== 0) throw new Error(`无法比较本地与 origin/${branch}，已拒绝更新`);
+      const [aheadRaw, behindRaw] = divergence.out.split(/\s+/);
+      const ahead = Number(aheadRaw);
+      const behind = Number(behindRaw);
+      if (!Number.isSafeInteger(ahead) || !Number.isSafeInteger(behind)) {
+        throw new Error(`无法解析仓库差异“${divergence.out}”，已拒绝更新`);
+      }
+      if (ahead > 0) {
+        throw new Error(`本地分支比 origin/${branch} 多 ${ahead} 个提交；自动更新不会覆盖本地提交，请人工合并。`);
+      }
+      r = await run("git", ["-C", REPO_DIR, "merge", "--ff-only", `origin/${branch}`], { timeoutMs: 60_000 });
+      if (r.code !== 0) throw new Error(`git 快进失败（exit ${r.code}），仓库未被强制覆盖`);
+      repoSynced = true;
     }
-    if (currentBranch.code !== 0 || currentBranch.out !== branch) {
-      throw new Error(
-        `当前分支为 ${currentBranch.out || "未知"}，目标分支为 ${branch}；为避免更新错误分支，已拒绝自动切换。`
-      );
-    }
-    let r = await run("git", ["-C", REPO_DIR, "fetch", "origin", "--prune"], { timeoutMs: 180_000 });
-    if (r.code !== 0) throw new Error(`git fetch 失败（exit ${r.code}）`);
-    const divergence = await git(["rev-list", "--left-right", "--count", `HEAD...origin/${branch}`]);
-    if (divergence.code !== 0) throw new Error(`无法比较本地与 origin/${branch}，已拒绝更新`);
-    const [aheadRaw, behindRaw] = divergence.out.split(/\s+/);
-    const ahead = Number(aheadRaw);
-    const behind = Number(behindRaw);
-    if (!Number.isSafeInteger(ahead) || !Number.isSafeInteger(behind)) {
-      throw new Error(`无法解析仓库差异“${divergence.out}”，已拒绝更新`);
-    }
-    if (ahead > 0) {
-      throw new Error(`本地分支比 origin/${branch} 多 ${ahead} 个提交；自动更新不会覆盖本地提交，请人工合并。`);
-    }
-    r = await run("git", ["-C", REPO_DIR, "merge", "--ff-only", `origin/${branch}`], { timeoutMs: 60_000 });
-    if (r.code !== 0) throw new Error(`git 快进失败（exit ${r.code}），仓库未被强制覆盖`);
 
     const info = await repoInfo();
     const gitCommit = info.shortCommit || "unknown";
     const buildTime = new Date().toISOString().replace(/\.\d{3}Z$/, "Z");
     logLine(
       DEPLOY_SOURCE === "pull"
-        ? `仓库已更新到 ${gitCommit}，开始拉取预构建镜像（pull 模式，本机不构建）…`
+        ? repoSynced
+          ? `仓库已更新到 ${gitCommit}，开始拉取预构建镜像（pull 模式，本机不构建）…`
+          : `仓库保持在 ${gitCommit}（未能同步），开始拉取预构建镜像（pull 模式，本机不构建）…`
         : `仓库已更新到 ${gitCommit}，开始构建镜像（可能需要几分钟）…`
     );
 
     // updater 自身的文件变了要提醒手动重建一次（它不自更新）。
-    const selfChanged = oldHead.code === 0
+    const selfChanged = repoSynced && oldHead.code === 0
       ? await git(["diff", "--name-only", oldHead.out, "HEAD", "--", "scripts/updater", "Dockerfile.updater"])
       : { code: 1, out: "" };
     if (selfChanged.code === 0 && selfChanged.out) {

@@ -57,6 +57,16 @@ fi
 # ---------- 克隆 / 更新 ------------------------------------------------------
 if [ -d "$TARGET/.git" ]; then
   ui_info "已存在 $TARGET，拉取最新代码…"
+  # reset --hard 会无提示丢弃对已跟踪文件的本地修改（自定义 compose 限额、
+  # 反代样例等）。检测到脏工作区时拒绝覆盖，让用户自行 stash/commit 后重跑
+  # ——与网页更新器「拒绝脏工作区」的行为保持一致。
+  # 未跟踪文件（.env、备份等）不受 reset --hard 影响，不参与判定。
+  if [ -n "$(git -C "$TARGET" status --porcelain --untracked-files=no 2>/dev/null)" ]; then
+    ui_warn "仓库存在未提交的本地修改，已拒绝覆盖更新以防丢失："
+    git -C "$TARGET" status --short --untracked-files=no | head -20
+    ui_warn "请先在 $TARGET 执行 git stash（或提交），再重新运行本脚本。"
+    exit 1
+  fi
   git -C "$TARGET" fetch --depth=1 origin "$BRANCH"
   git -C "$TARGET" checkout -q "$BRANCH"
   git -C "$TARGET" reset --hard "origin/$BRANCH"

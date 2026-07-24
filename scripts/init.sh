@@ -420,7 +420,9 @@ cat > "$ENV_FILE" <<EOF
 
 # --- 数据库与缓存（compose 默认值，单机部署不要改）-----------------------------
 DATABASE_URL="postgresql://shibei:shibei@postgres:5432/shibei_blog?schema=public"
-REDIS_URL="redis://redis:6379"
+# frontend 形态的 compose 没有 redis 服务；写入指向不存在服务的地址会让每次
+# 限流都先做一次必败的连接尝试再回退内存桶（多一截延迟 + 日志噪音）。
+REDIS_URL="$( [ "$APP_MODE" = "frontend" ] && echo "" || echo "redis://redis:6379" )"
 
 # --- 安全密钥（init.sh 自动生成，长度 64 hex）---------------------------------
 # 改 ENCRYPTION_KEY 会让已加密的 AI Key 失效，需要在 /admin/settings 重填。

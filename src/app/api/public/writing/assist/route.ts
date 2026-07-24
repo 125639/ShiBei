@@ -5,7 +5,7 @@ import { isLanguageKey } from "@/lib/language";
 import { getModelConfigForUse } from "@/lib/model-selection";
 import { isFrontend } from "@/lib/app-mode";
 import { proxyToBackend } from "@/lib/sync/proxy";
-import { ensureBackendCallerAllowed } from "@/lib/sync/backend-auth";
+import { ensureBackendCallerAllowed, publicAiRateLimitIdentity } from "@/lib/sync/backend-auth";
 import { parseJsonBody } from "@/lib/request-validation";
 import { checkGlobalRateLimit, checkRateLimit } from "@/lib/rate-limit";
 
@@ -30,7 +30,15 @@ const BodySchema = z.object({
 export async function POST(request: Request) {
   // frontend 模式:无本地模型,转发到 backend。
   // 用户填写的 customModel Key 会跟着 body 一起转走 — 这是公开端点的固有行为。
+  // 代理前先做本地 per-IP 限流，防止单个访客占满全站在 backend 侧的共享额度。
   if (isFrontend()) {
+    const limited = await checkRateLimit({ namespace: "writing", request, limit: 20, windowSec: 60 * 60 });
+    if (!limited.ok) {
+      return NextResponse.json(
+        { error: "写作辅助请求过于频繁，请稍后再试" },
+        { status: 429, headers: { "Retry-After": String(limited.retryAfterSec) } }
+      );
+    }
     return proxyToBackend(request, "/api/public/writing/assist");
   }
 
@@ -38,7 +46,14 @@ export async function POST(request: Request) {
   const denied = await ensureBackendCallerAllowed(request);
   if (denied) return denied;
 
-  const limited = await checkRateLimit({ namespace: "writing", request, limit: 20, windowSec: 60 * 60 });
+  const limited = await checkRateLimit({
+    namespace: "writing",
+    request,
+    limit: 20,
+    windowSec: 60 * 60,
+    // 已鉴权的前端代理调用按其转发的原始访客标识限流，而不是前端出口 IP。
+    identityOverride: publicAiRateLimitIdentity(request)
+  });
   if (!limited.ok) {
     return NextResponse.json(
       { error: "写作辅助请求过于频繁，请稍后再试" },

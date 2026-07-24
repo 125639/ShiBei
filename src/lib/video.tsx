@@ -40,7 +40,13 @@ export function VideoEmbed({ video }: { video: VideoAttribution }) {
           <div className="video-link-card"><span>{video.title}</span></div>
         );
       })()}
-      {!renderAsLink && video.type === "LOCAL" && <video controls src={video.url} className="video-frame" preload="metadata" />}
+      {!renderAsLink && video.type === "LOCAL" && (
+        // 与 markdown.ts 的短代码路径同口径：url 为空（如清理/同步后文件缺失）时
+        // 给出明确文案，而不是渲染一个 src="" 的坏播放器。
+        video.url
+          ? <video controls src={video.url} className="video-frame" preload="metadata" />
+          : <span className="muted-block">视频资源不可用</span>
+      )}
       {!renderAsLink && video.type === "EMBED" && (
         <iframe
           className="video-frame"

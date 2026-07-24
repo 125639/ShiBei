@@ -20,7 +20,7 @@ RUN rm -rf .next/cache \
 FROM base AS runner
 ENV NODE_ENV=production
 ENV APP_MODE=full
-ENV NODE_OPTIONS="--max-old-space-size=1024"
+ENV NODE_OPTIONS="--max-old-space-size=700"
 RUN apt-get update && apt-get install -y --no-install-recommends \
       ca-certificates \
       fonts-noto-cjk \
@@ -31,16 +31,23 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # yt-dlp: install via pip (the apt package on bookworm is too old to handle
 # bilibili/weibo cleanly). Pinned to a recent build.
 RUN pip3 install --break-system-packages --no-cache-dir 'yt-dlp>=2024.10.0'
+# Chromium 安装只依赖 node_modules 里的 playwright 版本：必须放在业务产物
+# （.next/src 等每次提交必变的层）之前，否则每次代码提交都会重新下载数百 MB
+# 浏览器 + apt 依赖——正是下方注释想避免、但此前没躲干净的坑。
+COPY --from=builder /app/package.json ./package.json
 COPY --from=builder /app/node_modules ./node_modules
+# 国内构建机直连 Playwright 官方 CDN 经常超时；需要时传
+# --build-arg PLAYWRIGHT_DOWNLOAD_HOST=https://npmmirror.com/mirrors/playwright/
+ARG PLAYWRIGHT_DOWNLOAD_HOST=""
+ENV PLAYWRIGHT_DOWNLOAD_HOST=${PLAYWRIGHT_DOWNLOAD_HOST}
+RUN npx playwright install --with-deps chromium && rm -rf /var/lib/apt/lists/*
 COPY --from=builder /app/.next ./.next
 COPY --from=builder /app/public ./public
-COPY --from=builder /app/package.json ./package.json
 COPY --from=builder /app/prisma ./prisma
 COPY --from=builder /app/src ./src
 COPY --from=builder /app/scripts ./scripts
 COPY --from=builder /app/next.config.mjs ./next.config.mjs
 COPY --from=builder /app/tsconfig.json ./tsconfig.json
-RUN npx playwright install --with-deps chromium
 # 构建元数据放在所有重层之后：ARG 一变只重建其后的层；放前面会导致
 # 每次提交都重装 apt/ffmpeg/chromium（实测把 3 分钟构建拖成 15 分钟）。
 ARG GIT_COMMIT=unknown

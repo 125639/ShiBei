@@ -387,7 +387,7 @@ export default async function AdminPostEditPage({
                   <span className="tag" style={{ marginRight: 8 }}>✓ <I18nText zh="本地" en="Local" /></span>
                 ) : video.downloadStatus === "queued" || video.downloadStatus === "running" ? (
                   <span className="muted" style={{ fontSize: 12, marginRight: 8 }} role="status"><I18nText zh="下载中…" en="Downloading…" /></span>
-                ) : (
+                ) : workerEnabled ? (
                   <form action="/api/admin/videos/download" method="post" style={{ marginRight: 8 }}>
                     <input type="hidden" name="videoId" value={video.id} />
                     <input type="hidden" name="redirect" value={`/admin/posts/${post.id}`} />
@@ -395,7 +395,7 @@ export default async function AdminPostEditPage({
                       {video.downloadStatus === "failed" ? <I18nText zh="重试下载" en="Retry download" /> : <I18nText zh="下载到本地" en="Download locally" />}
                     </button>
                   </form>
-                )}
+                ) : null}
                 <form action="/api/admin/videos/insert" method="post" className="meta-row" style={{ gap: 6, alignItems: "center" }}>
                   <input type="hidden" name="id" value={video.id} />
                   <input type="hidden" name="postId" value={post.id} />

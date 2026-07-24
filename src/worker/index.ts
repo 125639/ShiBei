@@ -20,6 +20,7 @@ import {
   getAudienceQueue,
   getFetchQueue,
   getResearchQueue,
+  getScheduleQueue,
   getVideoDownloadQueue,
   researchQueueName,
   scheduleQueueName,
@@ -2043,6 +2044,28 @@ const QUEUE_RECONCILE_INTERVAL_MS = (() => {
   return Math.min(Math.max(Math.floor(raw), 30_000), 10 * 60_000);
 })();
 let queueRecoveryInFlight = false;
+// BullMQ job scheduler 只存活在 Redis：worker 存活期间 Redis 被 flush/重建后，
+// 全部 cron 调度会无声消失，直到进程重启才由 bootstrapAllSchedules 找回来。
+// 每 5 轮恢复 tick（约 5 分钟）比对一次 DB 与 Redis，缺了就整体重建（幂等）。
+let scheduleReconcileCounter = 0;
+async function reconcileJobSchedulers() {
+  const enabled = await prisma.autoSchedule.count({
+    where: { isEnabled: true, topic: { isEnabled: true } }
+  });
+  if (!enabled) return;
+  const queue = getScheduleQueue();
+  try {
+    const registered = await queue.getJobSchedulers(0, -1);
+    if (registered.length < enabled) {
+      console.warn(
+        `[queue-recovery] 检测到 ${enabled - registered.length} 个 cron 调度器丢失（Redis 可能被清空/重建），正在重建全部调度`
+      );
+      await bootstrapAllSchedules();
+    }
+  } finally {
+    await queue.close().catch(() => undefined);
+  }
+}
 async function tickQueueRecovery() {
   if (queueRecoveryInFlight || shuttingDown) return;
   queueRecoveryInFlight = true;
@@ -2057,6 +2080,11 @@ async function tickQueueRecovery() {
       store: prisma as unknown as QueueRecoveryStore,
       queues
     });
+    scheduleReconcileCounter += 1;
+    if (scheduleReconcileCounter >= 5) {
+      scheduleReconcileCounter = 0;
+      await reconcileJobSchedulers();
+    }
   } catch (error) {
     console.error("[queue-recovery] reconciliation failed; will retry:", error);
   } finally {

@@ -56,11 +56,14 @@ function normalizePlacement(value: string | null): VideoPlacement {
 export function VideoReorderList({
   videos: initialVideos,
   posts,
-  formatBytes
+  formatBytes,
+  canDownloadLocally = true
 }: {
   videos: VideoRow[];
   posts: PostOption[];
   formatBytes: Record<string, string>;
+  /** frontend 形态没有 Redis/worker，「下载到本地」必然失败，由服务端页面传 false 隐藏。 */
+  canDownloadLocally?: boolean;
 }) {
   const [videos, setVideos] = useState<VideoRow[]>(initialVideos);
   const [savingId, setSavingId] = useState<string | null>(null);
@@ -244,6 +247,7 @@ export function VideoReorderList({
                       onMoveUp={index > 0 ? () => moveBy(postKey, video.id, -1) : null}
                       onMoveDown={index < group.length - 1 ? () => moveBy(postKey, video.id, 1) : null}
                       sortable={postKey !== "__unattached__"}
+                      canDownloadLocally={canDownloadLocally}
                     />
                   ))}
                 </div>
@@ -272,7 +276,8 @@ function SortableVideoRow({
   onPlacementChange,
   onMoveUp,
   onMoveDown,
-  sortable
+  sortable,
+  canDownloadLocally
 }: {
   video: VideoRow;
   posts: PostOption[];
@@ -283,6 +288,7 @@ function SortableVideoRow({
   onMoveUp: (() => void) | null;
   onMoveDown: (() => void) | null;
   sortable: boolean;
+  canDownloadLocally: boolean;
 }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: video.id,
@@ -388,7 +394,7 @@ function SortableVideoRow({
           </div>
         )}
 
-        <DownloadControl video={video} />
+        <DownloadControl video={video} canDownloadLocally={canDownloadLocally} />
 
         {video.postId ? (
           <label className="meta-row" style={{ gap: 6, alignItems: "center", fontSize: 13 }}>
@@ -432,7 +438,7 @@ function SortableVideoRow({
  * 下载完成后视频转为 LOCAL、文章内短代码直接以本地播放器渲染，不再依赖外站。
  * 状态存在 Video.downloadStatus 上；页面是 force-dynamic 的，刷新即可看到进展。
  */
-function DownloadControl({ video }: { video: VideoRow }) {
+function DownloadControl({ video, canDownloadLocally }: { video: VideoRow; canDownloadLocally: boolean }) {
   if (video.type === "LOCAL" && (video.localPath || video.url)) {
     return (
       <span className="tag" title={video.localPath || video.url}>
@@ -446,6 +452,13 @@ function DownloadControl({ video }: { video: VideoRow }) {
         {video.downloadStatus === "queued"
           ? <I18nText zh="⏳ 已加入下载队列（刷新页面查看进度）" en="⏳ Queued for download (refresh to see progress)" />
           : <I18nText zh="⬇ 正在后台下载（刷新页面查看进度）" en="⬇ Downloading in background (refresh to see progress)" />}
+      </span>
+    );
+  }
+  if (!canDownloadLocally) {
+    return (
+      <span className="muted" style={{ fontSize: 12 }}>
+        <I18nText zh="本端无下载能力：请在 backend 执行「下载到本地」后同步过来" en="No local downloader here — run “Download locally” on the backend, then sync" />
       </span>
     );
   }

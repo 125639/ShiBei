@@ -16,6 +16,28 @@ const MEDIA_CONTENT_TYPE_RE = /^(video\/|application\/(vnd\.apple\.mpegurl|x-mpe
 
 type SniffedMedia = { href: string; bytes: number; contentType: string };
 
+/**
+ * page.evaluate 没有内置超时：页面主线程被死循环/挖矿脚本占住时它永不返回，
+ * 而 goto / waitForLoadState 的超时此刻都已通过——这曾是唯一能把并发为 1 的
+ * 抓取队列永久挂死的路径。超时后抛可重试错误；外层 finally 关闭 context，
+ * 孤儿 evaluate 随之落定（这里预挂 catch 防 unhandledRejection）。
+ */
+async function withEvaluateTimeout<T>(evaluation: Promise<T>, timeoutMs: number): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const watchdog = new Promise<never>((_, reject) => {
+    timer = setTimeout(
+      () => reject(new RetryableSourceFetchError(`页面脚本执行超时（${Math.round(timeoutMs / 1000)}s），已放弃本次抓取`)),
+      timeoutMs
+    );
+  });
+  evaluation.catch(() => undefined);
+  try {
+    return await Promise.race([evaluation, watchdog]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
 function sniffedMediaScore(media: SniffedMedia) {
   if (/\.m3u8(?:[?#]|$)/i.test(media.href) || /mpegurl/i.test(media.contentType)) {
     if (/\/hls\/main\//i.test(media.href) || /\/main\.m3u8(?:[?#]|$)/i.test(media.href)) return 1000;
@@ -148,7 +170,7 @@ export async function scrapeWebPage(url: string) {
     // sourcePageUrl 始终是聚合页/短链域，CDN URL 会被错误识别为非国内。
     const finalUrl = page.url();
 
-    const result = await page.evaluate(() => {
+    const result = await withEvaluateTimeout(page.evaluate(() => {
       const selectors = [
         "article",
         "main",
@@ -453,7 +475,7 @@ export async function scrapeWebPage(url: string) {
         const value = raw ? Number.parseInt(raw, 10) : 0;
         return Number.isFinite(value) ? value : 0;
       }
-    });
+    }), 30_000);
 
     // 把网络嗅探到的真实视频 URL 合并进 videos[],排在 DOM-扫到的源前面
     // (DOM 扫到的常常是 iframe 容器/播放器壳,真要下载还得拿到底层流;嗅探到的

@@ -5,7 +5,7 @@ import { getModelConfigForUse } from "@/lib/model-selection";
 import { prisma } from "@/lib/prisma";
 import { isFrontend } from "@/lib/app-mode";
 import { proxyToBackend } from "@/lib/sync/proxy";
-import { ensureBackendCallerAllowed } from "@/lib/sync/backend-auth";
+import { ensureBackendCallerAllowed, publicAiRateLimitIdentity } from "@/lib/sync/backend-auth";
 import { checkGlobalRateLimit, checkRateLimit } from "@/lib/rate-limit";
 import { withInFlightLock } from "@/lib/in-flight";
 
@@ -34,6 +34,15 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
         cached: true,
       });
     }
+    // 缺翻译才代理到 backend；先做本地 per-IP 限流，双保险：backend 侧靠转发
+    // 的访客标识区分，本地这层保证单个访客占不满全站共享额度。
+    const limited = await checkRateLimit({ namespace: "translate", request, limit: 90, windowSec: 60 * 60 });
+    if (!limited.ok) {
+      return NextResponse.json(
+        { error: "翻译请求过于频繁，请稍后再试" },
+        { status: 429, headers: { "Retry-After": String(limited.retryAfterSec) } }
+      );
+    }
     return proxyToBackend(request, `/api/public/posts/${encodeURIComponent(id)}/translate`);
   }
 
@@ -43,7 +52,14 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
 
   // per-IP 上限要容得下 202 pending 的轮询（客户端 3s 一次、上限 40 次）；
   // 真正昂贵的模型调用由 in-flight 锁 + 每日全局预算兜底。
-  const limited = await checkRateLimit({ namespace: "translate", request, limit: 90, windowSec: 60 * 60 });
+  // 已鉴权的前端代理调用按其转发的原始访客标识限流，而不是前端出口 IP。
+  const limited = await checkRateLimit({
+    namespace: "translate",
+    request,
+    limit: 90,
+    windowSec: 60 * 60,
+    identityOverride: publicAiRateLimitIdentity(request)
+  });
   if (!limited.ok) {
     return NextResponse.json(
       { error: "翻译请求过于频繁，请稍后再试" },

@@ -104,10 +104,16 @@ export function MusicPlayer() {
   }
 
   // <audio> 常驻挂载：折叠只隐藏控制条，不打断播放。
+  // ref 回调里同步音量：音量 effect 首次执行时组件还在返回 null（audioRef 为
+  // 空、no-op），等 <audio> 真正挂载时该 effect 因依赖未变不会再跑——不在这里
+  // 设置的话，播放器总是以浏览器默认的 100% 音量开播，而滑杆显示的是偏好值。
   return (
     <div className="music-player" role="region" aria-label="背景音乐">
       <audio
-        ref={audioRef}
+        ref={(el) => {
+          audioRef.current = el;
+          if (el) el.volume = prefs.musicVolume;
+        }}
         src={currentTrack.filePath}
         loop={tracks.length === 1}
         onEnded={nextTrack}

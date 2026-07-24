@@ -10,7 +10,7 @@ import {
 } from "./article-image-cache";
 import { escapeHtml, hostFromUrl } from "./html";
 import { prisma } from "./prisma";
-import { IMAGE_DIR } from "./storage";
+import { IMAGE_DIR, reportStorage } from "./storage";
 import { extractKeywords } from "./text-keywords";
 import { insertMarkdownBlock, normalizeVideoPlacement, type VideoPlacement } from "./video-display";
 
@@ -200,6 +200,19 @@ export function selectArticleImages(
     .map((entry) => entry.image);
 }
 
+/**
+ * 每批配图前的预算闸：uploads 总量已超 maxStorageMb 时不再缓存新图片。
+ * 读取失败时放行——预算是节流手段，不该让一次统计故障中断整篇配图。
+ */
+async function imageCacheOverBudget(): Promise<boolean> {
+  try {
+    const report = await reportStorage();
+    return report.uploadsBytes > report.maxStorageMb * 1024 * 1024;
+  } catch {
+    return false;
+  }
+}
+
 export async function embedArticleImagesInPostContent(
   postId: string,
   images: ArticleImageCandidate[],
@@ -230,6 +243,15 @@ export async function embedArticleImagesInPostContent(
   const existingHtml = `${existing.content}\n${existing.contentEn || ""}`;
   const candidates = picked.filter((image) => !existingHtml.includes(image.src));
   let skipped = picked.length - candidates.length;
+
+  // 存储超限时停止缓存新图片。视频下载早已受预算约束，图片如果不设闸，
+  // 超限后会变成「视频被卡死、图片继续无限增长」的单向失衡。
+  if (candidates.length) {
+    const overBudget = await imageCacheOverBudget();
+    if (overBudget) {
+      return { inserted: 0, skipped: skipped + candidates.length, urls: [] };
+    }
+  }
 
   // 远程图先缓存到本地 /uploads/image，再把本地 URL 写入正文；并发拉取减少串行等待。
   const cachedResults = await Promise.all(

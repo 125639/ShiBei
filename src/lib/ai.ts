@@ -14,6 +14,10 @@ import { prisma } from "./prisma";
 import { isBodyLevelEvidence, normalizeUrl } from "./source-quality";
 import { assertSafeResolvedFetchUrl, safeFetch } from "./url-safety";
 
+// 成功响应的读取上限。错误体用 128KB 就够，但成功体包含完整补全 +（reasoning
+// 模型的）思考链，可达数 MB；16MB 远高于任何合法补全，又远低于容器内存。
+const MODEL_SUCCESS_RESPONSE_LIMIT = 16 * 1024 * 1024;
+
 let cachedPrefix: { value: string; ts: number } | null = null;
 const PREFIX_TTL_MS = 30_000;
 
@@ -1529,12 +1533,30 @@ async function requestChatCompletionWithKey(
     };
 
     let response: Response | null = null;
+    let rawBody: string | null = null;
     try {
       // 兼容网关的瞬时 429/5xx：只重试一次且最多等待 8 秒，避免两阶段审校
       // 因一次短暂抖动全部降级为草稿。4xx 配置错误和内容错误不重试。
       for (let attempt = 0; attempt < 2; attempt++) {
         response = await safeFetch(endpoint.toString(), requestInit, { maxRedirects: 0 });
-        if (response.ok) break;
+        if (response.ok) {
+          // 成功响应的 body 也必须在超时窗口内、带大小上限地读完。若先
+          // clearTimeout 再读 body，慢速滴流的连接可以无限期占住并发为 1
+          // 的队列槽，且无任何恢复机制能把它打断。
+          try {
+            rawBody = await readLimitedModelResponse(response, MODEL_SUCCESS_RESPONSE_LIMIT);
+          } catch (error) {
+            const detail = sanitizeModelProviderText(
+              error instanceof Error ? error.message : String(error),
+              [apiKey]
+            );
+            throw new ModelRequestError(
+              `读取模型响应失败${detail ? `：${detail}` : ""}`,
+              { cause: error, retryable: true }
+            );
+          }
+          break;
+        }
         const retryable = response.status === 429 || (response.status >= 500 && response.status <= 504);
         let body: string;
         try {
@@ -1570,7 +1592,7 @@ async function requestChatCompletionWithKey(
       clearTimeout(timeout);
     }
 
-    if (!response?.ok) throw new ModelRequestError("Model request failed without a valid response");
+    if (!response?.ok || rawBody === null) throw new ModelRequestError("Model request failed without a valid response");
 
     let data: {
       choices?: Array<{
@@ -1579,7 +1601,7 @@ async function requestChatCompletionWithKey(
       }>;
     };
     try {
-      data = await response.json() as typeof data;
+      data = JSON.parse(rawBody) as typeof data;
     } catch (error) {
       throw new ModelRequestError("Model returned invalid JSON", { cause: error });
     }

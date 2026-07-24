@@ -5,7 +5,7 @@ import { isLanguageKey } from "@/lib/language";
 import { getModelConfigForUse } from "@/lib/model-selection";
 import { isFrontend } from "@/lib/app-mode";
 import { proxyToBackend } from "@/lib/sync/proxy";
-import { ensureBackendCallerAllowed } from "@/lib/sync/backend-auth";
+import { ensureBackendCallerAllowed, publicAiRateLimitIdentity } from "@/lib/sync/backend-auth";
 import { parseJsonBody } from "@/lib/request-validation";
 import { checkGlobalRateLimit, checkRateLimit } from "@/lib/rate-limit";
 
@@ -19,7 +19,16 @@ const BodySchema = z.object({
 
 export async function POST(request: Request) {
   // frontend 模式下，AI 调用走代理到 backend，避免在前端持有 API Key。
+  // 代理前先做本地限流：backend 的 per-IP 桶靠转发的访客标识区分，本地这层
+  // 保证即便转发标识失效（旧版 backend），单个访客也占不满全站额度。
   if (isFrontend()) {
+    const limited = await checkRateLimit({ namespace: "assistant", request, limit: 30, windowSec: 60 * 60 });
+    if (!limited.ok) {
+      return NextResponse.json(
+        { error: "请求过于频繁，请稍后再试" },
+        { status: 429, headers: { "Retry-After": String(limited.retryAfterSec) } }
+      );
+    }
     return proxyToBackend(request, "/api/public/assistant");
   }
 
@@ -27,7 +36,14 @@ export async function POST(request: Request) {
   const denied = await ensureBackendCallerAllowed(request);
   if (denied) return denied;
 
-  const limited = await checkRateLimit({ namespace: "assistant", request, limit: 30, windowSec: 60 * 60 });
+  const limited = await checkRateLimit({
+    namespace: "assistant",
+    request,
+    limit: 30,
+    windowSec: 60 * 60,
+    // 已鉴权的前端代理调用按其转发的原始访客标识限流，而不是前端出口 IP。
+    identityOverride: publicAiRateLimitIdentity(request)
+  });
   if (!limited.ok) {
     return NextResponse.json(
       { error: "请求过于频繁，请稍后再试" },

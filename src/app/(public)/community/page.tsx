@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { prisma } from "@/lib/prisma";
+import { normalizePage } from "@/lib/pagination";
 import { I18nText } from "@/components/I18nText";
 import { Pagination } from "@/components/Pagination";
 import { RelativeTime } from "@/components/RelativeTime";
@@ -26,7 +27,9 @@ export default async function CommunityPage({
   searchParams: Promise<{ page?: string; genre?: string }>;
 }) {
   const params = await searchParams;
-  const page = Math.max(1, Number(params.page) || 1);
+  // normalizePage 带 10 万页上限：?page=1e15 会让 skip 溢出 int32，Prisma 校验
+  // 抛错直接 500（/posts 早已用同一防护，这里此前漏用）。
+  const page = normalizePage(params.page);
   const genreSlug = params.genre || "";
 
   const where = {
