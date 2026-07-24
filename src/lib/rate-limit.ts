@@ -7,6 +7,12 @@ type RateLimitInput = {
   subject?: string;
   limit: number;
   windowSec: number;
+  /**
+   * 覆盖默认的「本机解析客户端 IP」身份。用于 backend 收到已鉴权前端代理
+   * 转发的请求时，按代理带来的原始访客标识限流（见 sync/backend-auth.ts）。
+   * 调用方必须先完成鉴权再传入，否则等于放任伪造身份绕过限流。
+   */
+  identityOverride?: string;
 };
 
 type RateLimitResult =
@@ -45,7 +51,9 @@ function getRedis() {
 }
 
 export async function checkRateLimit(input: RateLimitInput): Promise<RateLimitResult> {
-  const identity = clientIdentity(input.request);
+  const identity = input.identityOverride
+    ? sanitizeKeyPart(input.identityOverride)
+    : clientIdentity(input.request);
   const subject = input.subject ? `${identity}:${sanitizeKeyPart(input.subject)}` : identity;
   const key = `shibei:rate:${input.namespace}:${subject}`;
   return incrementLimitKey(key, input.limit, input.windowSec);

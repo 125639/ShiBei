@@ -66,10 +66,42 @@ function parseDow(value: string) {
   return uniqueSortedWeekdays(days as number[]);
 }
 
+// 五个字段的合法数值范围（dow 的 7 与 0 同为周日，BullMQ/cron-parser 均接受）。
+const CRON_FIELD_RANGES: Array<[number, number]> = [
+  [0, 59], // minute
+  [0, 23], // hour
+  [1, 31], // day of month
+  [1, 12], // month
+  [0, 7]   // day of week
+];
+
+function isValidCronField(part: string, min: number, max: number): boolean {
+  if (!part) return false;
+  // 逗号分隔列表；每项是 * / 数字 / 区间 a-b，均可带 /step。
+  return part.split(",").every((item) => {
+    const m = /^(\*|\d+|\d+-\d+)(?:\/(\d+))?$/.exec(item);
+    if (!m) return false;
+    const [, base, stepRaw] = m;
+    if (stepRaw !== undefined) {
+      const step = Number(stepRaw);
+      if (!Number.isInteger(step) || step < 1 || step > max) return false;
+    }
+    if (base === "*") return true;
+    const bounds = base.split("-").map(Number);
+    if (bounds.some((n) => !Number.isInteger(n) || n < min || n > max)) return false;
+    return bounds.length === 1 || bounds[0] <= bounds[1];
+  });
+}
+
 export function isValidCronExpression(value: string) {
   const parts = value.trim().split(/\s+/);
   if (parts.length !== 5) return false;
-  return parts.every((part) => /^[\d*/,-]+$/.test(part));
+  // 旧实现只查字符集，"0 25 * * *"、"*/0 * * * *" 都能过表单校验落库，
+  // 直到 BullMQ upsert 抛错才暴露——而那时旧调度已被删掉，主题静默停更。
+  return parts.every((part, index) => {
+    const [min, max] = CRON_FIELD_RANGES[index];
+    return isValidCronField(part, min, max);
+  });
 }
 
 export function parseAlarmSchedule(value?: string | null): ParsedAlarmSchedule {

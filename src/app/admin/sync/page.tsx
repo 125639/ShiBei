@@ -5,6 +5,7 @@ import { requireAdmin } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { getAppMode } from "@/lib/app-mode";
 import { getResolvedSyncConfig } from "@/lib/sync/config";
+import { MAX_SYNC_SINGLE_FILE_BYTES, MAX_SYNC_ZIP_BYTES } from "@/lib/sync/limits";
 
 export const dynamic = "force-dynamic";
 
@@ -50,6 +51,14 @@ export default async function SyncAdminPage({
     ? `/api/admin/sync/export?since=${encodeURIComponent(sinceForExport)}&includeFiles=1`
     : null;
   const exportLightHref = `/api/admin/sync/export`;
+  // 本端实际生效的导入限额（随 APP_MODE 与 SYNC_MAX_* 环境变量变化），
+  // 文案必须跟它走：frontend 默认只有 64MB/48MB，写死 512MB 会误导管理员。
+  const zipLimitMb = Math.round(MAX_SYNC_ZIP_BYTES / 1024 / 1024);
+  const fileLimitMb = Math.round(MAX_SYNC_SINGLE_FILE_BYTES / 1024 / 1024);
+  const videosHiddenLocally =
+    (mode === "frontend" || mode === "full")
+    && videoCount > 0
+    && (settings as { videosEnabled?: boolean } | null)?.videosEnabled !== true;
 
   // 提示横幅(导入/拉取后的反馈)
   const importedNum = Number(sp.imported || 0);
@@ -70,6 +79,17 @@ export default async function SyncAdminPage({
         <I18nText zh="共享密钥与 backend 入口可以在本页保存；环境变量仍可作为兜底。" en="The shared token and backend URL can be saved here; environment variables remain the fallback." />
       </p>
 
+      {videosHiddenLocally ? (
+        <div className="form-card" style={{ maxWidth: 720, borderColor: "var(--color-warning, #c80)", background: "rgba(204,136,0,0.06)" }}>
+          <strong><I18nText zh="本端已有视频，但「视频功能」尚未开启" en="Videos exist locally, but the video feature is disabled" /></strong>
+          <p style={{ margin: "6px 0 0" }}>
+            <I18nText
+              zh={<>当前本端共有 {videoCount} 个视频记录（含同步而来的），但本实例的视频功能开关是关闭的：前台文章不会展示任何视频，<code>[[video:ID]]</code> 短代码会被静默移除。该开关<strong>不随同步传递</strong>，需要在本端 <a className="text-link" href="/admin/settings?tab=media">设置 → 媒体视频</a> 勾选「启用视频功能」。</>}
+              en={<>This instance holds {videoCount} video records (including synced ones), but its video feature is off: public posts render no videos and <code>[[video:ID]]</code> shortcodes are silently stripped. The switch <strong>does not sync</strong> — enable it locally under <a className="text-link" href="/admin/settings?tab=media">Settings → Media</a>.</>}
+            />
+          </p>
+        </div>
+      ) : null}
       {sp.imported ? (
         <div
           className="form-card"
@@ -393,6 +413,12 @@ export default async function SyncAdminPage({
               <I18nText zh="下载轻量 ZIP（不含本地视频文件）" en="Light ZIP (no local video files)" />
             </a>
           </div>
+          <p className="muted-block" style={{ marginBottom: 0 }}>
+            <I18nText
+              zh="注意：接收端（前端形态）默认只接受 64MB 的 ZIP、48MB 的单个视频文件；含视频的 ZIP 超过该值时，需要先在前端调大 SYNC_MAX_ZIP_MB / SYNC_MAX_FILE_MB 再导入。"
+              en="Note: a frontend deployment accepts only 64MB ZIPs / 48MB per video file by default; raise SYNC_MAX_ZIP_MB / SYNC_MAX_FILE_MB there before importing larger archives."
+            />
+          </p>
           {publishedCount === 0 ? (
             <p className="muted-block">
               <I18nText zh="当前没有 PUBLISHED 状态的文章，导出 ZIP 只会包含空的 manifest。" en="No PUBLISHED posts right now — the ZIP would contain an empty manifest." />
@@ -407,7 +433,10 @@ export default async function SyncAdminPage({
           <h2 style={{ marginTop: 0 }}><I18nText zh="上传 ZIP 导入" en="Upload ZIP to Import" /></h2>
           <p>
             <I18nText zh="把 backend 导出的 ZIP 上传到这里。冲突策略:incoming.updatedAt 较新才覆盖本端的同一篇文章。" en="Upload the backend-exported ZIP. Conflict policy: an incoming post only overwrites when its updatedAt is newer." />
-            <I18nText zh="ZIP 体积上限 512MB；超出请改用「轻量 ZIP」+ 外链/嵌入视频。" en="ZIP limit is 512MB; beyond that use the light ZIP plus linked/embedded videos." />
+            <I18nText
+              zh={`本端 ZIP 体积上限 ${zipLimitMb}MB、单个视频文件上限 ${fileLimitMb}MB（超限文件跳过不中断）；可用环境变量 SYNC_MAX_ZIP_MB / SYNC_MAX_FILE_MB 调整，注意 ZIP 会整体读入内存，上限必须显著小于容器内存。超出时请改用「轻量 ZIP」+ 外链/嵌入视频。`}
+              en={`This instance accepts ZIPs up to ${zipLimitMb}MB with files up to ${fileLimitMb}MB each (oversized files are skipped, not fatal). Tune via SYNC_MAX_ZIP_MB / SYNC_MAX_FILE_MB — the ZIP is buffered fully in memory, so keep limits well below container memory. Beyond that, use the light ZIP plus linked/embedded videos.`}
+            />
           </p>
           <form
             action="/api/admin/sync/import"

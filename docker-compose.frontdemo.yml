@@ -3,6 +3,10 @@
 #   - 这个 compose 起一个独立 PostgreSQL + 前端 Next.js,APP_MODE=frontend
 #   - 前端容器加入 video_default 网络(已存在),通过服务名 `app` 访问 backend
 #
+# ⚠️ 仅限本机/内网演示：本文件内置了仓库公开的固定密码与密钥，任何人都能用
+#    它们登录 /admin。默认只绑定 127.0.0.1；如需从其它机器访问，请显式设置
+#    FRONTDEMO_BIND_IP 并自行更换 ADMIN_PASSWORD / AUTH_SECRET / SYNC_TOKEN。
+#
 # 启动:
 #   docker compose -p video-frontdemo -f docker-compose.frontdemo.yml up -d --build
 # 可选覆盖: FRONTDEMO_BIND_IP / FRONTDEMO_PORT / FRONTDEMO_PUBLIC_URL /
@@ -70,7 +74,7 @@ services:
       # 让 sync-worker 跑得勤一点,方便演示
       SYNC_INTERVAL_MINUTES: "1"
     ports:
-      - "${FRONTDEMO_BIND_IP:-0.0.0.0}:${FRONTDEMO_PORT:-3001}:3000"
+      - "${FRONTDEMO_BIND_IP:-127.0.0.1}:${FRONTDEMO_PORT:-3001}:3000"
     command: ["sh", "scripts/start-app.sh"]
     volumes:
       - app-uploads-fro:/app/public/uploads

@@ -16,8 +16,10 @@ export async function GET(request: Request) {
   const cfg = await getResolvedSyncConfig();
   const auth = request.headers.get("authorization") || "";
   let authorized = false;
+  let viaBearer = false;
   if (bearerTokenMatches(auth, cfg.syncToken)) {
     authorized = true;
+    viaBearer = true;
   } else {
     const session = await getSession().catch(() => null);
     if (session) authorized = true;
@@ -37,7 +39,9 @@ export async function GET(request: Request) {
 
   let buffer: Buffer;
   try {
-    buffer = await exportToZip({ since, includeLocalFiles });
+    // 机机拉取（sync-worker 每分钟一次）不推进 lastExportedAt，
+    // 否则后台「下载增量 ZIP」的窗口恒为最近一分钟、几乎必是空包。
+    buffer = await exportToZip({ since, includeLocalFiles, advanceCursor: !viaBearer });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     const status = /超过|上限|增量导出/.test(message) ? 413 : 500;

@@ -2,6 +2,7 @@ import { AdminShell } from "@/components/AdminShell";
 import { I18nText } from "@/components/I18nText";
 import { VideoReorderList } from "@/components/VideoReorderList";
 import { requireAdmin } from "@/lib/auth";
+import { hasLocalWorker } from "@/lib/app-mode";
 import { prisma } from "@/lib/prisma";
 import { formatBytes } from "@/lib/storage";
 
@@ -82,10 +83,17 @@ export default async function VideosAdminPage() {
         </p>
       ) : null}
       <p className="muted-block" style={{ maxWidth: 720 }}>
-        <I18nText
-          zh={<>上传本地视频文件（MP4 / WebM / MOV / M4V，≤300 MB），或者添加 YouTube / Bilibili 等嵌入链接、外链。视频不再有独立页面，只通过 <code>[[video:ID]]</code> 短代码嵌入在文章正文中；默认以原平台链接/播放器形式展示，点击「下载到本地」可让后台把视频文件拉回本站，之后文章内直接用本地播放器播放。同一篇文章下的视频支持拖拽排序与三档预设位置。</>}
-          en={<>Upload local files (MP4 / WebM / MOV / M4V, ≤300 MB) or add YouTube / Bilibili embeds and links. Videos have no standalone page — they only embed in posts via <code>[[video:ID]]</code> shortcodes. By default they render as links/players from the original platform; “Download locally” makes the worker fetch the file so the post plays it with a local player. Videos within a post support drag reordering and three preset placements.</>}
-        />
+        {hasLocalWorker() ? (
+          <I18nText
+            zh={<>上传本地视频文件（MP4 / WebM / MOV / M4V，≤300 MB），或者添加 YouTube / Bilibili 等嵌入链接、外链。视频不再有独立页面，只通过 <code>[[video:ID]]</code> 短代码嵌入在文章正文中；默认以原平台链接/播放器形式展示，点击「下载到本地」可让后台把视频文件拉回本站，之后文章内直接用本地播放器播放。同一篇文章下的视频支持拖拽排序与三档预设位置。</>}
+            en={<>Upload local files (MP4 / WebM / MOV / M4V, ≤300 MB) or add YouTube / Bilibili embeds and links. Videos have no standalone page — they only embed in posts via <code>[[video:ID]]</code> shortcodes. By default they render as links/players from the original platform; “Download locally” makes the worker fetch the file so the post plays it with a local player. Videos within a post support drag reordering and three preset placements.</>}
+          />
+        ) : (
+          <I18nText
+            zh={<>上传本地视频文件（MP4 / WebM / MOV / M4V，≤300 MB），或者添加 YouTube / Bilibili 等嵌入链接、外链。视频不再有独立页面，只通过 <code>[[video:ID]]</code> 短代码嵌入在文章正文中。本端（frontend 形态）没有下载 worker：「下载到本地」需要在 backend 上执行，随后通过 <a className="text-link" href="/admin/sync">同步</a> 的含视频 ZIP 把文件传到本端。同一篇文章下的视频支持拖拽排序与三档预设位置。</>}
+            en={<>Upload local files (MP4 / WebM / MOV / M4V, ≤300 MB) or add YouTube / Bilibili embeds and links. Videos have no standalone page — they only embed in posts via <code>[[video:ID]]</code> shortcodes. This frontend deployment has no download worker: run “Download locally” on the backend, then bring the files over via a <a className="text-link" href="/admin/sync">sync</a> ZIP that includes them. Videos within a post support drag reordering and three preset placements.</>}
+          />
+        )}
       </p>
 
       <section className="form-card form-stack" style={{ maxWidth: 720 }}>
@@ -228,6 +236,7 @@ export default async function VideosAdminPage() {
             videos={videoRows}
             posts={posts.map((p) => ({ id: p.id, title: p.title }))}
             formatBytes={formattedSizes}
+            canDownloadLocally={hasLocalWorker()}
           />
         )}
       </section>

@@ -49,23 +49,39 @@ function stripHtml(input: string): string {
   return s.replace(/\s+/g, " ").trim();
 }
 
+const RSS_FETCH_TIMEOUT_MS = 20000;
+// RSS 正文极少超过个位数 MB；上限防止恶意/异常源把 1GB 内存上限的 worker 撑爆。
+const MAX_RSS_BODY_BYTES = 8 * 1024 * 1024;
+
 export async function fetchRss(url: string): Promise<RssItem[]> {
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 20000);
-  const response = await safeFetch(url, {
-    headers: { "User-Agent": "ShiBeiBlog/0.1" },
-    signal: controller.signal
-  }).finally(() => clearTimeout(timeout));
-  if (!response.ok) {
-    const message = `RSS 来源返回 HTTP ${response.status}`;
-    if (isRetryableSourceStatus(response.status)) {
-      throw new RetryableSourceFetchError(message);
+  // 计时器必须活到响应体读完为止。只保护到「响应头到达」的话，慢速滴流的
+  // body 可以无限期占住并发为 1 的抓取队列槽，而且没有任何恢复机制能打断它。
+  const timeout = setTimeout(() => controller.abort(), RSS_FETCH_TIMEOUT_MS);
+  let text: string;
+  try {
+    const response = await safeFetch(url, {
+      headers: { "User-Agent": "ShiBeiBlog/0.1" },
+      signal: controller.signal
+    });
+    if (!response.ok) {
+      await response.body?.cancel().catch(() => undefined);
+      const message = `RSS 来源返回 HTTP ${response.status}`;
+      if (isRetryableSourceStatus(response.status)) {
+        throw new RetryableSourceFetchError(message);
+      }
+      throw new InvalidSourceMaterialError(message);
     }
-    throw new InvalidSourceMaterialError(message);
+    if (!response.body) throw new RetryableSourceFetchError("RSS 来源未返回响应体");
+    text = await readBodyTextWithLimit(response, MAX_RSS_BODY_BYTES);
+  } catch (err) {
+    if (err instanceof Error && (err.name === "AbortError" || err.name === "TimeoutError")) {
+      throw new RetryableSourceFetchError(`RSS 拉取超时（${Math.round(RSS_FETCH_TIMEOUT_MS / 1000)}s，含响应体）`);
+    }
+    throw err;
+  } finally {
+    clearTimeout(timeout);
   }
-  if (!response.body) throw new RetryableSourceFetchError("RSS 来源未返回响应体");
-
-  const text = await response.text();
   return new Promise((resolve, reject) => {
     const feedparser = new FeedParser();
     const items: RssItem[] = [];
@@ -87,4 +103,23 @@ export async function fetchRss(url: string): Promise<RssItem[]> {
 
     Readable.from([text]).pipe(feedparser);
   });
+}
+
+/** 流式读响应体，超过 maxBytes 立即断开——RSS 解析在内存中进行，必须有界。 */
+async function readBodyTextWithLimit(response: Response, maxBytes: number): Promise<string> {
+  const reader = response.body!.getReader();
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    if (!value) continue;
+    total += value.byteLength;
+    if (total > maxBytes) {
+      await reader.cancel().catch(() => undefined);
+      throw new InvalidSourceMaterialError(`RSS 响应超过 ${Math.round(maxBytes / 1024 / 1024)}MB 上限`);
+    }
+    chunks.push(value);
+  }
+  return Buffer.concat(chunks).toString("utf-8");
 }

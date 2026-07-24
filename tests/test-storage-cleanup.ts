@@ -22,7 +22,7 @@ type RecordedCall = { operation: string; args: unknown };
 function cleanupDatabase(input: {
   enabled: boolean;
   calls: RecordedCall[];
-  videos?: Array<{ id: string; localPath: string | null; postId: string | null }>;
+  videos?: Array<{ id: string; localPath: string | null; postId: string | null; url: string; sourcePageUrl: string | null }>;
 }): StorageCleanupDatabase {
   const record = (operation: string, args: unknown, count = 0) => {
     input.calls.push({ operation, args });
@@ -152,7 +152,13 @@ describe("storage cleanup product policy", () => {
         database: cleanupDatabase({
           enabled: false,
           calls,
-          videos: [{ id: "video-1", localPath: "/uploads/video/old.mp4", postId: "post-1" }]
+          videos: [{
+            id: "video-1",
+            localPath: "/uploads/video/old.mp4",
+            postId: "post-1",
+            url: "/uploads/video/old.mp4",
+            sourcePageUrl: "https://example.com/watch/1"
+          }]
         }),
         dirSize: async () => 0,
         resolveLocalPath: (value) => value ? `/safe${value}` : null,
@@ -170,17 +176,24 @@ describe("storage cleanup product policy", () => {
     assert.deepEqual(videoLookup?.args, {
       where: {
         localPath: { not: null },
-        post: {
-          status: "ARCHIVED",
-          publishedAt: { lt: new Date("2026-06-14T12:00:00.000Z") }
-        }
+        OR: [
+          {
+            post: {
+              status: "ARCHIVED",
+              publishedAt: { lt: new Date("2026-06-14T12:00:00.000Z") }
+            }
+          },
+          { postId: null, updatedAt: { lt: new Date("2026-06-14T12:00:00.000Z") } }
+        ]
       },
-      select: { id: true, localPath: true, postId: true }
+      select: { id: true, localPath: true, postId: true, url: true, sourcePageUrl: true }
     });
     const videoUpdate = calls.find((call) => call.operation === "video.update");
+    // 文件删除后必须降级为指向来源页的 LINK：留着 type=LOCAL + /uploads/… 的
+    // url 会在重新发布或同步到前端时渲染 404 播放器。
     assert.deepEqual(videoUpdate?.args, {
       where: { id: "video-1" },
-      data: { localPath: null, fileSizeBytes: null }
+      data: { localPath: null, fileSizeBytes: null, type: "LINK", url: "https://example.com/watch/1" }
     });
   });
 
@@ -209,7 +222,13 @@ describe("storage cleanup product policy", () => {
         database: cleanupDatabase({
           enabled: false,
           calls,
-          videos: [{ id: "video-missing", localPath: "/uploads/video/missing.mp4", postId: "post-1" }]
+          videos: [{
+            id: "video-missing",
+            localPath: "/uploads/video/missing.mp4",
+            postId: "post-1",
+            url: "/uploads/video/missing.mp4",
+            sourcePageUrl: null
+          }]
         }),
         dirSize: async () => 0,
         resolveLocalPath: () => "/safe/uploads/video/missing.mp4",
@@ -218,9 +237,10 @@ describe("storage cleanup product policy", () => {
     );
 
     assert.equal(result.videoFilesDeleted, 0);
+    // 无来源页可回退时降级为空 url 的 LINK；渲染层对空 url 有「资源不可用」文案。
     assert.deepEqual(calls.find((call) => call.operation === "video.update")?.args, {
       where: { id: "video-missing" },
-      data: { localPath: null, fileSizeBytes: null }
+      data: { localPath: null, fileSizeBytes: null, type: "LINK", url: "" }
     });
   });
 });

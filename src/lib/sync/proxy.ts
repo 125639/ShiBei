@@ -21,6 +21,8 @@ export function backendProxyHeaders(request: Pick<Request, "headers">) {
       lower.startsWith("sec-fetch-") ||
       lower === "x-shibei-client-ip" ||
       lower === "x-shibei-client-ip-signature" ||
+      // 代理身份头只能由本函数在下方重新设置；透传调用方的值等于允许伪造。
+      lower === "x-shibei-proxy-client-ip" ||
       lower === "x-real-ip" ||
       lower === "x-forwarded-for" ||
       lower === "x-forwarded-host" ||
@@ -56,6 +58,11 @@ export async function proxyToBackend(request: Request, targetPath: string): Prom
   const forwardHeaders = backendProxyHeaders(request);
   const clientIp = trustedClientIp(request);
   if (clientIp) forwardHeaders.set("x-forwarded-for", clientIp);
+  // 原始访客标识：backend 生产环境只信 TCP 对端，不读 x-forwarded-for，
+  // 于是所有访客在 backend 的 per-IP 限流里都折叠成前端出口 IP 的同一个桶。
+  // 这个头随共享密钥一起到达（无密钥的直连请求会被 401），backend 侧仅在
+  // 验签通过后采信（见 backend-auth.ts 的 publicAiRateLimitIdentity）。
+  forwardHeaders.set("x-shibei-proxy-client-ip", clientIp || "unknown");
   forwardHeaders.set("x-forwarded-host", incomingUrl.host);
   forwardHeaders.set("x-forwarded-proto", incomingUrl.protocol.replace(":", ""));
 

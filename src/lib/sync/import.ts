@@ -394,7 +394,7 @@ async function upsertVideo(payload: SyncVideoPayload): Promise<"upserted" | "ski
       const data = {
         title: payload.title,
         type: localPath ? payload.type : payload.type === "LOCAL" ? VideoType.LINK : payload.type,
-        url: localPath ? payload.url : payload.type === "LOCAL" ? payload.url || "" : payload.url,
+        url: localPath ? payload.url : payload.type === "LOCAL" ? downgradedLinkUrl(payload) : payload.url,
         coverUrl: payload.coverUrl,
         summary: payload.summary,
         displayMode: payload.displayMode === "link" ? "link" : "embed",
@@ -443,6 +443,19 @@ async function retryUniqueConflict<T>(operation: () => Promise<T>): Promise<T> {
 
 function isUniqueConstraintError(error: unknown): boolean {
   return typeof error === "object" && error !== null && "code" in error && error.code === "P2002";
+}
+
+/**
+ * LOCAL 视频缺文件、降级为 LINK 时的链接目标。下载归档后导出端的 url 是它自己的
+ * 本地路径（/uploads/video/dl-*.mp4），在导入端是死链；此时回退到来源页
+ * （下载归档时必写 sourcePageUrl），让「打开视频」卡片指向可访问的原平台页面。
+ */
+function downgradedLinkUrl(payload: SyncVideoPayload): string {
+  const url = (payload.url || "").trim();
+  if (/^https?:\/\//i.test(url)) return url;
+  const source = (payload.sourcePageUrl || "").trim();
+  if (/^https?:\/\//i.test(source)) return source;
+  return "";
 }
 
 async function localFileExists(localPath: string): Promise<boolean> {

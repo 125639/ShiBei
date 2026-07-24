@@ -41,10 +41,8 @@ export async function syncSchedule(scheduleId: string) {
   const id = buildScheduleId(schedule.topicId);
 
   await withQueue(async (queue) => {
-    // Remove any existing scheduler so we always pick up the latest cron.
-    await queue.removeJobScheduler(id).catch(() => undefined);
-
     if (!schedule.isEnabled || !schedule.topic.isEnabled) {
+      await queue.removeJobScheduler(id).catch(() => undefined);
       await prisma.autoSchedule.update({
         where: { id: schedule.id },
         data: { bullJobKey: null, nextRunAt: null }
@@ -52,6 +50,8 @@ export async function syncSchedule(scheduleId: string) {
       return;
     }
 
+    // upsertJobScheduler 按 id 幂等替换 pattern，无需先 remove。先删后建的话，
+    // 坏 cron 让 upsert 抛错时旧调度已被删掉、DB 已提交坏值，主题从此静默停更。
     const nextJob = await queue.upsertJobScheduler(
       id,
       { pattern: schedule.cron },
@@ -88,9 +88,9 @@ export async function bootstrapAllSchedules() {
   await withQueue(async (queue) => {
     for (const schedule of schedules) {
       const id = buildScheduleId(schedule.topicId);
-      await queue.removeJobScheduler(id).catch(() => undefined);
 
       if (!schedule.isEnabled || !schedule.topic.isEnabled) {
+        await queue.removeJobScheduler(id).catch(() => undefined);
         await prisma.autoSchedule.update({
           where: { id: schedule.id },
           data: { bullJobKey: null, nextRunAt: null }

@@ -3,6 +3,7 @@ import { requireAdmin } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { redirectTo } from "@/lib/redirect";
 import { getVideoDownloadQueue } from "@/lib/queue";
+import { hasLocalWorker } from "@/lib/app-mode";
 import { rejectCrossOriginMutation } from "@/lib/request-origin";
 import { revisionMediaBlockedRedirect } from "@/lib/post-revision";
 import { videoTouchesPendingRevision } from "@/lib/video-download";
@@ -14,6 +15,14 @@ export async function POST(request: Request) {
   const denied = rejectCrossOriginMutation(request);
   if (denied) return denied;
   await requireAdmin();
+  // Next proxy 的 matcher 排除了 api/admin/videos，模式守卫在这里兜底：
+  // frontend 没有 Redis/worker，入队只会 500 + 永远不被消费。
+  if (!hasLocalWorker()) {
+    return NextResponse.json(
+      { error: "当前部署形态没有本地 worker，无法下载视频。请在 backend 上执行「下载到本地」，随后通过同步把文件传到本端。" },
+      { status: 400 }
+    );
+  }
   const form = await request.formData();
   const videoId = String(form.get("videoId") || "").trim();
   const redirect = safeRedirectPath(String(form.get("redirect") || ""));

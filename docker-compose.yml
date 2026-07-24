@@ -48,6 +48,9 @@ services:
 
   app:
     image: safg/shibei:full
+    # 本地没有该镜像时优先从 Docker Hub 拉取，而不是触发本地构建——
+    # 低内存机器上 next build + Chromium 下载几乎必然 OOM(README ❼)。
+    pull_policy: missing
     build:
       context: .
       dockerfile: Dockerfile
@@ -68,7 +71,9 @@ services:
       # Set this to the exact number of reverse-proxy hops when deploying
       # behind nginx/Caddy/Traefik. Direct HTTP installs must keep the default.
       TRUST_PROXY_HOPS: ${TRUST_PROXY_HOPS:-0}
-      NODE_OPTIONS: --max-old-space-size=1024
+      # 堆上限须显著低于 mem_limit(1024m)：V8 老生代涨满上限时，堆外的
+      # 新生代/原生内存/代码段会先触发 cgroup OOMKill 而不是 GC。
+      NODE_OPTIONS: --max-old-space-size=700
       # 统计按日/按小时分桶用的是进程本地时区；不设 TZ 容器默认 UTC，
       # 「当天」会对中文站长偏 8 小时。Node 自带 ICU 时区数据，alpine 无需 tzdata。
       TZ: ${TZ:-Asia/Shanghai}
@@ -132,6 +137,9 @@ services:
 
   worker:
     image: safg/shibei:full
+    # 本地没有该镜像时优先从 Docker Hub 拉取，而不是触发本地构建——
+    # 低内存机器上 next build + Chromium 下载几乎必然 OOM(README ❼)。
+    pull_policy: missing
     build:
       context: .
       dockerfile: Dockerfile
@@ -181,6 +189,9 @@ services:
   # 注意：挂载 docker.sock 等价于宿主 root 权限，绝不能把 9080 暴露到公网。
   updater:
     image: safg/shibei:updater
+    # 本地没有该镜像时优先从 Docker Hub 拉取，而不是触发本地构建——
+    # 低内存机器上 next build + Chromium 下载几乎必然 OOM(README ❼)。
+    pull_policy: missing
     build:
       context: .
       dockerfile: Dockerfile.updater

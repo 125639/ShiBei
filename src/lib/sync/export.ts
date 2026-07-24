@@ -25,6 +25,13 @@ export type ExportOptions = {
   since?: Date | null;
   /** 是否包含本地视频文件。默认 false，避免自动同步时大 ZIP 压垮低配前端。 */
   includeLocalFiles?: boolean;
+  /**
+   * 是否推进 SyncState.lastExportedAt（后台「下载增量 ZIP」的起点）。
+   * sync-worker 的自动拉取每分钟都会触发导出，若同样推进该游标，管理员手动
+   * 下载的「增量 ZIP」窗口就只剩最近一分钟、几乎恒为空包。因此机机拉取
+   * （Bearer 鉴权）应传 false，仅管理员亲自导出时推进。
+   */
+  advanceCursor?: boolean;
 };
 
 /**
@@ -36,7 +43,7 @@ export type ExportOptions = {
  *   uploads/video/<filename>   (LOCAL 视频的物理文件，按 video.localPath 命名)
  */
 export async function exportToZip(opts: ExportOptions = {}): Promise<Buffer> {
-  const { since = null, includeLocalFiles = false } = opts;
+  const { since = null, includeLocalFiles = false, advanceCursor = true } = opts;
   // Capture a stable upper bound before reading. Importers use this exact value
   // as their next cursor, so rows changed during the query fall into the next run.
   const exportedAt = new Date();
@@ -186,14 +193,16 @@ export async function exportToZip(opts: ExportOptions = {}): Promise<Buffer> {
   // Advance the displayed export cursor only after the archive has actually
   // been materialized successfully. A toBuffer/OOM/limit failure must never
   // make the next incremental export skip rows that were not delivered.
-  try {
-    await prisma.syncState.upsert({
-      where: { id: "sync" },
-      create: { id: "sync", lastExportedAt: exportedAt, updatedAt: new Date() },
-      update: { lastExportedAt: exportedAt },
-    });
-  } catch {
-    // ignore
+  if (advanceCursor) {
+    try {
+      await prisma.syncState.upsert({
+        where: { id: "sync" },
+        create: { id: "sync", lastExportedAt: exportedAt, updatedAt: new Date() },
+        update: { lastExportedAt: exportedAt },
+      });
+    } catch {
+      // ignore
+    }
   }
 
   return buffer;

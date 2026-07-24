@@ -39,9 +39,9 @@ case "$APP_MODE" in
         sleep 5
       done
     ) &
-    SYNC_WORKER_PID=$!
-    # 主进程退出时干掉监督循环；容器停止时残余子进程随之回收
-    trap 'kill $SYNC_WORKER_PID 2>/dev/null || true' INT TERM EXIT
+    # 注意不要在这里 trap 收尾——`exec` 替换进程映像后 shell trap 全部失效，
+    # 写了也永远不会触发。监督循环的回收由 compose 的 `init: true`(docker-init
+    # 作为 PID 1)在容器停止时完成。
     exec node scripts/trusted-next-server.mjs
     ;;
   backend)

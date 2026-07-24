@@ -148,6 +148,10 @@ export function AdminAiManager({
       if (raw) {
         const draft = JSON.parse(raw) as Partial<AiDraft>;
         if (draft.plan) {
+          /* eslint-disable react-hooks/set-state-in-effect --
+             sessionStorage 草案只能在客户端挂载后恢复：放进 useState 初始化器
+             会让 SSR 首帧与客户端首帧不一致（水合报错）。一次性的挂载恢复是
+             该规则的已知合法例外。 */
           setRequest(draft.request ?? EXAMPLE);
           setScope(draft.scope ?? "all");
           setDepth(draft.depth ?? "long");
@@ -155,6 +159,7 @@ export function AdminAiManager({
           setContentStyleId(draft.contentStyleId ?? "");
           setFeedback(draft.feedback ?? "");
           setPlan(draft.plan);
+          /* eslint-enable react-hooks/set-state-in-effect */
         }
       }
     } catch {

@@ -3,7 +3,7 @@
 
 blog.example.com {
 	request_body {
-		# Leaves room for multipart overhead around the application's 512 MB ZIP limit.
+		# Leaves room for multipart overhead around the app's ZIP import limit (512 MB on full/backend; a frontend deployment defaults to 64 MB unless SYNC_MAX_ZIP_MB is raised).
 		max_size 600MB
 	}
 

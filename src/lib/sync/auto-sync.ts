@@ -38,6 +38,23 @@ function isAbortError(err: unknown): boolean {
   return err instanceof Error && (err.name === "TimeoutError" || err.name === "AbortError");
 }
 
+/**
+ * undici 的网络失败只给一句笼统的 "fetch failed"，真实原因（getaddrinfo
+ * ENOTFOUND / connect ECONNREFUSED / 证书错误）藏在 err.cause 链里。
+ * /admin/sync 的「上次错误」与 sync-worker 日志必须能直接回答"为什么连不上"。
+ */
+function describeNetworkError(err: unknown): string {
+  if (!(err instanceof Error)) return String(err);
+  const parts: string[] = [err.message];
+  let cause: unknown = (err as { cause?: unknown }).cause;
+  for (let depth = 0; cause instanceof Error && depth < 3; depth += 1) {
+    if (cause.message) parts.push(cause.message);
+    cause = (cause as { cause?: unknown }).cause;
+  }
+  const unique = [...new Set(parts.filter(Boolean))];
+  return unique.length > 1 ? `${unique[0]}（原因: ${unique.slice(1).join("; ")}）` : unique[0] || "未知网络错误";
+}
+
 /** 对 SyncState 单行做 best-effort 局部更新；观测字段写失败不阻塞同步本身。 */
 async function patchSyncState(
   fields: Partial<{
@@ -129,9 +146,7 @@ export async function probeBackend(preloaded?: ResolvedSyncConfig): Promise<Back
     const latencyMs = Date.now() - startedAt;
     const message = isAbortError(err)
       ? `连接超时（${Math.round(PROBE_TIMEOUT_MS / 1000)}s 无响应）`
-      : err instanceof Error
-        ? err.message
-        : String(err);
+      : describeNetworkError(err);
     return { kind: "error", latencyMs, message: `探测 backend 失败: ${message}` };
   }
   const latencyMs = Date.now() - startedAt;
@@ -222,9 +237,7 @@ export async function runAutoSync(): Promise<{
   } catch (err) {
     const detail = isAbortError(err)
       ? `拉取超时（${Math.round(PULL_TIMEOUT_MS / 1000)}s，含响应体传输）`
-      : err instanceof Error
-        ? err.message
-        : String(err);
+      : describeNetworkError(err);
     const msg = `连接 backend 失败: ${detail}`;
     await writeError(msg);
     throw new Error(msg);
@@ -261,9 +274,7 @@ export async function runAutoSync(): Promise<{
   } catch (err) {
     const detail = isAbortError(err)
       ? `拉取超时（${Math.round(PULL_TIMEOUT_MS / 1000)}s，响应体传输中断）`
-      : err instanceof Error
-        ? err.message
-        : String(err);
+      : describeNetworkError(err);
     const msg = `下载同步包失败: ${detail}`;
     await writeError(msg);
     throw new Error(msg);

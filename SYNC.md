@@ -35,10 +35,13 @@ APP_PORT              HTTP 应用端口，默认 3000
 TRUST_PROXY_HOPS      可信反代固定层数，直连时为 0，同机单层时为 1
 BACKEND_API_URL       https://backend.example.com   (frontend 必填；公网跨机禁止明文 HTTP)
 SYNC_TOKEN            <长随机字符串>          (frontend / backend 双方相同)
-SYNC_MAX_ZIP_MB       同步包大小上限。默认: frontend 128,其他形态 512。
-                      ZIP 全量缓冲进内存,上限必须小于容器内存。
-SYNC_MAX_FILE_MB      ZIP 内单文件上限。默认: frontend 96,其他形态 350。
-                      超限文件跳过不中断(计入 filesSkipped)。
+SYNC_MAX_ZIP_MB       同步包大小上限。默认: frontend 64,其他形态 512。
+                      ZIP 全量缓冲进内存,上限必须显著小于容器内存
+                      (frontend 容器 448MB 由 Next + sync-worker 共享)。
+SYNC_MAX_FILE_MB      ZIP 内单文件上限。默认: frontend 48,其他形态 350。
+                      超限文件跳过不中断(计入 filesSkipped)。注意 yt-dlp
+                      低码率存档单文件上限是 150MB:要把大视频文件传进
+                      frontend,需要在 frontend 调大这两个值。
 ```
 
 ## 同步流程
@@ -129,7 +132,14 @@ frontend 模式下，以下端点会把请求（含 body 流）透明转发到 `
 
 视频（无论本地上传还是嵌入链接）都可以在前端 `/admin/videos` 添加，与同步的文章是独立的实体。挂到一篇文章后，正文 Markdown 里写 `[[video:VIDEO_ID]]`，该位置就会被替换为播放器。
 
-未挂载到任何文章的视频会出现在 `/videos` 页面但不会自动出现在某篇文章里。
+**视频没有独立公开页面**：只有通过短代码嵌入正文、或挂载到已发布文章（文末「相关视频」区）的才会被读者看到；未挂载的视频只在后台可见。
+
+**前端展示的两个前提**：
+
+1. 前端实例自己的 `/admin/settings?tab=media` 勾选了「启用视频功能」。该开关**不随同步传递**、默认关闭——关闭时文章里的短代码被静默移除。`/admin/sync` 在本端有视频但开关关闭时会显示警告。
+2. LOCAL（本地文件）型视频的 mp4 默认不进自动同步包；文件未到达时视频降级为指向来源页的链接卡片。要传文件：backend `/admin/sync` 下载「全量 ZIP（含本地视频）」→ frontend 上传导入，并按上文调大 frontend 的 `SYNC_MAX_ZIP_MB` / `SYNC_MAX_FILE_MB`。
+
+**「下载增量 ZIP」的起点**只按管理员亲自导出的时间推进；sync-worker 的自动拉取不影响它。
 
 ## 安全说明
 

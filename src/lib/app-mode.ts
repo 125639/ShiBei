@@ -66,7 +66,11 @@ export const LOCAL_WORKER_ADMIN_API_PREFIXES = [
   "/api/admin/content-styles",
   "/api/admin/model-configs",
   "/api/admin/posts/assist",
-  "/api/admin/posts/bulk-repair"
+  "/api/admin/posts/bulk-repair",
+  // yt-dlp 下载走 BullMQ；frontend 无 Redis/worker，入队必然失败。
+  // 注意 Next proxy 的 matcher 排除了 api/admin/videos（避免代理层缓冲大上传），
+  // 因此该路由还必须在自身入口再做一次 hasLocalWorker() 校验。
+  "/api/admin/videos/download"
 ] as const;
 
 function matchesPathPrefix(pathname: string, prefix: string): boolean {

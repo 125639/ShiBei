@@ -1,4 +1,7 @@
 import bcrypt from "bcryptjs";
+
+// 与真实密码哈希同 cost(12) 的常量哈希，用于「账号不存在」路径的时序对齐。
+const TIMING_EQUALIZER_HASH = "$2a$12$L2IUnMg38dhnkZZ8JwUpM.l5YetxGZ6KXzrByNyeu4QTPSXE60C66";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { isInviteCodeFormat, normalizeInviteCodeInput } from "@/lib/invite-codes";
@@ -67,7 +70,13 @@ export async function POST(request: Request) {
     ? await prisma.memberUser.findUnique({ where: { email: account.toLowerCase() } })
     : await prisma.memberUser.findUnique({ where: { username: account } });
 
-  let ok = member ? await bcrypt.compare(secret, member.passwordHash) : false;
+  let ok = false;
+  if (member) {
+    ok = await bcrypt.compare(secret, member.passwordHash);
+  } else {
+    // 账号不存在时也执行等价开销的比对，消除可枚举已注册邮箱/用户名的时延差。
+    await bcrypt.compare(secret, TIMING_EQUALIZER_HASH);
+  }
   // 仅存量邀请码账号允许规范化旧邀请码，且成功后只能进入受限的改密流程。
   if (!ok && member?.credentialState === "LEGACY_INVITE_UPGRADE_REQUIRED") {
     const normalized = normalizeInviteCodeInput(secret);
