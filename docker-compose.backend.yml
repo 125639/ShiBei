@@ -1,0 +1,186 @@
+# 后端形态 docker compose:postgres + redis + backend 应用 + worker。
+# 与完整版几乎一致,差别在 APP_MODE=backend(中间件会把公开路由重定向到 /admin)。
+#
+# 用法:
+#   1) 准备 .env:
+#      共享密钥可启动后在 /admin/sync 保存；模型配置在 /admin/settings 中保存。
+#   2) docker compose -f docker-compose.backend.yml up -d
+#   3) backend 通常不直接暴露给最终用户；受防火墙保护的私网可用 HTTP，
+#      跨公网的 BACKEND_API_URL 必须经过用户自己的 HTTPS 入口。
+
+x-shibei-logging: &shibei-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "5"
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    command: ["postgres", "-c", "shared_buffers=128MB", "-c", "max_connections=40"]
+    environment:
+      POSTGRES_USER: shibei
+      POSTGRES_PASSWORD: shibei
+      POSTGRES_DB: shibei_blog
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U shibei -d shibei_blog"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    mem_limit: 384m
+    pids_limit: 200
+    security_opt:
+      - no-new-privileges:true
+    logging: *shibei-logging
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--save", "", "--appendonly", "yes", "--appendfsync", "everysec", "--auto-aof-rewrite-percentage", "100", "--auto-aof-rewrite-min-size", "64mb", "--maxmemory", "128mb", "--maxmemory-policy", "noeviction"]
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli ping | grep -q '^PONG$' && test \"$$(redis-cli --raw CONFIG GET appendonly | tail -n 1)\" = yes && test \"$$(redis-cli --raw CONFIG GET appendfsync | tail -n 1)\" = everysec && test \"$$(redis-cli --raw CONFIG GET maxmemory-policy | tail -n 1)\" = noeviction"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    mem_limit: 192m
+    pids_limit: 100
+    security_opt:
+      - no-new-privileges:true
+    logging: *shibei-logging
+    stop_grace_period: 30s
+    restart: unless-stopped
+
+  app:
+    image: safg/shibei:backend
+    # 本地没有该镜像时优先从 Docker Hub 拉取，而不是触发本地构建——
+    # 低内存机器上 next build + Chromium 下载几乎必然 OOM(README ❼)。
+    pull_policy: missing
+    build:
+      context: .
+      dockerfile: Dockerfile.backend
+      args:
+        GIT_COMMIT: ${GIT_COMMIT:-unknown}
+        BUILD_TIME: ${BUILD_TIME:-unknown}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    env_file:
+      - .env
+    environment:
+      APP_MODE: backend
+      TRUST_PROXY_HOPS: ${TRUST_PROXY_HOPS:-0}
+      # 堆上限须显著低于 mem_limit(768m)：V8 老生代涨满上限时，堆外内存
+      # 会先触发 cgroup OOMKill 而不是 GC。
+      NODE_OPTIONS: --max-old-space-size=512
+      # 统计分桶按进程本地时区；默认上海，.env 里设 TZ 可覆盖。
+      TZ: ${TZ:-Asia/Shanghai}
+    ports:
+      - "${APP_BIND_IP:-0.0.0.0}:${APP_PORT:-3000}:3000"
+    command: ["sh", "scripts/start-app.sh"]
+    # docker-init 当 PID 1:转发停止信号并回收孤儿进程。
+    init: true
+    volumes:
+      - app-uploads:/app/public/uploads
+      # 图片优化缓存持久化（full/frontend 一直有）：少了它每次换容器都全量重压。
+      - app-image-cache:/app/.next/cache/images
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 10s
+      start_period: 90s
+      retries: 5
+    mem_limit: 768m
+    pids_limit: 768
+    logging: *shibei-logging
+    restart: unless-stopped
+
+  worker:
+    image: safg/shibei:backend
+    # 本地没有该镜像时优先从 Docker Hub 拉取，而不是触发本地构建——
+    # 低内存机器上 next build + Chromium 下载几乎必然 OOM(README ❼)。
+    pull_policy: missing
+    build:
+      context: .
+      dockerfile: Dockerfile.backend
+      args:
+        GIT_COMMIT: ${GIT_COMMIT:-unknown}
+        BUILD_TIME: ${BUILD_TIME:-unknown}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    env_file:
+      - .env
+    environment:
+      APP_MODE: backend
+      NODE_OPTIONS: --max-old-space-size=768
+      TZ: ${TZ:-Asia/Shanghai}
+      # worker 发布内容后要通知 app 进程失效公开页缓存；缺了它每次发布都会
+      # 打「缓存刷新通知失败」告警（完整版 compose 一直有这一行）。
+      SHIBEI_INTERNAL_APP_URL: ${SHIBEI_INTERNAL_APP_URL:-http://app:3000}
+      FETCH_WORKER_CONCURRENCY: 1
+      RESEARCH_WORKER_CONCURRENCY: 1
+      AUDIENCE_WORKER_CONCURRENCY: 1
+      SCHEDULE_WORKER_CONCURRENCY: 1
+    # 直调 tsx,不走 npm run:省常驻 ~50MB 的 npm 父进程,SIGTERM 直达 worker
+    command: ["node", "node_modules/.bin/tsx", "src/worker/index.ts"]
+    init: true
+    volumes:
+      - app-uploads:/app/public/uploads
+    healthcheck:
+      test: ["CMD", "node", "-e", "const fs=require('fs');let ok=false;try{const n=Number(fs.readFileSync('/tmp/shibei-worker-heartbeat','utf8'));ok=Date.now()-n<90000}catch{}if(!ok){try{process.kill(1,'SIGKILL')}catch{}}process.exit(ok?0:1)"]
+      interval: 30s
+      timeout: 5s
+      start_period: 60s
+      retries: 3
+    stop_grace_period: 17m
+    mem_limit: 1024m
+    pids_limit: 1024
+    logging: *shibei-logging
+    restart: unless-stopped
+
+  # 网页端一键更新伴车（同完整版，compose 文件换成 backend 的）。
+  # 挂载 docker.sock = 宿主 root 权限，只在内网监听，绝不暴露端口。
+  updater:
+    image: safg/shibei:updater
+    # 本地没有该镜像时优先从 Docker Hub 拉取，而不是触发本地构建——
+    # 低内存机器上 next build + Chromium 下载几乎必然 OOM(README ❼)。
+    pull_policy: missing
+    build:
+      context: .
+      dockerfile: Dockerfile.updater
+    env_file:
+      - .env
+    environment:
+      COMPOSE_FILE_NAME: docker-compose.backend.yml
+      # app 与 worker 共用 safg/shibei:backend 镜像：只构建 app，up 时 worker 自动换新镜像
+      UPDATE_BUILD_SERVICES: app
+      UPDATE_SERVICES: app worker
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - .:/repo
+    init: true
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:9080/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 60s
+      timeout: 5s
+      retries: 3
+    mem_limit: 128m
+    pids_limit: 128
+    security_opt:
+      - no-new-privileges:true
+    logging: *shibei-logging
+    restart: unless-stopped
+
+volumes:
+  postgres-data:
+  redis-data:
+  app-uploads:
+  app-image-cache:

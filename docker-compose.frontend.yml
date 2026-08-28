@@ -1,0 +1,136 @@
+# 前端形态 docker compose:postgres + 前端应用(含 sync-worker 在容器内并发跑)。
+#
+# 用法:
+#   1) 准备 .env(从 .env.example 复制并修改):
+#      只需准备 AUTH_SECRET / ENCRYPTION_KEY / 管理员账号。
+#      backend 地址、共享密钥、自动/手动模式可启动后在 /admin/sync 网页端保存。
+#   2) docker compose -f docker-compose.frontend.yml up -d
+#
+# 与完整版的差异:
+#   - 没有 redis(无 BullMQ)
+#   - 没有 worker 容器(只有 app + sync-worker 同进程)
+#   - app 镜像换成 Dockerfile.frontend(无 Playwright/yt-dlp/ffmpeg)
+
+x-shibei-logging: &shibei-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "5"
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    command: ["postgres", "-c", "shared_buffers=32MB", "-c", "max_connections=20"]
+    environment:
+      POSTGRES_USER: shibei
+      POSTGRES_PASSWORD: shibei
+      POSTGRES_DB: shibei_blog
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U shibei -d shibei_blog"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    mem_limit: 128m
+    pids_limit: 150
+    security_opt:
+      - no-new-privileges:true
+    logging: *shibei-logging
+    restart: unless-stopped
+
+  app:
+    image: safg/shibei:frontend
+    # 本地没有该镜像时优先从 Docker Hub 拉取，而不是触发本地构建——
+    # 低内存机器上 next build + Chromium 下载几乎必然 OOM(README ❼)。
+    pull_policy: missing
+    build:
+      context: .
+      dockerfile: Dockerfile.frontend
+      args:
+        GIT_COMMIT: ${GIT_COMMIT:-unknown}
+        BUILD_TIME: ${BUILD_TIME:-unknown}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    env_file:
+      - .env
+    environment:
+      APP_MODE: frontend
+      TRUST_PROXY_HOPS: ${TRUST_PROXY_HOPS:-0}
+      # Next 使用 192MB 堆；start-app.sh 会把 sync-worker 单独压到 128MB。
+      # 生产构建连续巡检公开路由可稳定运行，同时给 ZIP Buffer 留出余量。
+      NODE_OPTIONS: --max-old-space-size=192
+      # 1 核小机不需要默认 4 线程池；限制 glibc arena 可减少长期运行的 RSS 碎片。
+      UV_THREADPOOL_SIZE: 2
+      MALLOC_ARENA_MAX: 2
+      # 图片优化（/_next/image 的 sharp/libvips）在 1 核上串行处理，避免一页多图
+      # 同时转码时线程数按核暴涨、CPU/内存尖峰把小机拖垮。两个变量分别覆盖
+      # libvips 与 sharp 的线程池，取最保守的 1。
+      VIPS_CONCURRENCY: "1"
+      SHARP_CONCURRENCY: "1"
+      # 统计分桶按进程本地时区；默认上海，.env 里设 TZ 可覆盖。
+      TZ: ${TZ:-Asia/Shanghai}
+    ports:
+      - "${APP_BIND_IP:-0.0.0.0}:${APP_PORT:-3000}:3000"
+    command: ["sh", "scripts/start-app.sh"]
+    # docker-init 当 PID 1：转发停止信号并回收孤儿进程(sync-worker 崩溃重启
+    # 循环会孤儿化 tsx/esbuild 子进程,没人收尸就积僵尸)。
+    init: true
+    volumes:
+      # 持久化用户上传的视频/音乐(导入的 ZIP 也会落到这里)
+      - app-uploads:/app/public/uploads
+      # 图片优化结果缓存：1 核小机上重压最贵，务必跨容器保留。
+      - app-image-cache:/app/.next/cache/images
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 10s
+      start_period: 90s
+      retries: 5
+    # 实测(2026-07-04): 320m 时热身后 RSS 到 318MiB，贴着上限跑，大 ZIP 导入
+    # 必被 OOM 杀。448m + postgres 128m = 576m 硬顶，765MB 小机上给系统留 ~190MB。
+    mem_limit: 448m
+    pids_limit: 384
+    security_opt:
+      - no-new-privileges:true
+    logging: *shibei-logging
+    restart: unless-stopped
+
+  # 网页端一键更新伴车（前端形态只重建 app 一个服务）。
+  # 挂载 docker.sock = 宿主 root 权限，只在内网监听，绝不暴露端口。
+  # 内存点评：构建由宿主 dockerd 执行，updater 本身只是转发命令，192m 足够。
+  updater:
+    image: safg/shibei:updater
+    # 本地没有该镜像时优先从 Docker Hub 拉取，而不是触发本地构建——
+    # 低内存机器上 next build + Chromium 下载几乎必然 OOM(README ❼)。
+    pull_policy: missing
+    build:
+      context: .
+      dockerfile: Dockerfile.updater
+    env_file:
+      - .env
+    environment:
+      COMPOSE_FILE_NAME: docker-compose.frontend.yml
+      UPDATE_BUILD_SERVICES: app
+      UPDATE_SERVICES: app
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - .:/repo
+    init: true
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:9080/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 60s
+      timeout: 5s
+      retries: 3
+    mem_limit: 128m
+    pids_limit: 128
+    security_opt:
+      - no-new-privileges:true
+    logging: *shibei-logging
+    restart: unless-stopped
+
+volumes:
+  postgres-data:
+  app-uploads:
+  app-image-cache:

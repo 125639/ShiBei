@@ -1,0 +1,32 @@
+node_modules
+.next
+.env*
+!.env.example
+!.env.*.example
+.letsencrypt
+.letsencrypt-staging
+.certbot-www
+.git
+postgres-data
+redis-data
+playwright-report
+npm-debug.log
+public/uploads
+.demo-pg
+picture
+tsconfig.tsbuildinfo
+
+# Runtime backups and database/media archives must never enter a Docker build
+# context. Besides making builds unexpectedly huge, these files can contain the
+# complete database, encrypted provider credentials, member data, and uploads.
+ops/backups/
+backups/
+*.dump
+*.dump.gz
+*.backup
+*.sql.gz
+db-*.sql
+db-*.tar*
+uploads-*.tar*
+*.tgz
+*.zip

@@ -1,0 +1,225 @@
+x-shibei-logging: &shibei-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "5"
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    command: ["postgres", "-c", "shared_buffers=128MB", "-c", "max_connections=50"]
+    environment:
+      POSTGRES_USER: shibei
+      POSTGRES_PASSWORD: shibei
+      POSTGRES_DB: shibei_blog
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U shibei -d shibei_blog"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    mem_limit: 512m
+    pids_limit: 200
+    security_opt:
+      - no-new-privileges:true
+    logging: *shibei-logging
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    # BullMQ is authoritative queue state: persist every accepted write to AOF
+    # within one second and never evict arbitrary queue keys under pressure.
+    command: ["redis-server", "--save", "", "--appendonly", "yes", "--appendfsync", "everysec", "--auto-aof-rewrite-percentage", "100", "--auto-aof-rewrite-min-size", "64mb", "--maxmemory", "192mb", "--maxmemory-policy", "noeviction"]
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli ping | grep -q '^PONG$' && test \"$$(redis-cli --raw CONFIG GET appendonly | tail -n 1)\" = yes && test \"$$(redis-cli --raw CONFIG GET appendfsync | tail -n 1)\" = everysec && test \"$$(redis-cli --raw CONFIG GET maxmemory-policy | tail -n 1)\" = noeviction"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    mem_limit: 256m
+    pids_limit: 100
+    security_opt:
+      - no-new-privileges:true
+    logging: *shibei-logging
+    stop_grace_period: 30s
+    restart: unless-stopped
+
+  app:
+    image: safg/shibei:full
+    # 本地没有该镜像时优先从 Docker Hub 拉取，而不是触发本地构建——
+    # 低内存机器上 next build + Chromium 下载几乎必然 OOM(README ❼)。
+    pull_policy: missing
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        GIT_COMMIT: ${GIT_COMMIT:-unknown}
+        BUILD_TIME: ${BUILD_TIME:-unknown}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    env_file:
+      - .env
+    environment:
+      APP_MODE: full
+      # PUBLIC_URL is supplied at runtime by .env. Existing installs may keep
+      # NEXT_PUBLIC_SITE_URL; the application resolves that legacy fallback.
+      # Set this to the exact number of reverse-proxy hops when deploying
+      # behind nginx/Caddy/Traefik. Direct HTTP installs must keep the default.
+      TRUST_PROXY_HOPS: ${TRUST_PROXY_HOPS:-0}
+      # 堆上限须显著低于 mem_limit(1024m)：V8 老生代涨满上限时，堆外的
+      # 新生代/原生内存/代码段会先触发 cgroup OOMKill 而不是 GC。
+      NODE_OPTIONS: --max-old-space-size=700
+      # 统计按日/按小时分桶用的是进程本地时区；不设 TZ 容器默认 UTC，
+      # 「当天」会对中文站长偏 8 小时。Node 自带 ICU 时区数据，alpine 无需 tzdata。
+      TZ: ${TZ:-Asia/Shanghai}
+    ports:
+      - "${APP_BIND_IP:-0.0.0.0}:${APP_PORT:-3000}:3000"
+    command: ["sh", "scripts/start-app.sh"]
+    # docker-init 当 PID 1:转发停止信号并回收孤儿进程。
+    init: true
+    volumes:
+      - app-uploads:/app/public/uploads
+      # 图片优化结果缓存：不挂卷的话每次更新换容器都要全量重压一遍。
+      - app-image-cache:/app/.next/cache/images
+    healthcheck:
+      # 用 node 直接发请求，避免镜像里没有 curl/wget。
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 10s
+      start_period: 90s
+      retries: 5
+    mem_limit: 1024m
+    # The app can invoke Chromium for creation research, so no-new-privileges /
+    # cap_drop are intentionally not forced here without a browser sandbox E2E.
+    pids_limit: 768
+    logging: *shibei-logging
+    restart: unless-stopped
+
+  # 存量升级兼容层：新安装、deploy 与 updater 均不会启用或管理它。
+  # 仅让旧版已经运行内置 HTTPS 的实例可以安全完成过渡更新；新部署
+  # 应直接使用 app 的 HTTP 端口，并由用户自己的反向代理终止 TLS。
+  proxy:
+    image: nginx:1.28-alpine
+    profiles: ["https"]
+    depends_on:
+      app:
+        condition: service_healthy
+    environment:
+      PUBLIC_HOST: ${PUBLIC_HOST:-localhost}
+      # Only expand our deployment variable; preserve nginx variables such as
+      # $host and $proxy_add_x_forwarded_for in the template.
+      NGINX_ENVSUBST_FILTER: PUBLIC_HOST
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./ops/nginx/default.conf.template:/etc/nginx/templates/default.conf.template:ro
+      - ./ops/nginx/proxy-common.inc:/etc/nginx/proxy-common.inc:ro
+      - ${TLS_STATE_DIR:-/var/lib/shibei-tls}/letsencrypt:/etc/letsencrypt:ro
+      - ${TLS_STATE_DIR:-/var/lib/shibei-tls}/www:/var/www/certbot:ro
+    healthcheck:
+      test: ["CMD-SHELL", "wget --no-check-certificate -qO- --header='Host: '$$PUBLIC_HOST https://127.0.0.1/api/health | grep -q '\"ok\":true'"]
+      interval: 30s
+      timeout: 10s
+      start_period: 20s
+      retries: 5
+    mem_limit: 128m
+    pids_limit: 100
+    security_opt:
+      - no-new-privileges:true
+    logging: *shibei-logging
+    restart: unless-stopped
+
+  worker:
+    image: safg/shibei:full
+    # 本地没有该镜像时优先从 Docker Hub 拉取，而不是触发本地构建——
+    # 低内存机器上 next build + Chromium 下载几乎必然 OOM(README ❼)。
+    pull_policy: missing
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        GIT_COMMIT: ${GIT_COMMIT:-unknown}
+        BUILD_TIME: ${BUILD_TIME:-unknown}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    env_file:
+      - .env
+    environment:
+      APP_MODE: full
+      NODE_OPTIONS: --max-old-space-size=1024
+      TZ: ${TZ:-Asia/Shanghai}
+      # 发布提交后由 worker 直接通知 Next 进程失效公共缓存；请求使用
+      # .env 中同一个 AUTH_SECRET 做短时 HMAC，不会在网络上传输原密钥。
+      SHIBEI_INTERNAL_APP_URL: ${SHIBEI_INTERNAL_APP_URL:-http://app:3000}
+      FETCH_WORKER_CONCURRENCY: 1
+      RESEARCH_WORKER_CONCURRENCY: 1
+      AUDIENCE_WORKER_CONCURRENCY: 1
+      SCHEDULE_WORKER_CONCURRENCY: 1
+    # 直调 tsx,不走 npm run:省常驻 ~50MB 的 npm 父进程,SIGTERM 直达 worker
+    command: ["node", "node_modules/.bin/tsx", "src/worker/index.ts"]
+    init: true
+    volumes:
+      - app-uploads:/app/public/uploads
+    healthcheck:
+      test: ["CMD", "node", "-e", "const fs=require('fs');let ok=false;try{const n=Number(fs.readFileSync('/tmp/shibei-worker-heartbeat','utf8'));ok=Date.now()-n<90000}catch{}if(!ok){try{process.kill(1,'SIGKILL')}catch{}}process.exit(ok?0:1)"]
+      interval: 30s
+      timeout: 5s
+      start_period: 60s
+      retries: 3
+    stop_grace_period: 17m
+    mem_limit: 1536m
+    # Chromium and yt-dlp can create many short-lived processes. Bound fork
+    # bombs while retaining enough headroom for a legitimate scrape/download.
+    pids_limit: 1024
+    logging: *shibei-logging
+    restart: unless-stopped
+
+  # 网页端一键更新伴车：管理后台「系统更新」页 / 左上角新版本弹窗靠它执行
+  # git fetch/ff-only + docker compose build/up。只在 compose 内网监听（不映射端口），
+  # 鉴权用 UPDATER_TOKEN（缺省复用 .env 里的 AUTH_SECRET）。
+  # 注意：挂载 docker.sock 等价于宿主 root 权限，绝不能把 9080 暴露到公网。
+  updater:
+    image: safg/shibei:updater
+    # 本地没有该镜像时优先从 Docker Hub 拉取，而不是触发本地构建——
+    # 低内存机器上 next build + Chromium 下载几乎必然 OOM(README ❼)。
+    pull_policy: missing
+    build:
+      context: .
+      dockerfile: Dockerfile.updater
+    env_file:
+      - .env
+    environment:
+      COMPOSE_FILE_NAME: docker-compose.yml
+      # app 与 worker 共用 safg/shibei:full 镜像：只构建 app，up 时 worker 自动换新镜像
+      UPDATE_BUILD_SERVICES: app
+      UPDATE_SERVICES: app worker
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - .:/repo
+    init: true
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:9080/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 60s
+      timeout: 5s
+      retries: 3
+    mem_limit: 128m
+    pids_limit: 128
+    security_opt:
+      - no-new-privileges:true
+    logging: *shibei-logging
+    restart: unless-stopped
+
+volumes:
+  postgres-data:
+  redis-data:
+  app-uploads:
+  app-image-cache:

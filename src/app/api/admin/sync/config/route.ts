@@ -1,0 +1,54 @@
+import { encryptSecret } from "@/lib/crypto";
+import { requireAdmin } from "@/lib/auth";
+import { prisma } from "@/lib/prisma";
+import { redirectTo } from "@/lib/redirect";
+import { rejectCrossOriginMutation } from "@/lib/request-origin";
+import { assertBackendUrl, BackendUrlValidationError } from "@/lib/sync/backend-url";
+import {
+  normalizeSyncIntervalMinutes,
+  normalizeSyncMode,
+} from "@/lib/sync/config";
+
+export async function POST(request: Request) {
+  const denied = rejectCrossOriginMutation(request);
+  if (denied) return denied;
+  await requireAdmin();
+  const form = await request.formData();
+
+  const syncToken = String(form.get("syncToken") || "").trim();
+  const clearSyncToken = form.get("clearSyncToken") === "true";
+  let syncBackendUrl = "";
+  try {
+    syncBackendUrl = assertBackendUrl(form.get("syncBackendUrl"));
+  } catch (error) {
+    if (error instanceof BackendUrlValidationError) {
+      return redirectTo("/admin/sync?configError=unsafe-backend-url", request);
+    }
+    throw error;
+  }
+  const update: Record<string, unknown> = {
+    syncMode: normalizeSyncMode(form.get("syncMode")),
+    syncBackendUrl,
+    syncIntervalMinutes: normalizeSyncIntervalMinutes(form.get("syncIntervalMinutes")),
+  };
+
+  if (syncToken) {
+    update.syncTokenEnc = encryptSecret(syncToken.slice(0, 1000));
+  } else if (clearSyncToken) {
+    update.syncTokenEnc = null;
+  }
+
+  await prisma.siteSettings.upsert({
+    where: { id: "site" },
+    update,
+    create: {
+      id: "site",
+      name: "拾贝 信息博客",
+      description: "抓取信息、AI 整理、人工审核发布的个人博客。",
+      ownerName: "管理员",
+      ...(update as Record<string, never>),
+    },
+  });
+
+  return redirectTo("/admin/sync", request);
+}

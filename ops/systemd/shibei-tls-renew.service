@@ -1,0 +1,11 @@
+[Unit]
+Description=Renew ShiBei short-lived TLS certificate
+After=docker.service network-online.target
+Wants=network-online.target
+ConditionPathExists=/etc/shibei-tls.conf
+
+[Service]
+Type=oneshot
+EnvironmentFile=/etc/shibei-tls.conf
+ExecStart=/usr/local/sbin/shibei-renew-tls
+TimeoutStartSec=30min

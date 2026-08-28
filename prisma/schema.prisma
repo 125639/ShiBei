@@ -1,0 +1,618 @@
+generator client {
+  provider      = "prisma-client-js"
+  binaryTargets = ["native", "debian-openssl-3.0.x", "linux-musl-openssl-3.0.x"]
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum SourceType {
+  WEB
+  RSS
+  VIDEO
+  EXA
+}
+
+enum SourceRegion {
+  DOMESTIC
+  INTERNATIONAL
+  UNKNOWN
+}
+
+enum SourceStatus {
+  ACTIVE
+  PAUSED
+}
+
+enum JobStatus {
+  QUEUED
+  RUNNING
+  COMPLETED
+  FAILED
+}
+
+enum PostStatus {
+  DRAFT
+  PUBLISHED
+  ARCHIVED
+}
+
+enum VideoType {
+  LOCAL
+  EMBED
+  LINK
+}
+
+enum CompilationKind {
+  SINGLE_ARTICLE
+  DAILY_DIGEST
+  WEEKLY_ROUNDUP
+}
+
+model AdminUser {
+  id                      String                   @id @default(cuid())
+  username                String                   @unique
+  passwordHash            String
+  // 登出/改密时 +1，使已签发的 JWT 全部失效（JWT 无状态，本身无法吊销）
+  tokenVersion            Int                      @default(0)
+  createdAt               DateTime                 @default(now())
+  updatedAt               DateTime                 @updatedAt
+  communityModerationLogs CommunityModerationLog[]
+}
+
+model SiteSettings {
+  id                       String   @id @default("site")
+  name                     String   @default("拾贝 信息博客")
+  description              String   @default("一个可以抓取、整理并发布信息的个人博客。")
+  ownerName                String   @default("管理员")
+  autoPublish              Boolean  @default(false)
+  autoCurationEnabled      Boolean  @default(false)
+  contentDisplayMode       String   @default("grid")
+  contentLanguageMode      String   @default("default-language")
+  defaultLanguage          String   @default("zh")
+  defaultTheme             String   @default("apple")
+  defaultFont              String   @default("sans-cjk")
+  textOnlyMode             Boolean  @default(false)
+  videosEnabled            Boolean  @default(false)
+  // YouTube 相关视频搜索独立开关：墙内部署 YouTube 不可达时,关掉可省去每篇≤25s 的白等。
+  youtubeSearchEnabled     Boolean  @default(true)
+  // Bilibili 相关视频搜索开关：B 站 iframe 墙内直连可嵌，国内受众部署的首选视频源。
+  bilibiliSearchEnabled    Boolean  @default(true)
+  // yt-dlp 下载用 cookies.txt（Netscape 格式，加密存储）：解 YouTube 对数据中心 IP
+  // 的取流登录墙。仅下载用，搜索不需要。
+  ytDlpCookiesEnc          String?  @db.Text
+  ytDlpCookiesUpdatedAt    DateTime?
+  // 自动挂载视频的站点默认模式：embed 外链嵌入 / link 链接卡片 / download 下载本地 / off 不挂。
+  videoAttachMode          String   @default("embed")
+  maxStorageMb             Int      @default(2048)
+  cleanupAfterDays         Int      @default(30)
+  cleanupCustomEnabled     Boolean  @default(false)
+  autoImageSearchEnabled   Boolean  @default(true)
+  exaEnabled               Boolean  @default(false)
+  exaApiKeyEnc             String?
+  musicEnabledDefault      Boolean  @default(false)
+  commentsEnabled          Boolean  @default(false)
+  defaultMusicId           String?
+  contentModelConfigId     String?
+  assistantModelConfigId   String?
+  writingModelConfigId     String?
+  translationModelConfigId String?
+  globalPromptPrefix       String   @default("") @db.Text
+  defaultSettingsUI        String   @default("classic")
+  syncMode                 String   @default("auto")
+  syncBackendUrl           String   @default("")
+  syncTokenEnc             String?
+  syncIntervalMinutes      Int      @default(15)
+  updatedAt                DateTime @updatedAt
+}
+
+model ModelConfig {
+  id          String   @id @default(cuid())
+  provider    String   @default("custom")
+  name        String
+  baseUrl     String
+  model       String
+  apiKeyEnc   String
+  temperature Float    @default(0.3)
+  maxTokens   Int      @default(8000)
+  // Deprecated compatibility column. Runtime requests are non-streaming and
+  // the admin no longer exposes a switch that previously had no effect.
+  stream      Boolean  @default(false)
+  isEnabled   Boolean  @default(true)
+  isDefault   Boolean  @default(false)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([isDefault])
+  @@index([isEnabled, isDefault])
+}
+
+model ContentStyle {
+  id                 String         @id @default(cuid())
+  name               String
+  contentMode        String         @default("report")
+  tone               String         @default("客观")
+  length             String         @default("中")
+  focus              String         @default("事实, 背景, 影响")
+  outputStructure    String         @default("标题, 导语, 正文分章节叙述, 参考来源")
+  customInstructions String         @db.Text
+  isDefault          Boolean        @default(false)
+  createdAt          DateTime       @default(now())
+  updatedAt          DateTime       @updatedAt
+  topics             ContentTopic[]
+}
+
+model Source {
+  id                  String         @id @default(cuid())
+  name                String
+  url                 String
+  type                SourceType
+  status              SourceStatus   @default(ACTIVE)
+  isDefault           Boolean        @default(false)
+  isTemporary         Boolean        @default(false)
+  region              SourceRegion   @default(UNKNOWN)
+  popularity          Int            @default(0)
+  popularityUpdatedAt DateTime?
+  // 连续抓取失败计数：成功清零，达到阈值自动 PAUSED（见 worker recordSourceFailure）
+  failStreak          Int            @default(0)
+  createdAt           DateTime       @default(now())
+  updatedAt           DateTime       @updatedAt
+  modules             SourceModule[] @relation("SourceToModule")
+  rawItems            RawItem[]
+  jobs                FetchJob[]
+
+  @@index([status, isDefault])
+}
+
+model SourceModule {
+  id          String         @id @default(cuid())
+  name        String         @unique
+  slug        String         @unique
+  description String?
+  color       String         @default("#9f4f2f")
+  iconKey     String?
+  sortOrder   Int            @default(0)
+  createdAt   DateTime       @default(now())
+  updatedAt   DateTime       @updatedAt
+  sources     Source[]       @relation("SourceToModule")
+  topics      ContentTopic[] @relation("ContentTopicToModule")
+}
+
+model FetchJob {
+  id             String        @id @default(cuid())
+  status         JobStatus     @default(QUEUED)
+  sourceId       String?
+  source         Source?       @relation(fields: [sourceId], references: [id], onDelete: SetNull)
+  sourceUrl      String
+  sourceType     SourceType
+  modelConfigId  String?
+  contentStyleId String?
+  // 本次任务的视频挂载模式覆盖（embed/link/download/off）；空=跟随站点默认。
+  videoAttachMode String?
+  contentTopicId String?
+  contentTopic   ContentTopic? @relation(fields: [contentTopicId], references: [id], onDelete: SetNull)
+  adminAiBatchId String?
+  adminAiBatch   AdminAiBatch? @relation(fields: [adminAiBatchId], references: [id], onDelete: SetNull)
+  error          String?       @db.Text
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+  completedAt    DateTime?
+  rawItems       RawItem[]
+
+  @@index([status, updatedAt])
+  @@index([createdAt])
+  @@index([completedAt])
+  @@index([sourceId])
+  @@index([contentTopicId])
+  @@index([adminAiBatchId])
+}
+
+// AI 管理员的一次计划执行 = 一个批次。既是进度聚合的锚点
+// （批次进度 = 关联 FetchJob 的状态汇总），也是审计记录
+// （谁在什么时候用什么需求让 AI 创建了哪些任务/周期主题）。
+model AdminAiBatch {
+  id        String     @id @default(cuid())
+  request   String     @db.Text
+  summary   String     @db.Text
+  // 计划快照 JSON：{ tasks, recurring, createdTopics }，只作审计展示，不再反解执行。
+  plan      String     @db.Text
+  createdAt DateTime   @default(now())
+  updatedAt DateTime   @updatedAt
+  jobs      FetchJob[]
+
+  @@index([createdAt])
+}
+
+model RawItem {
+  id          String    @id @default(cuid())
+  title       String
+  url         String
+  content     String    @db.Text
+  markdown    String    @db.Text
+  artifactKind String?  @db.VarChar(32)
+  sourceId    String?
+  source      Source?   @relation(fields: [sourceId], references: [id], onDelete: SetNull)
+  fetchJobId  String?
+  fetchJob    FetchJob? @relation(fields: [fetchJobId], references: [id], onDelete: SetNull)
+  publishedAt DateTime?
+  createdAt   DateTime  @default(now())
+  post        Post?
+
+  @@index([createdAt])
+  @@index([sourceId])
+  @@index([fetchJobId])
+}
+
+model Post {
+  id           String          @id @default(cuid())
+  slug         String          @unique
+  title        String
+  titleEn      String?
+  summary      String          @db.Text
+  summaryEn    String?         @db.Text
+  content      String          @db.Text
+  contentEn    String?         @db.Text
+  status       PostStatus      @default(DRAFT)
+  kind         CompilationKind @default(SINGLE_ARTICLE)
+  sourceUrl    String?
+  sortOrder    Int             @default(0)
+  translatedAt DateTime?
+  // 非空表示该条只是生成失败/门禁未通过的研究草稿，任何发布入口都必须拒绝。
+  publicationBlockedReason String? @db.Text
+  // 已发布文章的修改若未通过门禁，保留线上版本并把本次编辑暂存于此，
+  // 避免管理员丢稿或因一次校验失败让原文章意外下线。
+  pendingRevision Json?
+  rawItemId    String?         @unique
+  rawItem      RawItem?        @relation(fields: [rawItemId], references: [id], onDelete: SetNull)
+  videos       Video[]
+  tags         Tag[]           @relation("PostTags")
+  topics       ContentTopic[]  @relation("PostContentTopics")
+  comments     Comment[]
+  createdAt    DateTime        @default(now())
+  updatedAt    DateTime        @updatedAt
+  publishedAt  DateTime?
+
+  @@index([status, sortOrder, publishedAt])
+  @@index([status, publishedAt])
+  @@index([status, createdAt])
+  @@index([updatedAt])
+}
+
+model Video {
+  id             String       @id @default(cuid())
+  title          String
+  type           VideoType
+  url            String
+  coverUrl       String?
+  summary        String       @db.Text
+  displayMode    String       @default("embed")
+  lastPlacement  String?      @db.VarChar(32)
+  sortOrder      Int          @default(0)
+  durationSec    Int?
+  region         SourceRegion @default(UNKNOWN)
+  sourcePlatform String?
+  sourcePageUrl  String?
+  localPath      String?
+  fileSizeBytes  Int?
+  downloadStatus String?      @db.VarChar(16)
+  downloadError  String?      @db.Text
+  attribution    String?      @db.Text
+  postId         String?
+  post           Post?        @relation(fields: [postId], references: [id], onDelete: SetNull)
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+
+  @@index([sortOrder, createdAt])
+  @@index([createdAt])
+  @@index([postId, sortOrder])
+}
+
+model Music {
+  id            String   @id @default(cuid())
+  title         String
+  artist        String?
+  filePath      String
+  fileSizeBytes Int?
+  durationSec   Int?
+  isEnabled     Boolean  @default(true)
+  sortOrder     Int      @default(0)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@index([isEnabled, sortOrder])
+}
+
+model Tag {
+  id    String @id @default(cuid())
+  name  String @unique
+  posts Post[] @relation("PostTags")
+}
+
+model ContentTopic {
+  id           String          @id @default(cuid())
+  name         String          @unique
+  slug         String          @unique
+  description  String?
+  scope        String          @default("all")
+  keywords     String          @db.Text
+  isEnabled    Boolean         @default(false)
+  compileKind  CompilationKind @default(SINGLE_ARTICLE)
+  depth        String          @default("long")
+  articleCount Int             @default(1)
+  useExa       Boolean         @default(true)
+  modules      SourceModule[]  @relation("ContentTopicToModule")
+  styleId      String?
+  style        ContentStyle?   @relation(fields: [styleId], references: [id], onDelete: SetNull)
+  schedule     AutoSchedule?
+  posts        Post[]          @relation("PostContentTopics")
+  fetchJobs    FetchJob[]
+  createdAt    DateTime        @default(now())
+  updatedAt    DateTime        @updatedAt
+
+  @@index([isEnabled, createdAt])
+  @@index([styleId])
+}
+
+model AutoSchedule {
+  id         String       @id @default(cuid())
+  topicId    String       @unique
+  topic      ContentTopic @relation(fields: [topicId], references: [id], onDelete: Cascade)
+  cron       String
+  isEnabled  Boolean      @default(true)
+  lastRunAt  DateTime?
+  nextRunAt  DateTime?
+  bullJobKey String?      @unique
+  createdAt  DateTime     @default(now())
+  updatedAt  DateTime     @updatedAt
+
+  @@index([isEnabled, nextRunAt])
+}
+
+// ============ 共创工作室（读者访谈式创作） ============
+
+enum CreationMode {
+  VOICE_FIRST // 读者的话为主：AI 只补结构和连接
+  AI_FIRST // AI 的话为主：读者回答作为素材
+  MANUAL // 创作者纯手写：不经访谈或 AI 成稿
+}
+
+enum CreationDepth {
+  SHORT // 兼容历史枚举名：2-3 个问题 → 快速成文
+  FULL // 8-10 个问题 → 深度成文
+}
+
+enum CreationStatus {
+  INTERVIEWING
+  DRAFT
+  SHARED
+}
+
+enum CommunityModerationAction {
+  UNPUBLISH
+  DELETE
+}
+
+enum CommunitySurfaceAlgorithm {
+  TITLE_CONTENT_V1
+  TITLE_SUMMARY_CONTENT_V2
+}
+
+enum MemberCredentialState {
+  ACTIVE
+  LEGACY_INVITE_UPGRADE_REQUIRED
+}
+
+model MemberUser {
+  id              String                @id @default(cuid())
+  // 邮箱注册与邀请码注册二选一:邮箱会员 email 非空,邀请码会员 username 非空。
+  // 邀请码只负责一次性开户，会员始终用自己设置的 passwordHash 登录。
+  email           String?               @unique
+  username        String?               @unique
+  passwordHash    String
+  credentialState MemberCredentialState @default(ACTIVE)
+  // JWT 携带签发时的版本；登出、改密或旧凭据升级时递增以吊销旧会话。
+  tokenVersion    Int                   @default(0)
+  displayName     String?
+  createdAt       DateTime              @default(now())
+  updatedAt       DateTime              @updatedAt
+  works           CreativeWork[]
+  inviteCode      InviteCode?
+  comments        Comment[]
+  writingDocs     WritingDoc[]
+}
+
+// 写作台文档:真正「自己写」的地方,内容是 markdown。
+// 所有权与 CreativeWork 同款且严格二选一：登录会员挂 ownerId，匿名挂 anonId；
+// 登录/注册不会在两种身份之间迁移内容。
+model WritingDoc {
+  id                   String        @id @default(cuid())
+  title                String        @default("")
+  content              String        @default("") @db.Text
+  ownerId              String?
+  owner                MemberUser?   @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  anonId               String?
+  completedAt          DateTime?
+  // 公开副本被治理永久删除后保留私有原稿，但锁定这份原稿的再次社区交接。
+  publicationBlockedAt DateTime?
+  creativeWorkId       String?       @unique
+  creativeWork         CreativeWork? @relation(fields: [creativeWorkId], references: [id], onDelete: SetNull)
+  createdAt            DateTime      @default(now())
+  updatedAt            DateTime      @updatedAt
+
+  @@index([ownerId, updatedAt])
+  @@index([anonId, updatedAt])
+}
+
+// 邀请码由管理员批量生成、手动发放。仅 UNUSED 码保留原文供发放；
+// 一旦使用或作废，code 会替换成不可还原的内部占位值，且 API 永不返回原码。
+model InviteCode {
+  id        String      @id @default(cuid())
+  code      String      @unique
+  status    String      @default("UNUSED") // UNUSED | USED | REVOKED
+  note      String      @default("")
+  memberId  String?     @unique
+  member    MemberUser? @relation(fields: [memberId], references: [id], onDelete: SetNull)
+  usedAt    DateTime?
+  createdAt DateTime    @default(now())
+
+  @@index([status, createdAt])
+}
+
+model Comment {
+  id        String     @id @default(cuid())
+  postId    String
+  post      Post       @relation(fields: [postId], references: [id], onDelete: Cascade)
+  memberId  String
+  member    MemberUser @relation(fields: [memberId], references: [id], onDelete: Cascade)
+  content   String     @db.Text
+  createdAt DateTime   @default(now())
+
+  @@index([postId, createdAt])
+  @@index([memberId])
+  @@index([createdAt])
+}
+
+// 访问统计:按日按路径累加 PV。UV 用特殊路径 "__uv__" 承载
+// (客户端 localStorage 当日首访才上报,近似独立访客)。
+model VisitDaily {
+  id    String   @id @default(cuid())
+  day   DateTime @db.Date
+  path  String
+  count Int      @default(0)
+
+  @@unique([day, path])
+  @@index([day])
+}
+
+// 题材即评分标尺：选题材的同时确定评分维度、权重与公开阈值。
+// dimensions 是 JSON 数组 [{ key, label, weight, hint }]，权重和为 1。
+model CreationGenre {
+  id          String         @id @default(cuid())
+  slug        String         @unique
+  name        String
+  description String         @default("")
+  dimensions  String         @db.Text
+  threshold   Int            @default(70)
+  sortOrder   Int            @default(0)
+  isEnabled   Boolean        @default(true)
+  createdAt   DateTime       @default(now())
+  updatedAt   DateTime       @updatedAt
+  works       CreativeWork[]
+}
+
+// 读者与 AI 共创的作品。默认私有：只有 status=SHARED 才对外可见。
+// 匿名创作用 anonId(cookie) 标识所有权、clientIp 做未登录生成配额；
+// scoredHash 记录评分时的标题+公开摘要+正文快照哈希，发布时不一致必须重新评分。
+model CreativeWork {
+  id                String                      @id @default(cuid())
+  slug              String?                     @unique
+  ownerId           String?
+  owner             MemberUser?                 @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  anonId            String?
+  clientIp          String?
+  // 匿名首次 AI 成稿的短时配额预留。长模型调用开始前先原子占位，
+  // 防止多个并发 compose 都在旧 count 下穿透单 IP 上限。
+  composeReservedAt DateTime?
+  genreId           String
+  genre             CreationGenre               @relation(fields: [genreId], references: [id], onDelete: Restrict)
+  mode              CreationMode
+  depth             CreationDepth
+  status            CreationStatus              @default(INTERVIEWING)
+  topic             String
+  interview         String                      @default("[]") @db.Text
+  pendingQuestion   String?                     @db.Text
+  title             String                      @default("")
+  summary           String                      @default("") @db.Text
+  content           String                      @default("") @db.Text
+  draftGeneratedAt  DateTime?
+  score             Float?
+  scoreDetail       String?                     @db.Text
+  scoredAt          DateTime?
+  scoredHash        String?
+  // 评分同时绑定题材名称、维度、门槛和篇幅档位；标尺变化后旧分不可发布。
+  scoredRubricHash  String?
+  publishedAt       DateTime?
+  // 首次公开的不可逆事实。管理员下架只清 publishedAt，不得让匿名作品重新获得删除权。
+  publishedOnceAt   DateTime?
+  createdAt         DateTime                    @default(now())
+  updatedAt         DateTime                    @updatedAt
+  sourceWritingDoc  WritingDoc?
+  moderatedSurfaces CommunityModeratedSurface[]
+
+  @@index([status, publishedAt])
+  @@index([ownerId, updatedAt])
+  @@index([anonId, updatedAt])
+  @@index([clientIp, draftGeneratedAt])
+  @@index([clientIp, composeReservedAt])
+  @@index([genreId])
+}
+
+// 匿名首次 AI 成稿的不可删除用量账本。不能继续用“当前还存在的作品数”当
+// 终身额度，否则用户删掉草稿后即可无限恢复名额。workId 只作事件标识，故意
+// 不设外键：CreativeWork 删除后，用量事实仍必须保留。
+model AnonymousComposeUsage {
+  id        String   @id @default(cuid())
+  clientIp  String
+  workId    String   @unique
+  createdAt DateTime @default(now())
+
+  @@index([clientIp, createdAt])
+}
+
+// 社区治理日志只保存公开时的必要快照，不关联 CreativeWork 外键：永久删除作品后
+// targetWorkId/title/slug 仍必须完整保留，形成可追溯、不可随目标级联消失的记录。
+model CommunityModerationLog {
+  id              String                    @id @default(cuid())
+  adminId         String
+  admin           AdminUser                 @relation(fields: [adminId], references: [id], onDelete: Restrict)
+  action          CommunityModerationAction
+  reason          String                    @db.Text
+  targetWorkId    String
+  titleSnapshot   String
+  summarySnapshot String?                   @db.Text
+  slugSnapshot    String?
+  wasAnonymous    Boolean
+  createdAt       DateTime                  @default(now())
+
+  @@index([createdAt])
+  @@index([adminId, createdAt])
+  @@index([targetWorkId, createdAt])
+}
+
+// 同一作品每次被下架的公开表面指纹都不可覆盖。V1 兼容旧标题+正文记录，
+// V2 绑定标题+公开摘要+正文。记录随作品永久删除而级联删除：
+// 作品已不存在时不再有重发入口，长期追溯由不设作品外键的 CommunityModerationLog 保留。
+model CommunityModeratedSurface {
+  id          String                    @id @default(cuid())
+  workId      String
+  work        CreativeWork              @relation(fields: [workId], references: [id], onDelete: Cascade)
+  algorithm   CommunitySurfaceAlgorithm @default(TITLE_SUMMARY_CONTENT_V2)
+  surfaceHash String
+  reason      String                    @db.Text
+  createdAt   DateTime                  @default(now())
+
+  @@unique([workId, algorithm, surfaceHash])
+  @@index([workId, createdAt])
+}
+
+// Frontend / backend / full 间的同步状态。仅一行（id="sync"）。
+//   - lastImportedAt:frontend 上次成功 import 的时间（或 full 自测时）
+//   - lastImportedPostCount:上次 import 影响行数
+//   - lastExportedAt:backend 上次成功 export 的时间
+//   - lastError:最近一次失败的错误串（成功后清空）
+//   - workerAliveAt:sync-worker 进程心跳（每轮 tick 写入）
+//   - backendReachableAt:最近一次 probe / 拉取成功抵达 backend 的时间
+//   - lastAttemptAt:最近一次拉取尝试（无论成败）
+model SyncState {
+  id                    String    @id @default("sync")
+  lastImportedAt        DateTime?
+  lastImportedPostCount Int       @default(0)
+  lastExportedAt        DateTime?
+  lastError             String?   @db.Text
+  workerAliveAt         DateTime?
+  backendReachableAt    DateTime?
+  lastAttemptAt         DateTime?
+  updatedAt             DateTime  @updatedAt
+}

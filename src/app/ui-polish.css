@@ -1,0 +1,293 @@
+/* ==============================================================
+   ShiBei UI Polish Layer
+   --------------------------------------------------------------
+   在既有主题系统之上的视觉精修。此文件最后加载，专门负责：
+   1) 全局氛围背景（可随每张主题配色自适应）
+   2) 入场动效（首屏错落浮现）
+   3) 卡片/导航/按钮的微交互加强
+   4) 全局细节（选区、滚动条、链接过渡）
+   所有效果走 CSS 变量与 color-mix，自动适配全部主题/UI 风格；
+   并整体尊重 prefers-reduced-motion。
+   ============================================================== */
+
+/* ---------- 1. 氛围背景 ---------- */
+/* 卡片带 backdrop-filter，下面的网格渐层会透过半透明表面隐约可见 */
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background:
+    radial-gradient(1200px 520px at 8% -6%, color-mix(in srgb, var(--accent) 9%, transparent), transparent 62%),
+    radial-gradient(900px 480px at 96% 4%, color-mix(in srgb, var(--accent-soft) 7%, transparent), transparent 60%),
+    radial-gradient(760px 560px at 50% 112%, color-mix(in srgb, var(--accent) 5%, transparent), transparent 66%);
+  opacity: 0.9;
+}
+
+:root:is([data-theme="dark"], [data-theme="midnight"], [data-theme="paper-dark"]) body::before {
+  background:
+    radial-gradient(1100px 500px at 6% -4%, color-mix(in srgb, var(--accent) 13%, transparent), transparent 60%),
+    radial-gradient(860px 460px at 98% 2%, color-mix(in srgb, var(--accent-soft) 9%, transparent), transparent 63%),
+    radial-gradient(700px 520px at 52% 112%, color-mix(in srgb, var(--accent) 7%, transparent), transparent 68%);
+}
+
+/* firefly / meow 等自带氛围的背景已足够丰富，保持克制 */
+:root[data-ui="firefly"] body::before,
+:root[data-ui="meow"] body::before,
+:root[data-ui="ink"] body::before {
+  opacity: 0.5;
+}
+
+/* ---------- 2. 入场动效 ---------- */
+@keyframes polish-rise {
+  from {
+    opacity: 0;
+    transform: translateY(14px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes polish-fade {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+.bento-page > section,
+.page-intro,
+.bento-grid > .bento-card,
+.home-hero-v2 > .home-hero-copy,
+.home-hero-v2 > .home-brief-card {
+  animation: polish-rise 0.55s cubic-bezier(0.22, 0.61, 0.36, 1) backwards;
+}
+
+/* 卡片错位浮现：按在网格里的顺序依次进场 */
+.bento-grid > .bento-card:nth-child(1) { animation-delay: 0.03s; }
+.bento-grid > .bento-card:nth-child(2) { animation-delay: 0.08s; }
+.bento-grid > .bento-card:nth-child(3) { animation-delay: 0.13s; }
+.bento-grid > .bento-card:nth-child(4) { animation-delay: 0.18s; }
+.bento-grid > .bento-card:nth-child(5) { animation-delay: 0.23s; }
+.bento-grid > .bento-card:nth-child(6) { animation-delay: 0.28s; }
+.bento-grid > .bento-card:nth-child(n+7) { animation-delay: 0.33s; }
+
+.home-hero-v2 > .home-hero-copy { animation-delay: 0.05s; }
+.home-hero-v2 > .home-brief-card { animation-delay: 0.16s; }
+.bento-page > section:nth-of-type(2) { animation-delay: 0.1s; }
+
+/* ---------- 3. 卡片微交互 ---------- */
+/* 悬停时边框渐变为描边光晕；标题颜色呼应 */
+.bento-card.post-card,
+.bento-card.linked-card,
+.module-card,
+.community-card {
+  transition: transform 0.22s cubic-bezier(0.22, 0.61, 0.36, 1),
+    box-shadow 0.22s cubic-bezier(0.22, 0.61, 0.36, 1),
+    border-color 0.22s ease;
+}
+
+.bento-card.post-card:hover,
+.bento-card.linked-card:hover,
+.module-card:hover,
+.community-card:hover {
+  transform: translateY(-4px);
+  border-color: color-mix(in srgb, var(--accent) 30%, var(--line));
+  box-shadow:
+    0 12px 32px color-mix(in srgb, var(--ink) 10%, transparent),
+    0 2px 8px color-mix(in srgb, var(--ink) 6%, transparent);
+}
+
+.post-card h3 a,
+.card-link {
+  transition: color 0.2s ease;
+}
+
+.post-card:hover h3 .card-link,
+.linked-card:hover h3 .card-link,
+.community-card:hover h3 .card-link {
+  color: var(--accent);
+}
+
+/* 「阅读全文」箭头：悬停时滑出 */
+.post-card .text-link,
+.linked-card .text-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border-bottom: none;
+  color: var(--muted);
+  font-weight: 600;
+  font-size: 13px;
+  transition: color 0.2s ease, gap 0.2s ease;
+}
+
+.post-card .text-link::after,
+.linked-card .text-link::after {
+  content: "→";
+  transition: transform 0.22s ease;
+}
+
+.post-card:hover .text-link,
+.linked-card:hover .text-link {
+  color: var(--accent);
+}
+
+.post-card:hover .text-link::after,
+.linked-card:hover .text-link::after {
+  transform: translateX(4px);
+}
+
+/* ---------- 4. 导航激活与悬停 ---------- */
+.nav a {
+  position: relative;
+  transition: color 0.18s ease, background 0.18s ease, border-color 0.18s ease, transform 0.18s ease;
+}
+
+.nav a:hover {
+  transform: translateY(-1px);
+}
+
+.nav a.active {
+  font-weight: 640;
+}
+
+/* 品牌标记悬停呼吸感 */
+.brand-mark {
+  transition: transform 0.2s ease;
+}
+
+.brand-symbol {
+  display: inline-grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--accent) 12%, var(--surface-strong));
+  color: var(--accent);
+  font-size: 19px;
+  font-weight: 700;
+  transition: transform 0.25s cubic-bezier(0.34, 1.56, 0.64, 1), background 0.2s ease;
+}
+
+.brand-mark:hover .brand-symbol {
+  transform: scale(1.06) rotate(-2deg);
+  background: color-mix(in srgb, var(--accent) 18%, var(--surface-strong));
+}
+
+/* ---------- 5. 按钮 ---------- */
+.button {
+  position: relative;
+  transition: transform 0.18s cubic-bezier(0.22, 0.61, 0.36, 1), box-shadow 0.18s ease, background 0.18s ease, border-color 0.18s ease;
+}
+
+.button:not(.secondary):hover {
+  box-shadow:
+    0 10px 26px color-mix(in srgb, var(--accent) 28%, transparent),
+    0 3px 8px color-mix(in srgb, var(--accent) 16%, transparent);
+}
+
+.button:active {
+  transform: translateY(1px) scale(0.98);
+}
+
+.home-primary-action {
+  box-shadow: 0 6px 20px color-mix(in srgb, var(--accent) 22%, transparent);
+}
+
+.section-link,
+.home-brief-more {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.section-link span[aria-hidden="true"],
+.home-brief-more span[aria-hidden="true"] {
+  transition: transform 0.2s ease;
+}
+
+.section-link:hover span[aria-hidden="true"],
+.home-brief-more:hover span[aria-hidden="true"] {
+  transform: translateX(4px);
+}
+
+/* ---------- 6. 首页 Hero 细节 ---------- */
+.home-kicker {
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.home-kicker > .home-kicker-dot {
+  animation: polish-pulse 2.4s ease-in-out infinite;
+}
+
+@keyframes polish-pulse {
+  0%, 100% { box-shadow: 0 0 0 4px rgba(37, 173, 114, 0.12); }
+  50% { box-shadow: 0 0 0 7px rgba(37, 173, 114, 0.05); }
+}
+
+.home-brief-list a {
+  border-radius: 10px;
+  transition: background 0.18s ease, padding 0.18s ease;
+}
+
+/* ---------- 7. 全局细节 ---------- */
+::selection {
+  background: color-mix(in srgb, var(--accent) 22%, transparent);
+  color: var(--ink);
+}
+
+/* 细滚动条（仅 webkit 内核；Firefox 保持默认以免抢色） */
+@supports selector(::-webkit-scrollbar) {
+  ::-webkit-scrollbar { width: 10px; height: 10px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb {
+    background: color-mix(in srgb, var(--line-strong) 55%, transparent);
+    border-radius: 999px;
+    border: 2.5px solid var(--paper);
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: color-mix(in srgb, var(--line-strong) 85%, transparent);
+  }
+}
+
+/* 正文链接的下划线过渡 */
+.prose a,
+.post-content a {
+  text-decoration-color: color-mix(in srgb, var(--accent) 40%, transparent);
+  text-underline-offset: 3px;
+  transition: color 0.16s ease, text-decoration-color 0.16s ease;
+}
+
+.prose a:hover,
+.post-content a:hover {
+  color: var(--accent);
+  text-decoration-color: var(--accent);
+}
+
+/* 列表页的分页/tab 胶囊 */
+.topic-tabs a {
+  transition: color 0.18s ease, background 0.18s ease, border-color 0.18s ease, transform 0.18s ease;
+}
+
+.topic-tabs a:hover {
+  transform: translateY(-1px);
+}
+
+/* ---------- 动效降级 ---------- */
+@media (prefers-reduced-motion: reduce) {
+  .bento-page > section,
+  .page-intro,
+  .bento-grid > .bento-card,
+  .home-hero-v2 > .home-hero-copy,
+  .home-hero-v2 > .home-brief-card,
+  .home-kicker > .home-kicker-dot {
+    animation: none;
+  }
+
+  .bento-card.post-card, .bento-card.linked-card, .module-card,
+  .community-card, .button, .nav a, .brand-symbol {
+    transition: none;
+  }
+}

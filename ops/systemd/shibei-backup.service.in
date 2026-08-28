@@ -1,0 +1,16 @@
+[Unit]
+Description=ShiBei encrypted-data and uploads backup
+Requires=docker.service
+After=docker.service
+
+[Service]
+Type=oneshot
+ExecStart=@PROJECT_DIR@/scripts/backup.sh
+Environment=SHIBEI_BACKUP_DIR=@BACKUP_DIR@
+UMask=0077
+Nice=10
+IOSchedulingClass=best-effort
+IOSchedulingPriority=7
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
