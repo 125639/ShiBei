@@ -2,9 +2,16 @@ import { NextResponse, type NextRequest } from "next/server";
 import { getAppMode, isPathAvailableInAppMode } from "@/lib/app-mode";
 import { rejectCrossOriginMutation } from "@/lib/request-origin";
 import { requestSiteOrigin } from "@/lib/site-url";
+import {
+  isLanguageExemptPath,
+  languageFromPath,
+  negotiateLanguage,
+  stripLanguagePrefix,
+  withLanguagePrefix
+} from "@/lib/language";
 
 // Next 16 的 proxy 运行在 Node Runtime。这里仍保持最小依赖，不访问数据库，
-// 让模式路由与跨来源写请求校验在每次请求上都快速、确定地执行。
+// 让模式路由、跨来源写请求校验与语言规范化在每次请求上都快速、确定地执行。
 
 // 在 backend 模式下,公开页面(/posts, /news, /stats, /settings, /about, /write,
 // /community, /create, /account 等)不面向最终用户,统一重定向到 admin。
@@ -21,6 +28,12 @@ const BACKEND_PUBLIC_PREFIXES = [
   "/create",
   "/account"
 ];
+
+/** 形如 `/firefly-banner.svg` 的根级静态文件：有扩展名，不该被加语言段。 */
+function looksLikeStaticFile(pathname: string): boolean {
+  const last = pathname.slice(pathname.lastIndexOf("/") + 1);
+  return last.includes(".");
+}
 
 function buildRedirectUrl(request: NextRequest, path: string): URL {
   const origin = requestSiteOrigin(request);
@@ -52,11 +65,33 @@ export function proxy(request: NextRequest) {
     return NextResponse.redirect(buildRedirectUrl(request, "/admin"));
   }
 
+  // backend 模式的公开页拦截放在语言规范化之前：否则 `/` 会先被重定向到
+  // `/zh`，再被这里重定向到 `/admin`，白白多一跳。按去掉语言段的路径匹配，
+  // 使 `/zh/posts` 与 `/posts` 表现一致。
   if (mode === "backend") {
-    if (pathname === "/" || BACKEND_PUBLIC_PREFIXES.some((p) => pathname === p || pathname.startsWith(p + "/"))) {
-      const url = buildRedirectUrl(request, "/admin");
-      return NextResponse.redirect(url);
+    const bare = stripLanguagePrefix(pathname);
+    if (bare === "/" || BACKEND_PUBLIC_PREFIXES.some((p) => bare === p || bare.startsWith(p + "/"))) {
+      return NextResponse.redirect(buildRedirectUrl(request, "/admin"));
     }
+  }
+
+  // 语言规范化：公开路径必须带 /zh 或 /en 段。
+  //
+  // 保留这一跳是为了兼容既有书签、RSS 里的旧链接和外部引用——它们都指向无
+  // 前缀路径。目标语言按 Accept-Language 协商，所以这是**内容协商**的结果：
+  // 必须用 307（临时）并声明 Vary，不能用 308，否则浏览器/CDN 会把某一个
+  // 访客协商出的语言永久缓存给所有人。
+  if (
+    !isLanguageExemptPath(pathname) &&
+    !looksLikeStaticFile(pathname) &&
+    !languageFromPath(pathname)
+  ) {
+    const language = negotiateLanguage(request.headers.get("accept-language"));
+    const url = request.nextUrl.clone();
+    url.pathname = withLanguagePrefix(language, pathname);
+    const redirect = NextResponse.redirect(url, 307);
+    redirect.headers.set("Vary", "Accept-Language");
+    return redirect;
   }
 
   return NextResponse.next();

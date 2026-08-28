@@ -1,4 +1,3 @@
-import { DEFAULT_LANGUAGE } from "@/lib/language";
 import { DEFAULT_DENSITY, DEFAULT_FONT, DEFAULT_THEME, DEFAULT_TOC_ACCENT, PREF_KEYS, UI_STYLE_KEYS } from "@/lib/themes";
 import { QUICK_STYLE_KEYS } from "@/lib/quick-style";
 
@@ -8,18 +7,21 @@ import { QUICK_STYLE_KEYS } from "@/lib/quick-style";
  *
  * Receives the admin-configured default theme as a prop so first-visit users
  * see the admin's choice, while returning users see their saved preference.
+ *
+ * 语言**不在**这里处理：公开站的语言由 URL 的 /zh、/en 段决定，服务端渲染
+ * 出来就是最终值。若这里再按 localStorage 覆盖 data-language，就会出现
+ * 「URL 是 /en 但 CSS 按 zh 显示」的自相矛盾状态。后台 /admin 的语言由它
+ * 自己的 root layout 内联脚本 + AdminLanguageScope 处理。
  */
 export function UserPreferencesScript({
   defaultTheme = DEFAULT_THEME,
   defaultFont = DEFAULT_FONT,
   defaultDensity = DEFAULT_DENSITY,
-  defaultLanguage = DEFAULT_LANGUAGE,
   defaultSettingsUI = "classic"
 }: {
   defaultTheme?: string;
   defaultFont?: string;
   defaultDensity?: string;
-  defaultLanguage?: string;
   defaultSettingsUI?: string;
 }) {
   const inline = `
@@ -31,7 +33,6 @@ export function UserPreferencesScript({
       theme: ${JSON.stringify(defaultTheme)},
       font: ${JSON.stringify(defaultFont)},
       density: ${JSON.stringify(defaultDensity)},
-      language: ${JSON.stringify(defaultLanguage)},
       ui: ${JSON.stringify(defaultSettingsUI)}
     };
     var theme = localStorage.getItem(k.theme);
@@ -45,19 +46,16 @@ export function UserPreferencesScript({
     }
     var font = localStorage.getItem(k.font) || def.font;
     var density = localStorage.getItem(k.density) || def.density;
-    var language = localStorage.getItem(k.language) || def.language;
     var tocAccent = localStorage.getItem(k.tocAccent);
     var uiKeys = ${JSON.stringify(UI_STYLE_KEYS)};
     var ui = localStorage.getItem(k.ui);
     if (uiKeys.indexOf(ui) === -1) ui = def.ui;
-    
+
     doc.setAttribute('data-theme', theme);
     doc.setAttribute('data-font', font);
     doc.setAttribute('data-density', density);
-    doc.setAttribute('data-language', language);
     doc.setAttribute('data-ui', ui);
     doc.style.setProperty('--toc-accent', /^#[0-9a-f]{6}$/i.test(tocAccent || '') ? tocAccent : ${JSON.stringify(DEFAULT_TOC_ACCENT)});
-    doc.lang = language === 'en' ? 'en' : 'zh-CN';
 
     // 快速美化（色相/壁纸/布局/横幅）：与 lib/quick-style.ts 的 applyQuickStyle 一致
     var qk = ${JSON.stringify(QUICK_STYLE_KEYS)};

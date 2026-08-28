@@ -58,6 +58,48 @@ export function withLanguagePrefix(language: LanguageKey, path: string): string 
   return bare === "/" ? `/${language}` : `/${language}${bare}`;
 }
 
+/**
+ * 不参与语言前缀的路径前缀。
+ *
+ * /admin 有自己的语言机制（shibei.admin.language，客户端即时切换，不经导航），
+ * 且在 robots.txt 里被 disallow，做多语种 URL 零收益。其余是接口、静态资源与
+ * 站点级元数据文件，它们没有「语言版本」的概念。
+ */
+const LANGUAGE_EXEMPT_PREFIXES = [
+  "/admin",
+  "/api",
+  "/uploads",
+  "/_next",
+  "/feed.xml",
+  "/robots.txt",
+  "/sitemap.xml"
+];
+
+export function isLanguageExemptPath(path: string): boolean {
+  return LANGUAGE_EXEMPT_PREFIXES.some(
+    (prefix) => path === prefix || path.startsWith(`${prefix}/`) || path.startsWith(`${prefix}?`)
+  );
+}
+
+/**
+ * 把站内链接改写到指定语言。用于所有 <Link href>，因此必须对「不该改写的
+ * 东西」保持原样：外链、协议相对地址、mailto/tel、纯锚点、查询串开头，
+ * 以及 isLanguageExemptPath 覆盖的后台/接口/静态资源路径。
+ *
+ * 已带语言段的路径会被替换而不是叠加（withLanguagePrefix 保证幂等）。
+ */
+export function localizeHref(language: LanguageKey, href: string): string {
+  if (!href) return href;
+  // 外链、协议相对、mailto:/tel:、锚点、查询串：一律不动
+  if (!href.startsWith("/") || href.startsWith("//")) return href;
+
+  const boundary = href.search(/[?#]/);
+  const pathname = boundary >= 0 ? href.slice(0, boundary) : href;
+  const suffix = boundary >= 0 ? href.slice(boundary) : "";
+  if (isLanguageExemptPath(pathname)) return href;
+  return `${withLanguagePrefix(language, pathname)}${suffix}`;
+}
+
 /** Accept-Language 协商：仅在明确更偏好英文时返回 en，其余一律中文。 */
 export function negotiateLanguage(acceptLanguage: string | null | undefined): LanguageKey {
   if (!acceptLanguage) return DEFAULT_LANGUAGE;

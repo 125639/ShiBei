@@ -2,8 +2,10 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   SUPPORTED_LANGUAGES,
+  isLanguageExemptPath,
   isLanguageKey,
   languageFromPath,
+  localizeHref,
   negotiateLanguage,
   stripLanguagePrefix,
   withLanguagePrefix
@@ -47,8 +49,7 @@ test("adding a language prefix is idempotent and never doubles the segment", () 
   assert.equal(withLanguagePrefix("zh", "/zh"), "/zh");
 });
 
-test("Accept-Language negotiation defaults to Chinese unless English is preferred", () => {
-  assert.equal(negotiateLanguage(null), "zh");
+test("Accept-Language negotiation defaults to Chinese unless English is preferred", () => {  assert.equal(negotiateLanguage(null), "zh");
   assert.equal(negotiateLanguage(""), "zh");
   assert.equal(negotiateLanguage("zh-CN,zh;q=0.9,en;q=0.8"), "zh");
   assert.equal(negotiateLanguage("en-US,en;q=0.9"), "en");
@@ -60,8 +61,7 @@ test("Accept-Language negotiation defaults to Chinese unless English is preferre
   assert.equal(negotiateLanguage("en;q=0"), "zh");
 });
 
-test("site day key and bucket follow the configured offset, not the process timezone", () => {
-  // UTC 2026-07-09 17:00 = 北京 2026-07-10 01:00
+test("site day key and bucket follow the configured offset, not the process timezone", () => {  // UTC 2026-07-09 17:00 = 北京 2026-07-10 01:00
   const late = new Date("2026-07-09T17:00:00.000Z");
   const early = new Date("2026-07-09T15:59:59.000Z");
   assert.equal(siteDayKey(late), "2026-07-10");
@@ -91,4 +91,38 @@ test("day parts and hour are reported in site time", () => {
   const before = new Date("2026-07-09T15:59:00.000Z");
   assert.deepEqual(siteDayParts(before), { year: 2026, month: 6, day: 9 });
   assert.equal(siteHourOf(before), 23);
+});
+
+test("language-exempt paths are the ones with no language version", () => {
+  for (const path of ["/admin", "/admin/settings", "/api/public/visit", "/uploads/image/a.png", "/_next/static/x.js", "/feed.xml", "/robots.txt", "/sitemap.xml"]) {
+    assert.equal(isLanguageExemptPath(path), true, `应豁免: ${path}`);
+  }
+  for (const path of ["/", "/posts", "/posts/x", "/administrator", "/apifoo", "/about"]) {
+    assert.equal(isLanguageExemptPath(path), false, `不应豁免: ${path}`);
+  }
+});
+
+test("localizeHref prefixes in-site public links and leaves everything else alone", () => {
+  assert.equal(localizeHref("zh", "/posts"), "/zh/posts");
+  assert.equal(localizeHref("en", "/posts/hello"), "/en/posts/hello");
+  assert.equal(localizeHref("en", "/"), "/en");
+  // 查询串与锚点必须保留在语言段之后
+  assert.equal(localizeHref("en", "/posts?topic=a&q=b"), "/en/posts?topic=a&q=b");
+  assert.equal(localizeHref("zh", "/posts/x#section"), "/zh/posts/x#section");
+  // 已带语言段：替换而非叠加
+  assert.equal(localizeHref("en", "/zh/posts/x"), "/en/posts/x");
+
+  // 后台/接口/静态资源/站点元数据：原样
+  assert.equal(localizeHref("en", "/admin/login"), "/admin/login");
+  assert.equal(localizeHref("en", "/api/public/visit"), "/api/public/visit");
+  assert.equal(localizeHref("en", "/feed.xml"), "/feed.xml");
+  assert.equal(localizeHref("en", "/sitemap.xml"), "/sitemap.xml");
+  assert.equal(localizeHref("en", "/uploads/image/a.png"), "/uploads/image/a.png");
+
+  // 外链、协议相对、锚点、mailto：原样
+  assert.equal(localizeHref("en", "https://example.com/posts"), "https://example.com/posts");
+  assert.equal(localizeHref("en", "//cdn.example.com/x"), "//cdn.example.com/x");
+  assert.equal(localizeHref("en", "#top"), "#top");
+  assert.equal(localizeHref("en", "mailto:a@b.c"), "mailto:a@b.c");
+  assert.equal(localizeHref("en", ""), "");
 });
