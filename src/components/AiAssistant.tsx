@@ -11,7 +11,7 @@ import {
 } from "react";
 import { createPortal } from "react-dom";
 import { useUserPrefs } from "./useUserPrefs";
-import { I18nText } from "./I18nText";
+import { I18nText } from "./I18nTextClient";
 
 type ChatMessage = {
   role: "user" | "assistant";

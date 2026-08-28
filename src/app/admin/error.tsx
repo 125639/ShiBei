@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { I18nText } from "@/components/I18nText";
+import { I18nText } from "@/components/I18nTextClient";
 
 export default function AdminError({ reset }: { error: Error & { digest?: string }; reset: () => void }) {
   return (

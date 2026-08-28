@@ -3,7 +3,7 @@
 import { useEffect, useEffectEvent, useMemo, useRef, useState } from "react";
 import { describeAlarmCron } from "@/lib/alarm-schedule";
 import { ConfirmButton } from "@/components/ConfirmButton";
-import { I18nText } from "@/components/I18nText";
+import { I18nText } from "@/components/I18nTextClient";
 import { CronInput } from "@/components/CronInput";
 
 type StyleOption = {

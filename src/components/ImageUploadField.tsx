@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useId, useRef, useState } from "react";
-import { I18nText } from "./I18nText";
+import { I18nText } from "./I18nTextClient";
 
 const ACCEPT = "image/png,image/jpeg,image/webp,image/gif,.png,.jpg,.jpeg,.webp,.gif";
 const MAX_BYTES = 8 * 1024 * 1024;

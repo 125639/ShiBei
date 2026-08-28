@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { I18nText } from "@/components/I18nText";
+import { I18nText } from "@/components/I18nTextClient";
 import {
   MANUAL_STORAGE_CLEANUP_CONFIRMATION,
   manualStorageCleanupConfirmationMessage

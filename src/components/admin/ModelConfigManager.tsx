@@ -3,7 +3,7 @@
 import { useMemo, useRef, useState } from "react";
 import type { ModelConfig } from "@prisma/client";
 import { ConfirmButton } from "@/components/ConfirmButton";
-import { I18nText } from "@/components/I18nText";
+import { I18nText } from "@/components/I18nTextClient";
 import { SubmitButton } from "@/components/SubmitButton";
 import { canReuseSavedModelKey } from "@/lib/model-config-input";
 import { MODEL_PROVIDER_PRESETS, providerLabel } from "@/lib/model-providers";

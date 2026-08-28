@@ -3,7 +3,7 @@
 // /admin/update 的交互主体：版本对比、检查更新、一键更新、实时日志。
 
 import { useEffect, useRef, useState } from "react";
-import { I18nText } from "@/components/I18nText";
+import { I18nText } from "@/components/I18nTextClient";
 import {
   fetchAdminJson,
   useUpdateRunner,

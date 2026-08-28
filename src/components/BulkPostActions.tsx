@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState, type FormEvent } from "react";
-import { I18nText } from "./I18nText";
+import { I18nText } from "./I18nTextClient";
 import { TaskProgress } from "./TaskProgress";
 
 type BulkPost = {

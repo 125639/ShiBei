@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type RefObject } from "react";
 import Link from "next/link";
 import type { JobStatus } from "@prisma/client";
-import { I18nText } from "./I18nText";
+import { I18nText } from "./I18nTextClient";
 import { StatusPill } from "./StatusPill";
 import { TaskProgress } from "./TaskProgress";
 import { getBatchProgress } from "@/lib/task-progress";

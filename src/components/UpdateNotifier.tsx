@@ -11,7 +11,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
-import { I18nText } from "./I18nText";
+import { I18nText } from "./I18nTextClient";
 import {
   UPDATE_DISMISS_KEY,
   fetchAdminJson,

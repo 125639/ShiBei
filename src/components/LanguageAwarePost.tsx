@@ -5,7 +5,7 @@ import { useEffect, useMemo, useState } from "react";
 import type { VideoForShortcode } from "@/lib/markdown";
 import { useMarkdownHtml } from "./useMarkdownHtml";
 import { useUserPrefs } from "./useUserPrefs";
-import { I18nText } from "./I18nText";
+import { I18nText } from "./I18nTextClient";
 import { stripTitleHeading, summaryDuplicatesContentLead } from "@/lib/post-derive";
 
 type PostText = {

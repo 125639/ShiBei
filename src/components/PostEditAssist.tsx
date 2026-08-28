@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { markdownToHtml } from "@/lib/markdown";
-import { I18nText } from "./I18nText";
+import { I18nText } from "./I18nTextClient";
 
 type RevisionResult = {
   title?: string;

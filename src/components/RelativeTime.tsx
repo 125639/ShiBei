@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { I18nText } from "./I18nText";
+import { I18nText } from "./I18nTextClient";
 
 const ONE_WEEK_MS = 7 * 24 * 60 * 60 * 1000;
 

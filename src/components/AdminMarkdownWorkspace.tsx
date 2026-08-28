@@ -7,7 +7,7 @@ import {
   type MarkdownFormatAction
 } from "@/lib/admin-markdown-editor";
 import { markdownToHtml, type VideoForShortcode } from "@/lib/markdown";
-import { I18nText } from "./I18nText";
+import { I18nText } from "./I18nTextClient";
 
 type WorkspaceMode = "split" | "edit" | "preview";
 const EMPTY_PREVIEW_VIDEOS: VideoForShortcode[] = [];

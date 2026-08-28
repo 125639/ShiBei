@@ -19,7 +19,7 @@ import {
   verticalListSortingStrategy
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import { I18nText } from "@/components/I18nText";
+import { I18nText } from "@/components/I18nTextClient";
 import type { VideoPlacement } from "@/lib/video-display";
 
 type VideoRow = {

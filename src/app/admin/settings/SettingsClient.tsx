@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { AdminUser, ContentStyle, ModelConfig, SiteSettings } from "@prisma/client";
 import { ConfirmButton } from "@/components/ConfirmButton";
-import { I18nText } from "@/components/I18nText";
+import { I18nText } from "@/components/I18nTextClient";
 import { MetricCard } from "@/components/MetricCard";
 import { SubmitButton } from "@/components/SubmitButton";
 import { ModelConfigManager } from "@/components/admin/ModelConfigManager";

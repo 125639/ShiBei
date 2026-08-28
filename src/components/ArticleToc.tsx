@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { usePathname } from "next/navigation";
 import { createPortal } from "react-dom";
-import { I18nText } from "./I18nText";
+import { I18nText } from "./I18nTextClient";
 
 type TocItem = { id: string; text: string; level: 2 | 3 };
 

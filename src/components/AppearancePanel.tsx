@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { I18nText } from "@/components/I18nText";
+import { I18nText } from "@/components/I18nTextClient";
 import { DEFAULT_LANGUAGE, isLanguageKey } from "@/lib/language";
 import {
   DEFAULT_DENSITY,

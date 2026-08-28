@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useState } from "react";
-import { I18nText } from "./I18nText";
+import { I18nText } from "./I18nTextClient";
 import { SubmitButton } from "./SubmitButton";
 
 export type ListSource = {

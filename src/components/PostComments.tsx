@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
-import { I18nText } from "./I18nText";
+import { I18nText } from "./I18nTextClient";
 
 type CommentView = {
   id: string;
