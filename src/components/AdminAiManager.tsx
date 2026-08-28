@@ -446,7 +446,7 @@ export function AdminAiManager({
                 {expandedBatch.jobs.map((job, index) => (
                   <li key={job.id}>
                     <StatusPill status={job.status} />
-                    <a className="text-link" href={`/admin/jobs/${job.id}`}>{job.keyword}</a>
+                    <Link className="text-link" href={`/admin/jobs/${job.id}`}>{job.keyword}</Link>
                     {job.status === "RUNNING" ? (
                       <span className="muted">
                         <I18nText
@@ -479,9 +479,9 @@ export function AdminAiManager({
                       {item.name} · <I18nText zh={item.cadence.zh} en={item.cadence.en} />
                     </span>
                   ))}
-                  <a className="text-link" href="/admin/auto-curation">
+                  <Link className="text-link" href="/admin/auto-curation">
                     <I18nText zh="管理自动内容" en="Manage auto content" />
-                  </a>
+                  </Link>
                 </div>
               ) : null}
             </div>

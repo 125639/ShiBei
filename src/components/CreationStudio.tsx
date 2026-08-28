@@ -1,6 +1,6 @@
 "use client";
 
-import Link from "next/link";
+import { LocalizedLink as Link } from "@/components/LocalizedLink";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   ANON_CREATION_SEED_HEADER,

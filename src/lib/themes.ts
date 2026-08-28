@@ -242,7 +242,6 @@ export const PREF_KEYS = {
   theme: "shibei.theme",
   font: "shibei.font",
   density: "shibei.density",
-  language: "shibei.language",
   ui: "shibei.ui",
   customCursor: "shibei.customCursor",
   cursorStyle: "shibei.cursorStyle",

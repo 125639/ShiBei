@@ -3,6 +3,8 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { I18nText } from "@/components/I18nTextClient";
 import { DEFAULT_LANGUAGE, isLanguageKey } from "@/lib/language";
+import { useRouteLanguage } from "./I18nTextClient";
+import { LocalizedLink } from "./LocalizedLink";
 import {
   DEFAULT_DENSITY,
   DEFAULT_FONT,
@@ -48,9 +50,10 @@ export function AppearancePanel({ siteDefaults }: { siteDefaults?: AppearanceDef
   const rootRef = useRef<HTMLDivElement | null>(null);
   const triggerRef = useRef<HTMLButtonElement | null>(null);
   const defaults = useMemo(() => normalizeDefaults(siteDefaults), [siteDefaults]);
-  const { prefs, update, hydrated: prefsHydrated } = useUserPrefs(defaults);
+  const { prefs, update } = useUserPrefs(defaults);
   const currentTheme = THEMES.find((theme) => theme.key === prefs.theme) || THEMES[0];
-  const isEnglish = prefsHydrated && prefs.language === "en";
+  // 界面语言来自路由段而非本地偏好：URL 即语言，服务端渲染就是终值。
+  const isEnglish = (useRouteLanguage() ?? DEFAULT_LANGUAGE) === "en";
 
   // 当前生效的界面风格：决定是否显示「横幅设置」（仅 Firefly 有横幅）。
   const effectiveUi = prefs.ui === "system" ? defaults.ui : prefs.ui;
@@ -225,9 +228,9 @@ export function AppearancePanel({ siteDefaults }: { siteDefaults?: AppearanceDef
           <button type="button" className="quick-style-clear" onClick={resetAll} disabled={isDefault}>
             <I18nText zh="全部恢复默认" en="Reset all" />
           </button>
-          <a className="quick-style-more" href="/settings">
+          <LocalizedLink className="quick-style-more" href="/settings">
             <I18nText zh="更多设置 →" en="More settings →" />
-          </a>
+          </LocalizedLink>
         </footer>
       </div>
     </div>

@@ -1,9 +1,11 @@
 "use client";
 
-import Link from "next/link";
+import { LocalizedLink as Link } from "@/components/LocalizedLink";
 import { Fragment, useState, useEffect } from "react";
 import { useUserPrefs } from "./useUserPrefs";
-import { LANGUAGE_OPTIONS, languageLabel } from "@/lib/language";
+import { DEFAULT_LANGUAGE, LANGUAGE_OPTIONS, languageLabel } from "@/lib/language";
+import { useRouteLanguage } from "./I18nTextClient";
+import { useLanguageSwitch } from "./useLanguageSwitch";
 import { useTranslation } from "@/lib/i18n";
 import { CURSOR_STYLES, FONTS, THEMES, DENSITIES, UI_STYLES, DEFAULT_THEME, DEFAULT_FONT, DEFAULT_DENSITY, DEFAULT_TOC_ACCENT } from "@/lib/themes";
 
@@ -22,8 +24,12 @@ export function UserSettingsClient({
   };
 }) {
   const { prefs, update, reset, hydrated } = useUserPrefs();
+  // 语言来自路由段。切换语言 = 导航到另一语言的同一页面（useLanguageSwitch），
+  // 不再写 localStorage——否则 URL 是 /en 而界面按本地偏好显示中文。
+  const language = useRouteLanguage() ?? DEFAULT_LANGUAGE;
+  const { switchTo } = useLanguageSwitch();
   const [tracks, setTracks] = useState<Array<Record<string, string>>>([]);
-  const t = useTranslation(prefs.language || "zh");
+  const t = useTranslation(language);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -62,26 +68,26 @@ export function UserSettingsClient({
 
   return (
     <div className="settings-shell">
-      <nav className="settings-section-nav" aria-label={prefs.language === "en" ? "Settings sections" : "设置分区"}>
-        <a href="#settings-interface">{prefs.language === "en" ? "Interface" : "界面"}</a>
-        <a href="#settings-language">{prefs.language === "en" ? "Language" : "语言"}</a>
-        <a href="#settings-theme">{prefs.language === "en" ? "Theme" : "主题"}</a>
-        <a href="#settings-font">{prefs.language === "en" ? "Font" : "字体"}</a>
-        <a href="#settings-density">{prefs.language === "en" ? "Density" : "密度"}</a>
-        <a href="#settings-audio">{prefs.language === "en" ? "Audio" : "音乐"}</a>
+      <nav className="settings-section-nav" aria-label={language === "en" ? "Settings sections" : "设置分区"}>
+        <a href="#settings-interface">{language === "en" ? "Interface" : "界面"}</a>
+        <a href="#settings-language">{language === "en" ? "Language" : "语言"}</a>
+        <a href="#settings-theme">{language === "en" ? "Theme" : "主题"}</a>
+        <a href="#settings-font">{language === "en" ? "Font" : "字体"}</a>
+        <a href="#settings-density">{language === "en" ? "Density" : "密度"}</a>
+        <a href="#settings-audio">{language === "en" ? "Audio" : "音乐"}</a>
       </nav>
 
       <section id="settings-interface">
         <p className="eyebrow">{t("interface")}</p>
         <h2>{t("uiStyle")}</h2>
         <p className="muted-block">
-          {t("sysDefault")}：<strong>{uiStyleLabel(siteDefaults.ui, prefs.language)}</strong>
+          {t("sysDefault")}：<strong>{uiStyleLabel(siteDefaults.ui, language)}</strong>
         </p>
         <div className="option-grid" role="group" aria-label={t("uiStyle")}>
           {UI_STYLES.map((style) => {
             const currentUI = prefs.ui === "system" ? siteDefaults.ui : prefs.ui;
             const isActive = currentUI === style.key;
-            const isEn = prefs.language === "en";
+            const isEn = language === "en";
             return (
               <button
                 key={style.key}
@@ -135,14 +141,14 @@ export function UserSettingsClient({
         </div>
         <div className="toc-color-setting">
           <div>
-            <h3>{prefs.language === "en" ? "Article outline color" : "文章目录颜色"}</h3>
+            <h3>{language === "en" ? "Article outline color" : "文章目录颜色"}</h3>
             <p className="muted-block">
-              {prefs.language === "en"
+              {language === "en"
                 ? "Controls the active heading and right-edge markers in the article outline."
                 : "控制文章右侧目录的当前标题与刻度高亮颜色。"}
             </p>
           </div>
-          <div className="toc-color-controls" role="group" aria-label={prefs.language === "en" ? "Article outline color" : "文章目录颜色"}>
+          <div className="toc-color-controls" role="group" aria-label={language === "en" ? "Article outline color" : "文章目录颜色"}>
             {TOC_ACCENT_PRESETS.map((color) => (
               <button
                 key={color}
@@ -155,17 +161,17 @@ export function UserSettingsClient({
               />
             ))}
             <label className="toc-custom-color">
-              <span>{prefs.language === "en" ? "Custom" : "自定义"}</span>
+              <span>{language === "en" ? "Custom" : "自定义"}</span>
               <input
                 type="color"
                 value={prefs.tocAccent}
-                aria-label={prefs.language === "en" ? "Custom article outline color" : "自定义文章目录颜色"}
+                aria-label={language === "en" ? "Custom article outline color" : "自定义文章目录颜色"}
                 onChange={(event) => update({ tocAccent: event.target.value })}
               />
             </label>
             {prefs.tocAccent.toLowerCase() !== DEFAULT_TOC_ACCENT ? (
               <button type="button" className="button ghost toc-color-reset" onClick={() => update({ tocAccent: DEFAULT_TOC_ACCENT })}>
-                {prefs.language === "en" ? "Reset" : "恢复默认"}
+                {language === "en" ? "Reset" : "恢复默认"}
               </button>
             ) : null}
           </div>
@@ -183,9 +189,9 @@ export function UserSettingsClient({
             <button
               key={opt.value}
               type="button"
-              aria-pressed={prefs.language === opt.value}
-              className={`option-card${prefs.language === opt.value ? " active" : ""}`}
-              onClick={() => update({ language: opt.value })}
+              aria-pressed={language === opt.value}
+              className={`option-card${language === opt.value ? " active" : ""}`}
+              onClick={() => switchTo(opt.value)}
             >
               <span className="option-label">
                 {t(`lang.${opt.value}.label`) || opt.label}
@@ -293,7 +299,7 @@ export function UserSettingsClient({
               <span>{t("enableAudio")}</span>
             </label>
             <p className="muted-block">
-              {prefs.language === "en"
+              {language === "en"
                 ? `${tracks.length} track(s) available. Browsers require at least one user interaction (click / scroll) before audio can play.`
                 : `共 ${tracks.length} 首可选。浏览器策略要求播放需要至少一次用户交互（点击 / 滚动）。`}
             </p>
@@ -339,7 +345,7 @@ export function UserSettingsClient({
           className="button ghost"
           onClick={() => {
             const message =
-              prefs.language === "en"
+              language === "en"
                 ? "Restore all preferences (theme, font, language, music, etc.) to defaults?"
                 : "确定把主题、字体、语言、音乐等全部偏好恢复为默认值吗？";
             if (window.confirm(message)) reset();

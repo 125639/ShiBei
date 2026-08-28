@@ -1,6 +1,6 @@
 "use client";
 
-import Link from "next/link";
+import { LocalizedLink as Link } from "@/components/LocalizedLink";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 type Member = { id: string; email: string | null; username: string | null; displayName: string | null };

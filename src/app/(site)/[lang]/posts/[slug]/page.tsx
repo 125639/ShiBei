@@ -1,5 +1,5 @@
 import { notFound } from "next/navigation";
-import Link from "next/link";
+import { LocalizedLink as Link } from "@/components/LocalizedLink";
 import type { Metadata } from "next";
 import { ArticleToc } from "@/components/ArticleToc";
 import { LanguageAwarePost } from "@/components/LanguageAwarePost";
@@ -9,6 +9,8 @@ import { I18nText } from "@/components/I18nText";
 import { prisma } from "@/lib/prisma";
 import { getCachedSiteChromeSettings } from "@/lib/site-settings-cache";
 import { absoluteSiteUrl } from "@/lib/site-url";
+import { DEFAULT_LANGUAGE, isLanguageKey, withLanguagePrefix, type LanguageKey } from "@/lib/language";
+import { setRequestLanguage } from "@/lib/i18n-server";
 import { VideoEmbed } from "@/lib/video";
 import { VIDEO_SHORTCODE_RE } from "@/lib/video-display";
 import { markdownToHtml, type VideoForShortcode } from "@/lib/markdown";
@@ -41,12 +43,17 @@ const ARTICLE_VIDEO_SELECT = {
   durationSec: true
 } as const;
 
-export async function generateMetadata({ params }: { params: Promise<{ slug: string }> }): Promise<Metadata> {
-  const { slug } = await params;
+export async function generateMetadata({
+  params
+}: {
+  params: Promise<{ lang: string; slug: string }>;
+}): Promise<Metadata> {
+  const { lang, slug } = await params;
+  const language: LanguageKey = isLanguageKey(lang) ? lang : DEFAULT_LANGUAGE;
   const [post, settings] = await Promise.all([
     prisma.post.findFirst({
       where: { slug: { in: getSlugCandidates(slug) }, status: "PUBLISHED", publicationBlockedReason: null },
-      select: { slug: true, title: true, summary: true, publishedAt: true, updatedAt: true }
+      select: { slug: true, title: true, titleEn: true, summary: true, summaryEn: true, publishedAt: true, updatedAt: true }
     }),
     getCachedSiteChromeSettings().catch(() => null)
   ]);
@@ -56,15 +63,27 @@ export async function generateMetadata({ params }: { params: Promise<{ slug: str
   // article URLs be indexed as successful pages.
   if (!post) notFound();
 
-  const title = post.title;
-  const description = post.summary.slice(0, 180);
-  const url = absoluteSiteUrl(`/posts/${post.slug}`);
+  // 标题/描述按当前语种给出：搜索结果里 /en/posts/x 应该显示英文标题，
+  // 否则英文版即使被收录，展示出来的仍是中文摘要。
+  const title = (language === "en" ? post.titleEn : post.title) || post.title;
+  const summary = (language === "en" ? post.summaryEn : post.summary) || post.summary;
+  const description = summary.slice(0, 180);
+  const path = `/posts/${post.slug}`;
+  const url = absoluteSiteUrl(withLanguagePrefix(language, path));
   const siteName = settings?.name || "ShiBei";
 
   return {
     title: `${title} | ${siteName}`,
     description,
-    alternates: { canonical: url },
+    alternates: {
+      canonical: url,
+      // 两个语种互指，并给出 x-default，避免被判为重复内容。
+      languages: {
+        "zh-CN": absoluteSiteUrl(withLanguagePrefix("zh", path)),
+        en: absoluteSiteUrl(withLanguagePrefix("en", path)),
+        "x-default": absoluteSiteUrl(withLanguagePrefix(DEFAULT_LANGUAGE, path))
+      }
+    },
     openGraph: {
       type: "article",
       title,
@@ -95,8 +114,15 @@ function collectShortcodedVideoIds(...sources: Array<string | null | undefined>)
   return ids;
 }
 
-export default async function PostDetailPage({ params }: { params: Promise<{ slug: string }> }) {
-  const { slug } = await params;
+export default async function PostDetailPage({
+  params
+}: {
+  params: Promise<{ lang: string; slug: string }>;
+}) {
+  const { lang, slug } = await params;
+  // generateMetadata 与页面组件是两个独立的渲染 pass，布局里的
+  // setRequestLanguage 不一定覆盖到这里；页面自己再设一次是幂等的。
+  const language = setRequestLanguage(lang);
   const [post, settings] = await Promise.all([
     prisma.post.findFirst({
       where: {
@@ -189,8 +215,18 @@ export default async function PostDetailPage({ params }: { params: Promise<{ slu
   }));
   const videosById = new Map(adaptedVideos.map((video) => [video.id, video]));
   const hideVideos = !videosEnabled;
-  const zhContentHtml = markdownToHtml(stripTitleHeading(post.content, post.title), { videosById, hideVideos });
-  const enContentHtml = post.contentEn
+
+  // 语言由 URL 决定，所以只渲染这一版 URL 真正要用的那份正文。
+  //
+  // 此前两份都渲染并都作为 prop 传给客户端组件，于是纯中文读者的页面响应里
+  // 还多带一整份英文正文 HTML（客户端组件的 prop 会被完整序列化进内嵌的
+  // RSC Flight 负载）。双语模式才需要两份。
+  const wantsEnglish = language === "en";
+  const bilingual = contentLanguageMode === "bilingual";
+  const zhContentHtml = !wantsEnglish || bilingual
+    ? markdownToHtml(stripTitleHeading(post.content, post.title), { videosById, hideVideos })
+    : null;
+  const enContentHtml = (wantsEnglish || bilingual) && post.contentEn
     ? markdownToHtml(stripTitleHeading(post.contentEn, post.titleEn || post.title), { videosById, hideVideos })
     : null;
 

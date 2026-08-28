@@ -1,4 +1,4 @@
-import Link from "next/link";
+import { LocalizedLink as Link } from "@/components/LocalizedLink";
 import { ActiveLink } from "./ActiveLink";
 import { AdminLanguageToggle } from "./AdminLanguageToggle";
 import { I18nText } from "./I18nText";

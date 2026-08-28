@@ -6,6 +6,7 @@ import { prisma } from "@/lib/prisma";
 import { getAppMode } from "@/lib/app-mode";
 import { getResolvedSyncConfig } from "@/lib/sync/config";
 import { MAX_SYNC_SINGLE_FILE_BYTES, MAX_SYNC_ZIP_BYTES } from "@/lib/sync/limits";
+import Link from "next/link";
 
 export const dynamic = "force-dynamic";
 
@@ -84,8 +85,8 @@ export default async function SyncAdminPage({
           <strong><I18nText zh="本端已有视频，但「视频功能」尚未开启" en="Videos exist locally, but the video feature is disabled" /></strong>
           <p style={{ margin: "6px 0 0" }}>
             <I18nText
-              zh={<>当前本端共有 {videoCount} 个视频记录（含同步而来的），但本实例的视频功能开关是关闭的：前台文章不会展示任何视频，<code>[[video:ID]]</code> 短代码会被静默移除。该开关<strong>不随同步传递</strong>，需要在本端 <a className="text-link" href="/admin/settings?tab=media">设置 → 媒体视频</a> 勾选「启用视频功能」。</>}
-              en={<>This instance holds {videoCount} video records (including synced ones), but its video feature is off: public posts render no videos and <code>[[video:ID]]</code> shortcodes are silently stripped. The switch <strong>does not sync</strong> — enable it locally under <a className="text-link" href="/admin/settings?tab=media">Settings → Media</a>.</>}
+              zh={<>当前本端共有 {videoCount} 个视频记录（含同步而来的），但本实例的视频功能开关是关闭的：前台文章不会展示任何视频，<code>[[video:ID]]</code> 短代码会被静默移除。该开关<strong>不随同步传递</strong>，需要在本端 <Link className="text-link" href="/admin/settings?tab=media">设置 → 媒体视频</Link> 勾选「启用视频功能」。</>}
+              en={<>This instance holds {videoCount} video records (including synced ones), but its video feature is off: public posts render no videos and <code>[[video:ID]]</code> shortcodes are silently stripped. The switch <strong>does not sync</strong> — enable it locally under <Link className="text-link" href="/admin/settings?tab=media">Settings → Media</Link>.</>}
             />
           </p>
         </div>

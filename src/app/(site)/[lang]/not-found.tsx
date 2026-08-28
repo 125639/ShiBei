@@ -1,4 +1,4 @@
-import Link from "next/link";
+import { LocalizedLink as Link } from "@/components/LocalizedLink";
 import type { Metadata } from "next";
 import { I18nText } from "@/components/I18nText";
 

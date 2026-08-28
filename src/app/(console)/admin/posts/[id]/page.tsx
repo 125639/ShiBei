@@ -1,4 +1,4 @@
-import Link from "next/link";
+import { LocalizedLink as Link } from "@/components/LocalizedLink";
 import { notFound } from "next/navigation";
 import { AdminMarkdownWorkspace } from "@/components/AdminMarkdownWorkspace";
 import { AdminShell } from "@/components/AdminShell";
@@ -370,8 +370,8 @@ export default async function AdminPostEditPage({
           <div className="empty-state">
             <p>
               <I18nText
-                zh={<>暂无视频。可在下方上传或在 <a className="text-link" href="/admin/videos">视频管理</a> 把已有视频挂到本文章。</>}
-                en={<>No videos yet. Upload below or attach an existing one from <a className="text-link" href="/admin/videos">Videos</a>.</>}
+                zh={<>暂无视频。可在下方上传或在 <Link className="text-link" href="/admin/videos">视频管理</Link> 把已有视频挂到本文章。</>}
+                en={<>No videos yet. Upload below or attach an existing one from <Link className="text-link" href="/admin/videos">Videos</Link>.</>}
               />
             </p>
           </div>

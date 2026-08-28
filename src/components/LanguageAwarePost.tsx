@@ -1,11 +1,11 @@
 "use client";
 
-import Link from "next/link";
+import { LocalizedLink as Link } from "@/components/LocalizedLink";
 import { useEffect, useMemo, useState } from "react";
 import type { VideoForShortcode } from "@/lib/markdown";
 import { useMarkdownHtml } from "./useMarkdownHtml";
-import { useUserPrefs } from "./useUserPrefs";
-import { I18nText } from "./I18nTextClient";
+import { I18nText, useRouteLanguage } from "./I18nTextClient";
+import { DEFAULT_LANGUAGE } from "@/lib/language";
 import { stripTitleHeading, summaryDuplicatesContentLead } from "@/lib/post-derive";
 
 type PostText = {
@@ -43,9 +43,9 @@ export function LanguageAwarePost({
   // 视频功能总开关（后台 设置→媒体）。false 时短代码被静默移除，页面完全无视频。
   videosEnabled?: boolean;
   // 服务端预渲染好的中文正文 HTML（含标题剥离、视频短代码处理）。
-  // 客户端不再引入 marked/DOMPurify：纯中文读者零解析器下载、零重复解析，
-  // 正文也不再随 hydration/prefs 变化在浏览器里被反复 parse+sanitize。
-  zhContentHtml: string;
+  // 客户端不再引入 marked/DOMPurify：纯中文读者零解析器下载、零重复解析。
+  // 当前 URL 是 /en 且非双语模式时服务端不会渲染它，此处为 null。
+  zhContentHtml: string | null;
   // 库中已有英文版（contentEn）时由服务端一并渲染好的英文正文 HTML；
   // 英文读者命中缓存翻译时同样不需要下载解析器 chunk。null 表示库中没有。
   enContentHtml?: string | null;
@@ -59,10 +59,13 @@ export function LanguageAwarePost({
   showZhLead: boolean;
   showEnLead: boolean;
 }) {
-  const { prefs, hydrated } = useUserPrefs();
+  const language = useRouteLanguage() ?? DEFAULT_LANGUAGE;
   const hasServerEnglish = enContentHtml !== null;
   const [translation, setTranslation] = useState<TranslationState>(() => ({ status: "idle" }));
-  const wantsEnglish = hydrated && prefs.language === "en";
+  // 语言由 URL 决定，服务端渲染时就已确定。此前这里是
+  // `hydrated && prefs.language === "en"`，于是英文读者必然先看到一整块中文
+  // 正文、水合后再整体换掉。现在没有门控，也就没有闪动。
+  const wantsEnglish = language === "en";
   const showBilingual = contentLanguageMode === "bilingual";
   const shouldLoadEnglish = wantsEnglish || showBilingual;
 
@@ -164,15 +167,11 @@ export function LanguageAwarePost({
       label={<I18nText zh="中文" en="Chinese" />}
       title={post.title}
       summary={post.summary}
-      html={zhContentHtml}
+      html={zhContentHtml ?? ""}
       showLead={showZhLead}
       showHeading={showHeading}
     />
   );
-
-  if (!hydrated) {
-    return zhBlock(false);
-  }
 
   if (showBilingual) {
     return (

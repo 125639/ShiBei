@@ -1,4 +1,4 @@
-import Link from "next/link";
+import { LocalizedLink as Link } from "@/components/LocalizedLink";
 import { unstable_cache } from "next/cache";
 import { AssistantPageContext } from "@/components/AssistantPageContext";
 import { I18nText } from "@/components/I18nText";

@@ -7,6 +7,7 @@ import { hasLocalWorker } from "@/lib/app-mode";
 import { normalizePage } from "@/lib/pagination";
 import { prisma } from "@/lib/prisma";
 import { formatBytes } from "@/lib/storage";
+import Link from "next/link";
 
 export const dynamic = "force-dynamic";
 
@@ -92,8 +93,8 @@ export default async function VideosAdminPage({
       {!videosEnabled ? (
         <p className="muted-block" role="status" style={{ maxWidth: 720, borderLeft: "3px solid var(--color-danger, #c44)", paddingLeft: 12 }}>
           <I18nText
-            zh={<>视频功能当前<strong>已关闭</strong>：前台文章不会展示任何视频，自动抓取也不会收集视频链接。可在 <a className="text-link" href="/admin/settings?tab=media">设置 → 媒体视频</a> 勾选「启用视频功能」后生效；这里的管理操作不受影响。</>}
-            en={<>Videos are currently <strong>disabled</strong>: nothing renders on public posts and crawls skip video links. Enable them under <a className="text-link" href="/admin/settings?tab=media">Settings → Media</a>; management here still works.</>}
+            zh={<>视频功能当前<strong>已关闭</strong>：前台文章不会展示任何视频，自动抓取也不会收集视频链接。可在 <Link className="text-link" href="/admin/settings?tab=media">设置 → 媒体视频</Link> 勾选「启用视频功能」后生效；这里的管理操作不受影响。</>}
+            en={<>Videos are currently <strong>disabled</strong>: nothing renders on public posts and crawls skip video links. Enable them under <Link className="text-link" href="/admin/settings?tab=media">Settings → Media</Link>; management here still works.</>}
           />
         </p>
       ) : null}
@@ -105,8 +106,8 @@ export default async function VideosAdminPage({
           />
         ) : (
           <I18nText
-            zh={<>上传本地视频文件（MP4 / WebM / MOV / M4V，≤300 MB），或者添加 YouTube / Bilibili 等嵌入链接、外链。视频不再有独立页面，只通过 <code>[[video:ID]]</code> 短代码嵌入在文章正文中。本端（frontend 形态）没有下载 worker：「下载到本地」需要在 backend 上执行，随后通过 <a className="text-link" href="/admin/sync">同步</a> 的含视频 ZIP 把文件传到本端。同一篇文章下的视频支持拖拽排序与三档预设位置。</>}
-            en={<>Upload local files (MP4 / WebM / MOV / M4V, ≤300 MB) or add YouTube / Bilibili embeds and links. Videos have no standalone page — they only embed in posts via <code>[[video:ID]]</code> shortcodes. This frontend deployment has no download worker: run “Download locally” on the backend, then bring the files over via a <a className="text-link" href="/admin/sync">sync</a> ZIP that includes them. Videos within a post support drag reordering and three preset placements.</>}
+            zh={<>上传本地视频文件（MP4 / WebM / MOV / M4V，≤300 MB），或者添加 YouTube / Bilibili 等嵌入链接、外链。视频不再有独立页面，只通过 <code>[[video:ID]]</code> 短代码嵌入在文章正文中。本端（frontend 形态）没有下载 worker：「下载到本地」需要在 backend 上执行，随后通过 <Link className="text-link" href="/admin/sync">同步</Link> 的含视频 ZIP 把文件传到本端。同一篇文章下的视频支持拖拽排序与三档预设位置。</>}
+            en={<>Upload local files (MP4 / WebM / MOV / M4V, ≤300 MB) or add YouTube / Bilibili embeds and links. Videos have no standalone page — they only embed in posts via <code>[[video:ID]]</code> shortcodes. This frontend deployment has no download worker: run “Download locally” on the backend, then bring the files over via a <Link className="text-link" href="/admin/sync">sync</Link> ZIP that includes them. Videos within a post support drag reordering and three preset placements.</>}
           />
         )}
       </p>

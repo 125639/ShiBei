@@ -19,13 +19,11 @@ import {
   isThemeKey,
   isUiStyleKey
 } from "@/lib/themes";
-import { DEFAULT_LANGUAGE, isLanguageKey, type LanguageKey } from "@/lib/language";
 
 export type UserPrefs = {
   theme: ThemeKey;
   font: FontKey;
   density: DensityKey;
-  language: LanguageKey;
   ui: "system" | UiStyleKey;
   customCursor: boolean;
   cursorStyle: CursorStyleKey;
@@ -39,7 +37,6 @@ const DEFAULT_PREFS: UserPrefs = {
   theme: DEFAULT_THEME,
   font: DEFAULT_FONT,
   density: DEFAULT_DENSITY,
-  language: DEFAULT_LANGUAGE,
   ui: "system",
   customCursor: false,
   cursorStyle: DEFAULT_CURSOR_STYLE,
@@ -58,7 +55,6 @@ function readPrefs(siteDefaults?: Partial<UserPrefs>): UserPrefs {
     const theme = localStorage.getItem(PREF_KEYS.theme);
     const font = localStorage.getItem(PREF_KEYS.font);
     const density = localStorage.getItem(PREF_KEYS.density);
-    const language = localStorage.getItem(PREF_KEYS.language);
     const ui = localStorage.getItem(PREF_KEYS.ui);
     const customCursor = localStorage.getItem(PREF_KEYS.customCursor);
     const cursorStyle = localStorage.getItem(PREF_KEYS.cursorStyle);
@@ -70,7 +66,6 @@ function readPrefs(siteDefaults?: Partial<UserPrefs>): UserPrefs {
       theme: isThemeKey(theme) ? theme : systemAwareThemeFallback(fallback.theme),
       font: isFontKey(font) ? font : fallback.font,
       density: isDensityKey(density) ? density : fallback.density,
-      language: isLanguageKey(language) ? language : fallback.language,
       ui: isUiStyleKey(ui) ? ui : fallback.ui,
       customCursor: customCursor === null ? fallback.customCursor : customCursor === "true",
       cursorStyle: isCursorStyleKey(cursorStyle) ? cursorStyle : fallback.cursorStyle,
@@ -173,9 +168,7 @@ export function useUserPrefs(siteDefaults?: Partial<UserPrefs>) {
     document.documentElement.setAttribute("data-theme", defaults.theme);
     document.documentElement.setAttribute("data-font", defaults.font);
     document.documentElement.setAttribute("data-density", defaults.density);
-    document.documentElement.setAttribute("data-language", defaults.language);
     document.documentElement.style.removeProperty("--toc-accent");
-    document.documentElement.lang = defaults.language === "en" ? "en" : "zh-CN";
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [siteDefaultsKey]);
 
@@ -187,7 +180,6 @@ function persistAndApplyPrefs(partial: Partial<UserPrefs>, next: UserPrefs, defa
     if (partial.theme !== undefined) localStorage.setItem(PREF_KEYS.theme, next.theme);
     if (partial.font !== undefined) localStorage.setItem(PREF_KEYS.font, next.font);
     if (partial.density !== undefined) localStorage.setItem(PREF_KEYS.density, next.density);
-    if (partial.language !== undefined) localStorage.setItem(PREF_KEYS.language, next.language);
     if (partial.ui !== undefined) localStorage.setItem(PREF_KEYS.ui, next.ui);
     if (partial.customCursor !== undefined) localStorage.setItem(PREF_KEYS.customCursor, String(next.customCursor));
     if (partial.cursorStyle !== undefined) localStorage.setItem(PREF_KEYS.cursorStyle, next.cursorStyle);
@@ -198,7 +190,6 @@ function persistAndApplyPrefs(partial: Partial<UserPrefs>, next: UserPrefs, defa
     document.documentElement.setAttribute("data-theme", next.theme);
     document.documentElement.setAttribute("data-font", next.font);
     document.documentElement.setAttribute("data-density", next.density);
-    document.documentElement.setAttribute("data-language", next.language);
     document.documentElement.style.setProperty("--toc-accent", next.tocAccent);
     const effectiveUi = next.ui === "system" ? (defaults.ui === "system" ? "classic" : defaults.ui) : next.ui;
     document.documentElement.setAttribute("data-ui", effectiveUi);
@@ -209,7 +200,6 @@ function persistAndApplyPrefs(partial: Partial<UserPrefs>, next: UserPrefs, defa
       document.documentElement.removeAttribute("data-cursor");
       document.documentElement.removeAttribute("data-cursor-style");
     }
-    document.documentElement.lang = next.language === "en" ? "en" : "zh-CN";
     window.dispatchEvent(new CustomEvent(PREF_EVENT));
   } catch {
     /* ignore */

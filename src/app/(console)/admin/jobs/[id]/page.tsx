@@ -1,4 +1,4 @@
-import Link from "next/link";
+import { LocalizedLink as Link } from "@/components/LocalizedLink";
 import { notFound } from "next/navigation";
 import { AdminShell } from "@/components/AdminShell";
 import { AutoRefresh } from "@/components/AutoRefresh";

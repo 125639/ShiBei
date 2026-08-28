@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import Link from "next/link";
+import { LocalizedLink as Link } from "@/components/LocalizedLink";
 import { unstable_cache } from "next/cache";
 import type { CreationDepth, CreationMode } from "@prisma/client";
 import { prisma } from "@/lib/prisma";

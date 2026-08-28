@@ -10,8 +10,8 @@ import {
   type ReactNode
 } from "react";
 import { createPortal } from "react-dom";
-import { useUserPrefs } from "./useUserPrefs";
-import { I18nText } from "./I18nTextClient";
+import { I18nText, useRouteLanguage } from "./I18nTextClient";
+import { DEFAULT_LANGUAGE } from "@/lib/language";
 
 type ChatMessage = {
   role: "user" | "assistant";
@@ -114,7 +114,8 @@ export function AiAssistant({
   contextLabel?: ReactNode;
   suggestionGroups?: AssistantSuggestionGroup[];
 }) {
-  const { prefs, hydrated } = useUserPrefs();
+  // 助手回复语言跟随当前 URL 的语言段，而不是本地偏好。
+  const language = useRouteLanguage() ?? DEFAULT_LANGUAGE;
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
@@ -166,7 +167,7 @@ export function AiAssistant({
         body: JSON.stringify({
           message,
           context,
-          language: hydrated ? prefs.language : "zh"
+          language
         })
       });
       const data = await response.json().catch(() => ({}));
@@ -200,13 +201,13 @@ export function AiAssistant({
   return createPortal(
     <aside
       className={`ai-assistant-dock ready${open ? " open" : ""}`}
-      aria-label={hydrated && prefs.language === "en" ? "AI Assistant" : "AI 助手"}
+      aria-label={language === "en" ? "AI Assistant" : "AI 助手"}
     >
       <button
         className="ai-assistant-launcher"
         type="button"
         aria-expanded={open}
-        aria-label={hydrated && prefs.language === "en" ? "Open AI assistant" : "打开 AI 助手"}
+        aria-label={language === "en" ? "Open AI assistant" : "打开 AI 助手"}
         aria-controls="ai-assistant-panel"
         onClick={() => setOpen((current) => !current)}
       >
@@ -226,7 +227,7 @@ export function AiAssistant({
             <button
               type="button"
               className="ai-assistant-icon-button"
-              aria-label={hydrated && prefs.language === "en" ? "Close assistant" : "关闭助手"}
+              aria-label={language === "en" ? "Close assistant" : "关闭助手"}
               onClick={() => setOpen(false)}
             >
               ×
@@ -282,15 +283,15 @@ export function AiAssistant({
             value={input}
             onChange={(event) => setInput(event.target.value)}
             onKeyDown={handleInputKeyDown}
-            placeholder={hydrated && prefs.language === "en" ? "Tell me what you want to know. Shift + Enter for a new line." : "写下你想了解的内容，Shift + Enter 换行"}
-            aria-label={hydrated && prefs.language === "en" ? "AI Assistant Input" : "AI 助手输入"}
+            placeholder={language === "en" ? "Tell me what you want to know. Shift + Enter for a new line." : "写下你想了解的内容，Shift + Enter 换行"}
+            aria-label={language === "en" ? "AI Assistant Input" : "AI 助手输入"}
             rows={3}
             maxLength={4000}
             enterKeyHint="send"
           />
           <div className="assistant-input-footer">
             <span><I18nText zh="内容由 AI 生成，仅供参考。" en="AI-generated content is for reference only." /></span>
-            <button className="button" type="submit" disabled={loading || !input.trim()} aria-busy={loading} aria-label={hydrated && prefs.language === "en" ? "Send" : "发送"}>
+            <button className="button" type="submit" disabled={loading || !input.trim()} aria-busy={loading} aria-label={language === "en" ? "Send" : "发送"}>
               <span aria-hidden="true">↑</span>
             </button>
           </div>

@@ -85,26 +85,44 @@ describe("request mutation security", () => {
   });
 
   test("allows the browser-visible Host when Next canonicalizes Request.url", () => {
-    const request = new Request("http://localhost:3000/api/admin/login", {
-      method: "POST",
-      headers: {
-        Host: "203.0.113.10:3000",
-        Origin: "http://203.0.113.10:3000",
-        "Sec-Fetch-Site": "same-origin"
-      }
-    });
-    assert.equal(isSameOriginMutation(request), true);
+    // 这条用例的前提是「没有可信反代」：此时 Host 派生的源只有在 Fetch Metadata
+    // 明确说同源时才被接受。必须显式固定 TRUST_PROXY_HOPS 与 PUBLIC_URL——
+    // @prisma/client 在 import 时会自动加载项目 .env，开发者本机若配了
+    // TRUST_PROXY_HOPS=1，forwardedOrigin 就会把 Host 派生源直接放进白名单，
+    // 这条用例便会以「同站请求也被放行」的形式假失败。
+    const previousPublicUrl = process.env.PUBLIC_URL;
+    const previousLegacyUrl = process.env.NEXT_PUBLIC_SITE_URL;
+    const previousTrustedProxyHops = process.env.TRUST_PROXY_HOPS;
+    try {
+      delete mutableEnv.PUBLIC_URL;
+      delete mutableEnv.NEXT_PUBLIC_SITE_URL;
+      process.env.TRUST_PROXY_HOPS = "0";
 
-    for (const site of ["same-site", "cross-site", "none"]) {
-      const forged = new Request("http://localhost:3000/api/admin/login", {
+      const request = new Request("http://localhost:3000/api/admin/login", {
         method: "POST",
         headers: {
           Host: "203.0.113.10:3000",
           Origin: "http://203.0.113.10:3000",
-          "Sec-Fetch-Site": site
+          "Sec-Fetch-Site": "same-origin"
         }
       });
-      assert.equal(isSameOriginMutation(forged), false, site);
+      assert.equal(isSameOriginMutation(request), true);
+
+      for (const site of ["same-site", "cross-site", "none"]) {
+        const forged = new Request("http://localhost:3000/api/admin/login", {
+          method: "POST",
+          headers: {
+            Host: "203.0.113.10:3000",
+            Origin: "http://203.0.113.10:3000",
+            "Sec-Fetch-Site": site
+          }
+        });
+        assert.equal(isSameOriginMutation(forged), false, site);
+      }
+    } finally {
+      restoreEnv("PUBLIC_URL", previousPublicUrl);
+      restoreEnv("NEXT_PUBLIC_SITE_URL", previousLegacyUrl);
+      restoreEnv("TRUST_PROXY_HOPS", previousTrustedProxyHops);
     }
   });
 
