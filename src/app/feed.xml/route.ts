@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getCachedSiteChromeSettings } from "@/lib/site-settings-cache";
 import { absoluteSiteUrl } from "@/lib/site-url";
+import { DEFAULT_LANGUAGE, withLanguagePrefix } from "@/lib/language";
 
 export const revalidate = 900;
 export const dynamic = "force-dynamic";
@@ -19,7 +20,9 @@ export async function GET() {
 
   const title = settings?.name || "ShiBei";
   const description = settings?.description || "抓取、整理、发布信息";
-  const siteUrl = absoluteSiteUrl("/");
+  // RSS 是单语种的：给出默认语种的绝对 URL。若继续用无前缀路径，
+  // 每个订阅者点开都要多吃一次 307 语言协商重定向，且落地语种不确定。
+  const siteUrl = absoluteSiteUrl(withLanguagePrefix(DEFAULT_LANGUAGE, "/"));
   const latestDate = posts[0]?.publishedAt || posts[0]?.updatedAt || new Date();
   const xml = [
     '<?xml version="1.0" encoding="UTF-8"?>',
@@ -32,7 +35,7 @@ export async function GET() {
     `<lastBuildDate>${latestDate.toUTCString()}</lastBuildDate>`,
     `<atom:link href="${escapeXml(absoluteSiteUrl("/feed.xml"))}" rel="self" type="application/rss+xml" />`,
     ...posts.map((post) => {
-      const url = absoluteSiteUrl(`/posts/${post.slug}`);
+      const url = absoluteSiteUrl(withLanguagePrefix(DEFAULT_LANGUAGE, `/posts/${post.slug}`));
       const date = post.publishedAt || post.updatedAt;
       return [
         "<item>",
