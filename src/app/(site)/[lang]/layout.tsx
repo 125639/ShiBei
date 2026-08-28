@@ -21,13 +21,16 @@ import { DEFAULT_DENSITY, DEFAULT_FONT, DEFAULT_THEME } from "@/lib/themes";
 import { getCachedSiteChromeSettings } from "@/lib/site-settings-cache";
 import { siteOrigin } from "@/lib/site-url";
 
-// 两个语种都是编译期已知的，预渲染出来即可；未知语言段走 notFound()，
-// 否则 /favicon.ico 之类的意外段会被当成语言渲染出一整个站点。
+// 两个语种都是编译期已知的，预渲染出来即可。
+//
+// 刻意**不**设 dynamicParams = false：单段路径（/favicon.ico、
+// /apple-touch-icon.png 等浏览器默认请求）会被 [lang] 捕获成 lang="favicon.ico"，
+// 而 dynamicParams=false 下 Next 对未预渲染的参数抛 Internal: NoFallbackError
+// 而不是走 404。下面 layout 里的 isLanguageKey 守卫会用 notFound() 干净地
+// 处理这些值，代价只是给垃圾路径多一次按需渲染。
 export function generateStaticParams(): Array<{ lang: LanguageKey }> {
   return SUPPORTED_LANGUAGES.map((lang) => ({ lang }));
 }
-
-export const dynamicParams = false;
 
 export const viewport: Viewport = {
   width: "device-width",
