@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { languageRedirectLocation } from "../src/proxy";
 import { redirectTo } from "../src/lib/redirect";
 import {
   absoluteSiteUrl,
@@ -314,4 +315,59 @@ test("trusted forwarded origin falls back to Host when X-Forwarded-Host is absen
     restoreEnv("NEXT_PUBLIC_SITE_URL", previousLegacyUrl);
     restoreEnv("TRUST_PROXY_HOPS", previousTrustedProxyHops);
   }
+});
+
+test("language redirects target the visitor-facing origin, never the internal one", () => {
+  // 这条用例锁定一个只在反代/隧道后面才会暴露的 bug：中间件若用
+  // request.nextUrl 直接拼 Location，访客会被 307 到 http://127.0.0.1:PORT，
+  // 也就是他自己的本机。本地直连时测不出来，因为那时两者恰好相同。
+  const previousPublicUrl = process.env.PUBLIC_URL;
+  const previousTrustedProxyHops = process.env.TRUST_PROXY_HOPS;
+  try {
+    process.env.PUBLIC_URL = "http://localhost:8884";
+    process.env.TRUST_PROXY_HOPS = "1";
+
+    const throughTunnel = {
+      url: "http://127.0.0.1:8884/posts",
+      headers: new Headers({
+        host: "blog.example.com",
+        "x-forwarded-proto": "https",
+        "accept-language": "zh-CN,zh;q=0.9"
+      })
+    };
+    assert.equal(
+      languageRedirectLocation(throughTunnel, "/posts", ""),
+      "https://blog.example.com/zh/posts"
+    );
+    // 查询串必须保留，否则 /posts?topic=x 重定向后丢掉筛选条件
+    assert.equal(
+      languageRedirectLocation(throughTunnel, "/posts", "?topic=tech&q=ai"),
+      "https://blog.example.com/zh/posts?topic=tech&q=ai"
+    );
+    // Accept-Language 决定落地语种
+    assert.equal(
+      languageRedirectLocation(
+        { url: "http://127.0.0.1:8884/", headers: new Headers({ host: "blog.example.com", "x-forwarded-proto": "https", "accept-language": "en-US,en;q=0.9" }) },
+        "/",
+        ""
+      ),
+      "https://blog.example.com/en"
+    );
+  } finally {
+    restoreEnv("PUBLIC_URL", previousPublicUrl);
+    restoreEnv("TRUST_PROXY_HOPS", previousTrustedProxyHops);
+  }
+});
+
+test("language redirects skip paths that have no language version", () => {
+  const req = { url: "http://127.0.0.1:8884/x", headers: new Headers({ "accept-language": "zh-CN" }) };
+  for (const p of ["/admin", "/admin/login", "/api/public/visit", "/uploads/image/a.png", "/feed.xml", "/robots.txt", "/sitemap.xml"]) {
+    assert.equal(languageRedirectLocation(req, p, ""), null, `应豁免: ${p}`);
+  }
+  // 带扩展名的根级静态文件（浏览器默认请求 favicon 等）
+  assert.equal(languageRedirectLocation(req, "/favicon.ico", ""), null);
+  assert.equal(languageRedirectLocation(req, "/firefly-banner.svg", ""), null);
+  // 已带语言段的不再重定向（否则会无限循环）
+  assert.equal(languageRedirectLocation(req, "/zh/posts", ""), null);
+  assert.equal(languageRedirectLocation(req, "/en", ""), null);
 });

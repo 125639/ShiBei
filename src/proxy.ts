@@ -44,6 +44,30 @@ function buildRedirectUrl(request: NextRequest, path: string): URL {
   return url;
 }
 
+/**
+ * 公开路径缺少语言段时，返回应重定向到的 Location；无需重定向返回 null。
+ *
+ * 独立成纯函数是为了可测：这里最容易犯的错是用 request.nextUrl 直接拼
+ * Location。在反代/隧道后面 nextUrl 是内网地址（http://127.0.0.1:PORT），
+ * 那样会把访客甩到他自己的本机上，而本地开发完全测不出来——nextUrl 在直连
+ * 场景恰好就是对外地址。必须走 requestSiteOrigin 还原访客实际访问的源。
+ *
+ * 拿不到可信源时返回相对 Location，由浏览器按当前源解析，绝不回落到内网地址。
+ */
+export function languageRedirectLocation(
+  request: Pick<Request, "url" | "headers">,
+  pathname: string,
+  search: string
+): string | null {
+  if (isLanguageExemptPath(pathname) || looksLikeStaticFile(pathname) || languageFromPath(pathname)) {
+    return null;
+  }
+  const language = negotiateLanguage(request.headers.get("accept-language"));
+  const localized = `${withLanguagePrefix(language, pathname)}${search}`;
+  const origin = requestSiteOrigin(request);
+  return origin ? `${origin}${localized}` : localized;
+}
+
 export function proxy(request: NextRequest) {
   const mode = getAppMode();
   const { pathname } = request.nextUrl;
@@ -81,17 +105,14 @@ export function proxy(request: NextRequest) {
   // 前缀路径。目标语言按 Accept-Language 协商，所以这是**内容协商**的结果：
   // 必须用 307（临时）并声明 Vary，不能用 308，否则浏览器/CDN 会把某一个
   // 访客协商出的语言永久缓存给所有人。
-  if (
-    !isLanguageExemptPath(pathname) &&
-    !looksLikeStaticFile(pathname) &&
-    !languageFromPath(pathname)
-  ) {
-    const language = negotiateLanguage(request.headers.get("accept-language"));
-    const url = request.nextUrl.clone();
-    url.pathname = withLanguagePrefix(language, pathname);
-    const redirect = NextResponse.redirect(url, 307);
-    redirect.headers.set("Vary", "Accept-Language");
-    return redirect;
+  const location = languageRedirectLocation(request, pathname, request.nextUrl.search);
+  if (location) {
+    // 用裸 Location 而不是 NextResponse.redirect(URL)：后者要求绝对 URL，
+    // 拿不到可信源时就没法回落到相对地址（与 lib/redirect.ts 同口径）。
+    return new NextResponse(null, {
+      status: 307,
+      headers: { Location: location, Vary: "Accept-Language" }
+    });
   }
 
   return NextResponse.next();
