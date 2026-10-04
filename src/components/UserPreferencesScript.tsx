@@ -38,10 +38,11 @@ export function UserPreferencesScript({
     var theme = localStorage.getItem(k.theme);
     if (!theme) {
       theme = def.theme;
-      // 首次访问且管理员默认是亮色主题时，跟随系统深色模式，避免夜间刺眼
-      var darkThemes = ['dark', 'midnight'];
+      // 首次访问且管理员默认是亮色主题时，跟随系统深色模式，避免夜间刺眼。
+      // 回退到 panel（与后台同源的深蓝面板色系），品牌一致；dark/midnight 仍可手动选。
+      var darkThemes = ['panel', 'dark', 'midnight'];
       if (darkThemes.indexOf(theme) === -1 && window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) {
-        theme = 'dark';
+        theme = 'panel';
       }
     }
     var font = localStorage.getItem(k.font) || def.font;
@@ -55,6 +56,8 @@ export function UserPreferencesScript({
     doc.setAttribute('data-font', font);
     doc.setAttribute('data-density', density);
     doc.setAttribute('data-ui', ui);
+    // Respect a saved animation pause before the first paint (public UI only).
+    doc.setAttribute('data-site-motion', localStorage.getItem('shibei.motion') === 'paused' ? 'paused' : 'running');
     doc.style.setProperty('--toc-accent', /^#[0-9a-f]{6}$/i.test(tocAccent || '') ? tocAccent : ${JSON.stringify(DEFAULT_TOC_ACCENT)});
 
     // 快速美化（色相/壁纸/布局/横幅）：与 lib/quick-style.ts 的 applyQuickStyle 一致

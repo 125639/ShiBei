@@ -214,13 +214,13 @@ try {
 
   await submitForm("/api/admin/model-configs", [
     ["provider", "custom"], ["name", `${marker} 模型`], ["baseUrl", "https://example.com/v1"],
-    ["model", "audit-model"], ["apiKey", "sk-audit-placeholder-secret"], ["temperature", "0.2"], ["maxTokens", "4096"],
+    ["model", "audit-model"], ["apiKey", "audit-placeholder-not-a-real-api-key"], ["temperature", "0.2"], ["maxTokens", "4096"],
     ["_enabledPresented", "true"], ["isEnabled", "true"]
   ]);
   let model = await prisma.modelConfig.findFirst({ where: { name: `${marker} 模型` } });
   assert.ok(model);
   created.modelId = model.id;
-  assert.notEqual(model.apiKeyEnc, "sk-audit-placeholder-secret");
+  assert.notEqual(model.apiKeyEnc, "audit-placeholder-not-a-real-api-key");
   await submitForm(`/api/admin/model-configs/${model.id}`, [
     ["_intent", "update"], ["provider", "custom"], ["name", `${marker} 已编辑模型`],
     ["baseUrl", "https://example.com/v1"], ["model", "audit-model-v2"], ["apiKey", ""],

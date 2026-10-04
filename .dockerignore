@@ -1,5 +1,8 @@
 node_modules
 .next
+.next-*
+dist
+coverage
 .env*
 !.env.example
 !.env.*.example
@@ -30,3 +33,9 @@ db-*.tar*
 uploads-*.tar*
 *.tgz
 *.zip
+
+# Local plans, test artifacts and legacy private data must not enter images.
+.zcode/
+private-textbooks/
+test-results/
+*.log

@@ -1,5 +1,6 @@
 node_modules
 .next
+.next-preview
 dist
 coverage
 .env*
@@ -34,3 +35,12 @@ uploads-*.tar*
 # 运行期用户上传（生产环境挂 app-uploads 卷；宿主机残留文件不得污染仓库，
 # 否则 web 更新器会因“未提交文件”永久拒绝更新）。
 public/uploads/
+
+# Legacy private textbook data remains private after feature removal.
+private-textbooks/
+
+# Local planning metadata and isolated build artifacts are not project source.
+.zcode/
+.next-*/
+test-results/
+*.log

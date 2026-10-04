@@ -160,7 +160,7 @@ export function LanguageAwarePost({
         )
       : false;
 
-  // 页面头部（apple-article-header）已经展示过标题与摘要，这里默认不再重复；
+  // 页面头部（publication-article-header）已经展示过标题与摘要，这里默认不再重复；
   // 只有双语堆叠模式需要在每个语言块上方各自标出标题，帮助区分两段内容。
   const zhBlock = (showHeading: boolean) => (
     <ArticleBlock

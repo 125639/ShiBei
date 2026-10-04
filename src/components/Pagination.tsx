@@ -1,4 +1,4 @@
-import Link from "next/link";
+import { LocalizedLink as Link } from "@/components/LocalizedLink";
 import { I18nText } from "@/components/I18nText";
 
 type PaginationParams = Record<string, string | number | null | undefined>;
@@ -22,7 +22,7 @@ export function Pagination({
   return (
     <nav className="pagination-row" aria-label="分页 Pagination">
       {current > 1 ? (
-        <Link className="button secondary" rel="prev" href={buildHref(basePath, params, current - 1)}>{prevLabel}</Link>
+        <Link prefetch={basePath.startsWith("/admin") ? false : undefined} className="button secondary" rel="prev" href={buildHref(basePath, params, current - 1)}>{prevLabel}</Link>
       ) : (
         <span className="button secondary disabled" aria-disabled="true" aria-hidden="true">{prevLabel}</span>
       )}
@@ -30,7 +30,7 @@ export function Pagination({
         <I18nText zh={`第 ${current} / ${totalPages} 页`} en={`Page ${current} of ${totalPages}`} />
       </span>
       {current < totalPages ? (
-        <Link className="button secondary" rel="next" href={buildHref(basePath, params, current + 1)}>{nextLabel}</Link>
+        <Link prefetch={basePath.startsWith("/admin") ? false : undefined} className="button secondary" rel="next" href={buildHref(basePath, params, current + 1)}>{nextLabel}</Link>
       ) : (
         <span className="button secondary disabled" aria-disabled="true" aria-hidden="true">{nextLabel}</span>
       )}

@@ -1,6 +1,7 @@
-import { Marked } from "marked";
+import { Marked, Renderer } from "marked";
 import type { Tokens } from "marked";
 import DOMPurify from "isomorphic-dompurify";
+import katex from "katex";
 import { escapeHtml, hostFromUrl as hostFromUrlOrNull } from "./html";
 import {
   EMBED_IFRAME_SANDBOX,
@@ -40,6 +41,12 @@ function slugifyHeading(raw: string): string {
 
 marked.use({
   renderer: {
+    image(token: Tokens.Image): string {
+      // Image alt is an attribute, not a rich-text surface. Never render math into it.
+      const renderer = new Renderer();
+      renderer.parser = this.parser;
+      return renderer.image({ ...token, tokens: [{ type: "text", raw: token.text, text: token.text }] });
+    },
     heading(token: Tokens.Heading): string {
       const inner = this.parser.parseInline(token.tokens);
       if (token.depth > 4) return `<h${token.depth}>${inner}</h${token.depth}>\n`;
@@ -340,6 +347,51 @@ const SHARED_SANITIZE_OPTIONS = {
   FORBID_ATTR: ["onerror", "onload", "onclick", "onmouseover", "onfocus"],
 };
 
+// 数学由 Marked 词法器识别；code/codespan、链接地址和 HTML 属性不会进入
+// 公式 renderer。renderer 仅产生本次调用的占位，DOMPurify 后再回填可信 KaTeX。
+type MathSlot = { token: string; html: string };
+let mathSlots: MathSlot[] = [];
+let mathMarker = "";
+
+marked.use({
+  extensions: [{
+    name: "learningMathBlock",
+    level: "block",
+    start(src) { return src.indexOf("$$"); },
+    tokenizer(src) {
+      const match = /^ {0,3}\$\$([^]*?)\$\$(?:[ \t]*\n|$)/.exec(src);
+      if (!match || !match[1].trim()) return;
+      // Share the trusted renderer with inline math, while allowing blank lines.
+      return { type: "learningMath", raw: match[0], tex: match[1], displayMode: true };
+    }
+  }, {
+    name: "learningMath",
+    level: "inline",
+    start(src) { return src.indexOf("$"); },
+    tokenizer(src) {
+      if (this.lexer.state.inRawBlock) return;
+      const display = /^\$\$((?:\\[\s\S]|[^$\\]|\$(?!\$))+?)\$\$/.exec(src);
+      const inline = /^\$(?![\s$])((?:\\.|[^$\\\n])+?)\$(?!\d)/.exec(src);
+      const match = display || inline;
+      if (!match || !match[1].trim() || (!display && /\s$/.test(match[1]))) return;
+      return { type: "learningMath", raw: match[0], tex: match[1], displayMode: !!display };
+    },
+    renderer(token) {
+      const marker = `${mathMarker}${mathSlots.length}END`;
+      try {
+        const html = katex.renderToString(token.tex, {
+          displayMode: token.displayMode, throwOnError: false, trust: false,
+          strict: "warn", maxExpand: 1000, maxSize: 20
+        });
+        mathSlots.push({ token: marker, html: `<span class="${token.displayMode ? "math-block" : "math-inline"}">${html}</span>` });
+        return `<span data-shibei-math-slot="${marker}">${marker}</span>`;
+      } catch {
+        return escapeHtml(token.raw);
+      }
+    }
+  }]
+});
+
 function sanitizeTrustedVideoFragment(html: string): string {
   let clean = DOMPurify.sanitize(html, {
     ...SHARED_SANITIZE_OPTIONS,
@@ -368,6 +420,9 @@ export function markdownToHtml(markdown: string, opts?: MarkdownOptions): string
   if (!markdown) return "";
 
   headingIdCounts = new Map();
+  mathSlots = [];
+  mathMarker = `SHIBEIMATH${globalThis.crypto.randomUUID().replace(/-/g, "")}SLOT`;
+  while (markdown.includes(mathMarker)) mathMarker += "X";
   const preprocessed = preprocessShortcodes(markdown, opts?.videosById, opts?.hideVideos);
   const rawHtml = marked.parser(preprocessed.tokens) as string;
 
@@ -406,6 +461,13 @@ export function markdownToHtml(markdown: string, opts?: MarkdownOptions): string
     // 替换会把它们展开成匹配文本，损坏播放器 HTML 并泄漏内部占位标记。
     const fragment = sanitizeTrustedVideoFragment(slot.html);
     safeHtml = safeHtml.replace(placeholder, () => fragment);
+  }
+
+  // 数学占位回填：KaTeX 片段是本函数内服务端生成的可信内容，与视频片段同
+  // 一信任级别。只替换完整占位 span，不在属性、转义文本或其他上下文回填。
+  for (const slot of mathSlots) {
+    const placeholder = `<span data-shibei-math-slot="${slot.token}">${slot.token}</span>`;
+    safeHtml = safeHtml.replace(placeholder, () => slot.html);
   }
 
   // 正文图片默认懒加载 + 异步解码，长文首屏不再被图片阻塞。

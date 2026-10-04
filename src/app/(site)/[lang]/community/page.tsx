@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { redirect } from "next/navigation";
 import { LocalizedLink as Link } from "@/components/LocalizedLink";
 import { unstable_cache } from "next/cache";
 import type { CreationDepth, CreationMode } from "@prisma/client";
@@ -7,19 +8,27 @@ import { normalizePage } from "@/lib/pagination";
 import { I18nText } from "@/components/I18nText";
 import { Pagination } from "@/components/Pagination";
 import { RelativeTime } from "@/components/RelativeTime";
-import {
-  CREATION_MODES,
-  isCommunityScoreCurrent,
-  scoredCommunitySummary
-} from "@/lib/creation";
+import { Icon } from "@/components/public/Icons";
+import { setRequestLanguage } from "@/lib/i18n-server";
+import { withLanguagePrefix } from "@/lib/language";
+import { CREATION_MODES, isCommunityScoreCurrent, scoredCommunitySummary } from "@/lib/creation";
 
 export const dynamic = "force-dynamic";
 
-export const metadata: Metadata = {
-  title: "读者社区",
-  description: "读者纯手写或与 AI 访谈共创后主动公开的作品，全部经过按题材标尺的 AI 评分。",
-  alternates: { canonical: "/community" }
-};
+export async function generateMetadata({ params }: { params: Promise<{ lang: string }> }): Promise<Metadata> {
+  const language = setRequestLanguage((await params).lang);
+  return {
+    title: language === "en" ? "Community" : "读者社区",
+    description:
+      language === "en"
+        ? "Stories shared by curious readers, written independently or co-created with AI, scored against genre criteria."
+        : "读者手写或与 AI 访谈共创后主动公开的作品，按题材标尺评分。",
+    alternates: {
+      canonical: withLanguagePrefix(language, "/community"),
+      languages: { "zh-CN": "/zh/community", en: "/en/community", "x-default": "/zh/community" }
+    }
+  };
+}
 
 const PAGE_SIZE = 12;
 
@@ -54,7 +63,11 @@ const getCachedCommunityListData = unstable_cache(
       ...(genreSlug ? { genre: { slug: genreSlug } } : {})
     };
     const [genres, total, works] = await Promise.all([
-      prisma.creationGenre.findMany({ where: { isEnabled: true }, orderBy: { sortOrder: "asc" }, select: { slug: true, name: true } }),
+      prisma.creationGenre.findMany({
+        where: { isEnabled: true },
+        orderBy: { sortOrder: "asc" },
+        select: { slug: true, name: true }
+      }),
       prisma.creativeWork.count({ where }),
       prisma.creativeWork.findMany({
         where,
@@ -98,34 +111,56 @@ const getCachedCommunityListData = unstable_cache(
 );
 
 export default async function CommunityPage({
+  params: routeParams,
   searchParams
 }: {
-  searchParams: Promise<{ page?: string; genre?: string }>;
+  params: Promise<{ lang: string }>;
+  searchParams: Promise<{ page?: string | string[]; genre?: string | string[] }>;
 }) {
+  const language = setRequestLanguage((await routeParams).lang);
   const params = await searchParams;
   // normalizePage 带 10 万页上限：?page=1e15 会让 skip 溢出 int32，Prisma 校验
   // 抛错直接 500（/posts 早已用同一防护，这里此前漏用）。
-  const page = normalizePage(params.page);
-  const genreSlug = params.genre || "";
+  const page = normalizePage(Array.isArray(params.page) ? params.page[0] : params.page);
+  const genreSlug = ((Array.isArray(params.genre) ? params.genre[0] : params.genre) || "")
+    .trim()
+    .slice(0, 200);
 
   const { genres, total, works } = await getCachedCommunityListData(genreSlug, page);
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
+  if (total > 0 && page > totalPages) {
+    const query = new URLSearchParams();
+    if (genreSlug) query.set("genre", genreSlug);
+    if (totalPages > 1) query.set("page", String(totalPages));
+    redirect(withLanguagePrefix(language, `/community${query.size ? `?${query}` : ""}`));
+  }
 
   return (
-    <main className="container bento-page public-list-page community-page">
-      <section className="page-intro bento-card bento-wide">
-        <p className="eyebrow">Community</p>
-        <h1 className="page-title"><I18nText zh="读者社区" en="Community" /></h1>
-        <p className="muted-block">
-          <I18nText
-            zh="这里收录创作者纯手写或与 AI 访谈共创的文章；每篇都按题材标尺评分，并且只由创作者本人决定是否公开。"
-            en="These articles are either written entirely by their creators or co-created through an AI interview. Every piece is scored against its genre rubric and published only by the creator's choice."
-          />
-        </p>
+    <main className="publication-container publication-community">
+      <section className="publication-page-intro" aria-labelledby="community-title">
+        <div>
+          <p className="publication-overline">THE COMMUNITY NOTEBOOK</p>
+          <h1 id="community-title">
+            <I18nText zh="你的想法，也值得被看见。" en="Your perspective belongs here." />
+          </h1>
+          <p>
+            <I18nText
+              zh="手写一篇观察，或与 AI 一起梳理灵感。作品按题材评分，是否公开，由你决定。"
+              en="Write an observation or explore an idea with AI. Works are scored against genre criteria. You decide what to share."
+            />
+          </p>
+        </div>
+        <Link className="publication-button" href="/write">
+          <Icon name="pen" width="17" height="17" />
+          <I18nText zh="开始写作" en="Start writing" />
+        </Link>
       </section>
-
-      <nav className="topic-tabs" aria-label="题材筛选">
-        <Link href="/community" className={genreSlug ? "" : "active"} aria-current={genreSlug ? undefined : "page"}>
+      <nav className="publication-topics" aria-label={language === "en" ? "Filter by genre" : "题材筛选"}>
+        <Link
+          href="/community"
+          className={genreSlug ? "" : "active"}
+          aria-current={genreSlug ? undefined : "page"}
+        >
           <I18nText zh="全部" en="All" />
         </Link>
         {genres.map((genre) => (
@@ -141,35 +176,69 @@ export default async function CommunityPage({
       </nav>
 
       {works.length === 0 ? (
-        <div className="bento-card empty-grid-card">
+        <div className="publication-empty" data-reveal>
+          <Icon name="pen" width="42" height="42" />
+          <h2>
+            <I18nText zh="把第一个灵感，留在这里。" en="Leave a little inspiration here." />
+          </h2>
           <p className="muted-block">
-            <I18nText zh="还没有公开的共创作品。去共创工作室写下第一篇吧。" en="No shared works yet. Be the first in the co-creation studio." />
+            <I18nText
+              zh="还没有公开的共创作品。去共创工作室写下第一篇吧。"
+              en="No shared works yet. Be the first in the co-creation studio."
+            />
           </p>
-          <Link className="button" href="/create"><I18nText zh="去共创" en="Co-create" /></Link>
+          <Link className="publication-button" href="/create">
+            <I18nText zh="去共创" en="Co-create" />
+            <Icon name="arrow" width="17" height="17" />
+          </Link>
         </div>
       ) : (
-        <div className="bento-grid news-bento">
+        <div className="community-story-grid">
           {works.map((work) => {
             const summary = scoredCommunitySummary(work);
             const currentScore = isCommunityScoreCurrent(work) ? work.score : null;
             return (
-              <article key={work.id} className="bento-card linked-card">
+              <article key={work.id} className="community-story-card" data-reveal>
                 <div className="meta-row">
                   <span className="tag">{work.genre.name}</span>
-                  <span className="tag">{CREATION_MODES[work.mode].label}</span>
-                  {currentScore !== null
-                    ? <span className="tag creation-score-pass">AI 评分 {currentScore}</span>
-                    : null}
+                  <span className="tag">
+                    <I18nText
+                      zh={CREATION_MODES[work.mode].label}
+                      en={
+                        { MANUAL: "Handwritten", VOICE_FIRST: "Your words first", AI_FIRST: "AI-assisted" }[
+                          work.mode
+                        ]
+                      }
+                    />
+                  </span>
+                  {currentScore !== null ? (
+                    <span className="tag creation-score-pass">
+                      <I18nText zh="AI 评分" en="AI score" /> {currentScore}
+                    </span>
+                  ) : null}
                 </div>
                 <h2>
-                  <Link className="card-link" href={`/community/${work.slug}`}>{work.title}</Link>
+                  {work.slug ? (
+                    <Link className="community-title-link" href={`/community/${work.slug}`}>
+                      {work.title}
+                    </Link>
+                  ) : (
+                    work.title
+                  )}
                 </h2>
-                {summary ? <p className="muted">{summary}</p> : null}
+                {summary ? <p className="community-story-summary">{summary}</p> : null}
                 <p className="muted creation-byline">
-                  {work.ownerId ? work.ownerName || "注册创作者" : "匿名创作者"}
-                  {work.publishedAt
-                    ? <> ｜ <RelativeTime value={work.publishedAt} /></>
-                    : null}
+                  {work.ownerId ? (
+                    work.ownerName || <I18nText zh="注册创作者" en="Member" />
+                  ) : (
+                    <I18nText zh="匿名创作者" en="Guest writer" />
+                  )}
+                  {work.publishedAt ? (
+                    <>
+                      {" "}
+                      ｜ <RelativeTime value={work.publishedAt} />
+                    </>
+                  ) : null}
                 </p>
               </article>
             );
@@ -177,7 +246,12 @@ export default async function CommunityPage({
         </div>
       )}
 
-      <Pagination basePath="/community" page={page} totalPages={totalPages} params={{ genre: genreSlug || null }} />
+      <Pagination
+        basePath="/community"
+        page={page}
+        totalPages={totalPages}
+        params={{ genre: genreSlug || null }}
+      />
     </main>
   );
 }

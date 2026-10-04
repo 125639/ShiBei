@@ -40,16 +40,52 @@ async function loadGlobalPromptPrefix(): Promise<string> {
   }
 }
 
-function isReasoningModel(model: string): boolean {
+/**
+ * 运行时观测到的「隐藏思维链」模型。有些模型（经网关转发的 DeepSeek V4 等）
+ * 默认开启思考、不回传 reasoning_content，关闭思考的参数在网关层被吞掉，
+ * 但 usage.completion_tokens_details.reasoning_tokens 会如实计入 max_tokens。
+ * 只按模型名判断会漏掉它们：每篇都先在小预算上被截断一次、审校环节全部降级。
+ * 观测到一次后记住，后续请求直接按 reasoning 模型抬预算。
+ */
+const observedReasoningModels = new Set<string>();
+
+export function isReasoningModel(model: string): boolean {
   const m = (model || "").toLowerCase();
   const leaf = m.split("/").at(-1) || m;
   return (
+    observedReasoningModels.has(m) ||
     m.includes("kimi-k2") ||
     m.includes("deepseek-r1") ||
     m.includes("deepseek-reasoner") ||
+    // DeepSeek V3.1+/V4 是「可思考」混合模型；多数网关默认开着思考且关不掉，
+    // 推理 token 照样占用 max_tokens（实测 hub.linux.do 的 deepseek-v4-flash）。
+    /deepseek-v(?:3\.[1-9]|[4-9])/.test(m) ||
     /^(?:o1|o3|o4)(?:$|[-_.])/.test(leaf) ||
     m.includes("reasoning")
   );
+}
+
+/**
+ * 从一次响应里识别隐藏推理：reasoning_tokens>0 或带非空 reasoning_content。
+ * 返回是否新增了观测记录（供测试与日志使用）。
+ */
+export function noteObservedReasoningUsage(
+  model: string,
+  usage: unknown,
+  message: unknown
+): boolean {
+  const details = (usage as { completion_tokens_details?: { reasoning_tokens?: unknown } } | undefined)
+    ?.completion_tokens_details;
+  const reasoningTokens = Number(details?.reasoning_tokens);
+  const reasoningContent = (message as { reasoning_content?: unknown } | undefined)?.reasoning_content;
+  const hasHiddenReasoning =
+    (Number.isFinite(reasoningTokens) && reasoningTokens > 0) ||
+    (typeof reasoningContent === "string" && reasoningContent.trim().length > 0);
+  if (!hasHiddenReasoning) return false;
+  const key = (model || "").toLowerCase();
+  if (observedReasoningModels.has(key)) return false;
+  observedReasoningModels.add(key);
+  return true;
 }
 
 /**
@@ -75,10 +111,12 @@ function pickTimeoutMs(modelConfig: { model: string }): number {
  * 文,只能落 fallback 草稿——这正是 ai.ts 早期 reasoning_content 兜底逻辑
  * 出现的根本诱因(见 requestChatCompletionWithKey 内的注释)。
  *
- * 这里给 reasoning 模型抬一个下限,默认 8000(够覆盖思考+一篇长报道);admin
- * 可通过 AI_REASONING_MIN_TOKENS env 调整。普通模型保持 admin 配的原值。
+ * 这里给 reasoning 模型抬一个下限,默认 16000;admin 可通过
+ * AI_REASONING_MIN_TOKENS env 调整。普通模型保持 admin 配的原值。
+ * （原下限 8000 在 deepseek-v4-flash 上不够：长文生成偶发截断，审校环节
+ * 因为要在思考之后复述整篇修订稿，8000 预算下每一篇都被截断而降级跳过。）
  */
-function computeMaxTokens(
+export function computeMaxTokens(
   modelConfig: { model: string; maxTokens: number },
   requestFloor = 0,
   requestCeiling?: number
@@ -88,7 +126,7 @@ function computeMaxTokens(
   const legacyAdjusted = configured === 1600 ? Math.max(configured, requestFloor) : configured;
   const reasoning = isReasoningModel(modelConfig.model);
   const envFloor = Number(process.env.AI_REASONING_MIN_TOKENS);
-  const reasoningFloor = Number.isFinite(envFloor) && envFloor > 0 ? envFloor : 8000;
+  const reasoningFloor = Number.isFinite(envFloor) && envFloor > 0 ? envFloor : 16000;
   const desired = reasoning ? Math.max(legacyAdjusted, reasoningFloor) : legacyAdjusted;
   if (requestCeiling === undefined) return desired;
   // reasoning 请求仍需给隐式推理保留下限，但不允许管理员误填的
@@ -122,6 +160,11 @@ type ChatCompletionOptions = {
   /** Interactive surfaces cap how long one provider may hold an HTTP request. */
   requestTimeoutMs?: number;
 };
+
+/**
+ * 单次请求图像总量上限（base64 字符数）。扫描页识别一次只送一页，
+ * 这里兜底防止调用方误传整本书把请求体和费用放大到不可控。
+ */
 
 /** API、限流、超时、截断或协议响应错误；交给队列按瞬时故障重试。 */
 export class ModelRequestError extends Error {
@@ -1500,7 +1543,6 @@ async function requestChatCompletionWithKey(
     : system;
 
   const cappedMaxTokens = computeMaxTokens(modelConfig, options.minimumOutputTokens, options.maximumOutputTokens);
-  const uncappedMaxTokens = computeMaxTokens(modelConfig, options.minimumOutputTokens);
 
   const attemptOnce = async (maxTokens: number): Promise<string> => {
     const controller = new AbortController();
@@ -1560,7 +1602,9 @@ async function requestChatCompletionWithKey(
           }
           break;
         }
-        const retryable = response.status === 429 || (response.status >= 500 && response.status <= 504);
+        // 429 / 408 / 全部 5xx 视为瞬时故障：Cloudflare 网关的 520–527（如 524 源站超时）
+        // 也属此类，此前只认 500–504，524 被当成永久失败直接把整篇任务判死。
+        const retryable = response.status === 429 || response.status === 408 || (response.status >= 500 && response.status <= 599);
         let body: string;
         try {
           body = await readLimitedModelResponse(response, MODEL_COMPLETION_RESPONSE_LIMIT);
@@ -1599,14 +1643,19 @@ async function requestChatCompletionWithKey(
 
     let data: {
       choices?: Array<{
-        message?: { content?: unknown };
+        message?: { content?: unknown; reasoning_content?: unknown };
         finish_reason?: unknown;
       }>;
+      usage?: unknown;
     };
     try {
       data = JSON.parse(rawBody) as typeof data;
     } catch (error) {
       throw new ModelRequestError("Model returned invalid JSON", { cause: error });
+    }
+    // 先记录隐藏推理再判截断：截断重试时 computeMaxTokens 就能带上 reasoning 下限。
+    if (noteObservedReasoningUsage(modelConfig.model, data.usage, data.choices?.[0]?.message)) {
+      console.warn(`[ai] 模型 ${modelConfig.model} 返回了隐藏推理 token，后续请求按 reasoning 模型抬高 max_tokens 下限`);
     }
     // 严格只取 choices[0].message.content。Reasoning 模型(Kimi-k2.6 /
     // DeepSeek-R1 / o1 / o3 / o4) 会把思考链放进 reasoning_content；之前为
@@ -1639,8 +1688,10 @@ async function requestChatCompletionWithKey(
     // 截断说明本次任务的 max_tokens 上限兜不住这次输出（reasoning 思考链同样
     // 计入配额）。同预算重试注定复现，所以解开任务级上限、按管理员配置的完整
     // 预算再试一次；仍截断才作为不可重试错误上抛。
-    if (error instanceof ModelRequestError && error.truncated && uncappedMaxTokens > cappedMaxTokens) {
-      return attemptOnce(uncappedMaxTokens);
+    // 预算在截断之后重算：首次响应若暴露了隐藏推理，这里已按 reasoning 模型抬下限。
+    if (error instanceof ModelRequestError && error.truncated) {
+      const uncappedMaxTokens = computeMaxTokens(modelConfig, options.minimumOutputTokens);
+      if (uncappedMaxTokens > cappedMaxTokens) return attemptOnce(uncappedMaxTokens);
     }
     throw error;
   }

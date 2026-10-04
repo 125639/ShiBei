@@ -1,0 +1,71 @@
+/* Fast, persistent admin workspace. Public-site appearance is untouched. */
+:root[data-theme][data-ui] .admin-main {
+  animation: none;
+}
+.admin-content-loading {
+  min-height: 45vh;
+}
+.admin-content-loading > p {
+  margin: 0 0 24px;
+  color: var(--muted);
+  font-size: 13px;
+}
+.admin-content-loading .admin-loading-title {
+  max-width: 310px;
+  margin-bottom: 25px;
+}
+.admin-content-loading .admin-loading-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 16px;
+}
+.admin-nav-pending {
+  display: none;
+  flex-shrink: 0;
+  width: 12px;
+  height: 12px;
+  margin-left: auto;
+  border: 1.5px solid currentColor;
+  border-right-color: transparent;
+  border-radius: 50%;
+}
+.admin-nav-pending[data-pending] {
+  display: inline-block;
+  animation: admin-pending-spin 0.65s linear infinite;
+}
+.admin-desktop-nav a:has(.admin-nav-pending[data-pending]),
+.admin-mobile-nav a:has(.admin-nav-pending[data-pending]) {
+  background: var(--surface-soft);
+  color: var(--accent);
+}
+/* Update notifications used to sit over the top-left navigation hit targets. */
+:root[data-theme][data-ui] .update-toast {
+  top: auto;
+  left: auto;
+  right: max(20px, env(safe-area-inset-right));
+  bottom: max(20px, env(safe-area-inset-bottom));
+  max-width: min(360px, calc(100vw - 40px));
+}
+.admin-storage-state {
+  padding-block: 18px;
+  color: var(--muted);
+}
+.admin-storage-state .button {
+  margin-top: 10px;
+}
+@keyframes admin-pending-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@media (max-width: 700px) {
+  .admin-content-loading .admin-loading-grid {
+    grid-template-columns: 1fr;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .admin-nav-pending[data-pending] {
+    animation: none;
+    border-style: dotted;
+  }
+}

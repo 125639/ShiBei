@@ -80,6 +80,7 @@ export type TrustedVideoDownloadTarget = {
   platform: TrustedVideoPlatform;
   url: string;
   allowedHostSuffixes: readonly string[];
+  allowedHttpsPortsByHost?: Readonly<Record<string, readonly number[]>>;
 };
 
 /**
@@ -106,7 +107,10 @@ export function trustedVideoDownloadTarget(rawUrl: string): TrustedVideoDownload
     return {
       platform: "bilibili",
       url: biliUrl,
-      allowedHostSuffixes: PLATFORM_EGRESS_HOSTS.bilibili
+      allowedHostSuffixes: PLATFORM_EGRESS_HOSTS.bilibili,
+      // Bilibili's current MCDN media URLs use TLS on 8082. Do not grant this
+      // port to other Bilibili hosts, other platforms, or arbitrary domains.
+      allowedHttpsPortsByHost: { "mcdn.bilivideo.cn": [8082] }
     };
   }
 

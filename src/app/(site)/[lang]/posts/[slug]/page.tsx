@@ -2,6 +2,8 @@ import { notFound } from "next/navigation";
 import { LocalizedLink as Link } from "@/components/LocalizedLink";
 import type { Metadata } from "next";
 import { ArticleToc } from "@/components/ArticleToc";
+import { ReadingTools } from "@/components/public/ReadingTools";
+import { readingMinutes } from "@/lib/reading-time";
 import { LanguageAwarePost } from "@/components/LanguageAwarePost";
 import { PostComments } from "@/components/PostComments";
 import { AssistantPageContext } from "@/components/AssistantPageContext";
@@ -15,6 +17,7 @@ import { VideoEmbed } from "@/lib/video";
 import { VIDEO_SHORTCODE_RE } from "@/lib/video-display";
 import { markdownToHtml, type VideoForShortcode } from "@/lib/markdown";
 import { stripTitleHeading, summaryDuplicatesContentLead } from "@/lib/post-derive";
+import "katex/dist/katex.min.css";
 
 // ISR：整页缓存 5 分钟，管理端的每次内容变更都会用具体路径调
 // revalidatePublicContent([`/posts/${slug}`]) 精准失效（含批量/图片/视频路由），
@@ -73,7 +76,11 @@ export async function generateMetadata({
   const siteName = settings?.name || "ShiBei";
 
   return {
-    title: `${title} | ${siteName}`,
+    // 只给裸标题：站点名由 [lang]/layout.tsx 的 title.template 统一追加为
+    // 「%s · 站名」。此前这里又拼了一次 `| ${siteName}`，于是文章页标题变成
+    // 「标题 | 站名 · 站名」——浏览器标签与搜索结果里重复，且本页的站名兜底
+    // （"ShiBei"）与布局的兜底（"拾贝 信息博客"）不一致，空设置下更混乱。
+    title,
     description,
     alternates: {
       canonical: url,
@@ -144,6 +151,7 @@ export default async function PostDetailPage({
         contentEn: true,
         sourceUrl: true,
         publishedAt: true,
+        sortOrder: true,
         tags: { select: { id: true, name: true } },
         videos: {
           orderBy: [{ sortOrder: "asc" }, { createdAt: "desc" }],
@@ -172,8 +180,43 @@ export default async function PostDetailPage({
     post.contentEn
   );
   const topicIds = post.topics.map((t) => t.id);
+  // 上一篇/下一篇：与文章列表完全同序（sortOrder asc, publishedAt desc, id asc）。
+  // 「上一篇」= 列表中当前位置前一篇，「下一篇」= 后一篇。
+  // 并列处理：批量发布对整批写入同一个 publishedAt（api/admin/posts/bulk）且
+  // sortOrder 默认 0，(sortOrder, publishedAt) 两键并列是常态——比较分支里
+  // 用 id 作第三唯一键拆先后（严格 lt/gt 自身，无自匹配、无 gte/lte 回环）。
+  const neighbors = post.publishedAt
+    ? Promise.all([
+        prisma.post.findFirst({
+          where: {
+            status: "PUBLISHED",
+            publicationBlockedReason: null,
+            OR: [
+              { sortOrder: { lt: post.sortOrder } },
+              { sortOrder: post.sortOrder, publishedAt: { gt: post.publishedAt } },
+              { sortOrder: post.sortOrder, publishedAt: post.publishedAt, id: { lt: post.id } }
+            ]
+          },
+          orderBy: [{ sortOrder: "desc" }, { publishedAt: "asc" }, { id: "desc" }],
+          select: { slug: true, title: true, titleEn: true }
+        }),
+        prisma.post.findFirst({
+          where: {
+            status: "PUBLISHED",
+            publicationBlockedReason: null,
+            OR: [
+              { sortOrder: { gt: post.sortOrder } },
+              { sortOrder: post.sortOrder, publishedAt: { lt: post.publishedAt } },
+              { sortOrder: post.sortOrder, publishedAt: post.publishedAt, id: { gt: post.id } }
+            ]
+          },
+          orderBy: [{ sortOrder: "asc" }, { publishedAt: "desc" }, { id: "asc" }],
+          select: { slug: true, title: true, titleEn: true }
+        })
+      ])
+    : Promise.resolve([null, null]);
   // 两个后续查询互不依赖（都只依赖上面的 post），并行执行省一个 DB 往返。
-  const [inlineVideos, relatedPosts] = await Promise.all([
+  const [inlineVideos, relatedPosts, [prevPost, nextPost]] = await Promise.all([
     videosEnabled && inlineVideoIds.size
       ? prisma.video.findMany({ where: { id: { in: [...inlineVideoIds] } }, select: ARTICLE_VIDEO_SELECT })
       : [],
@@ -189,7 +232,8 @@ export default async function PostDetailPage({
           take: 3,
           select: { id: true, slug: true, title: true, titleEn: true, summary: true, summaryEn: true, publishedAt: true }
         })
-      : Promise.resolve([])
+      : Promise.resolve([]),
+    neighbors
   ]);
   const articleVideosById = new Map(post.videos.map((video) => [video.id, video]));
   for (const video of inlineVideos) {
@@ -243,10 +287,10 @@ export default async function PostDetailPage({
   const articleJsonLd = {
     "@context": "https://schema.org",
     "@type": "Article",
-    headline: post.title,
-    description: post.summary.slice(0, 180),
+    headline: (wantsEnglish && post.titleEn) || post.title,
+    description: ((wantsEnglish && post.summaryEn) || post.summary).slice(0, 180),
     datePublished: post.publishedAt?.toISOString(),
-    mainEntityOfPage: absoluteSiteUrl(`/posts/${post.slug}`),
+    mainEntityOfPage: absoluteSiteUrl(withLanguagePrefix(language, `/posts/${post.slug}`)),
     ...(post.sourceUrl ? { isBasedOn: post.sourceUrl } : {})
   };
 
@@ -284,13 +328,13 @@ export default async function PostDetailPage({
           `正文：\n${(post.content || "").slice(0, 20000)}`
         ].filter(Boolean).join("\n\n")}
       />
-      <p style={{ marginBottom: 12 }}>
+      <p className="publication-article-back">
         <Link className="text-link" href="/posts">
           ← <I18nText zh="返回文章列表" en="Back to posts" />
         </Link>
       </p>
-      <header className="apple-article-header">
-        <p className="eyebrow-apple">
+      <header className="publication-article-header" data-reveal>
+        <p className="publication-overline">
           {post.tags.length ? post.tags[0].name : <I18nText zh="内容文章" en="Posts" />}
         </p>
         <h1>
@@ -300,7 +344,7 @@ export default async function PostDetailPage({
         {enLead ? <p className="lead i18n-en" lang="en">{enLead}</p> : null}
         <div className="meta-row">
           {post.publishedAt ? (
-            <time dateTime={post.publishedAt.toISOString()}>{post.publishedAt.toLocaleDateString("zh-CN")}</time>
+            <time dateTime={post.publishedAt.toISOString()}>{post.publishedAt.toLocaleDateString(language === "en" ? "en-US" : "zh-CN", { year: "numeric", month: "long", day: "numeric", timeZone: "Asia/Shanghai" })}</time>
           ) : (
             <span><I18nText zh="已发布" en="Published" /></span>
           )}
@@ -314,6 +358,7 @@ export default async function PostDetailPage({
             </a>
           ) : null}
         </div>
+        <ReadingTools key={post.id} minutes={readingMinutes(wantsEnglish && post.contentEn ? post.contentEn : post.content)} />
       </header>
 
       <div className="article-body-grid">
@@ -325,7 +370,7 @@ export default async function PostDetailPage({
             </summary>
             <ArticleToc />
           </details>
-          <article className="prose">
+          <article className="prose" data-reading-content>
             <LanguageAwarePost
               postId={post.id}
               contentLanguageMode={contentLanguageMode}
@@ -346,7 +391,6 @@ export default async function PostDetailPage({
         </div>
         <ArticleToc variant="rail" />
       </div>
-
       <div className="prose article-related-stack">
         {trailingVideos.length ? (
           <section style={{ marginTop: 72 }}>
@@ -385,6 +429,35 @@ export default async function PostDetailPage({
           </section>
         ) : null}
 
+        {prevPost || nextPost ? (
+          <nav className="post-neighbor-nav" aria-label="相邻文章 / Adjacent posts">
+            {prevPost ? (
+              <Link className="post-neighbor-card" href={`/posts/${prevPost.slug}`}>
+                <span className="post-neighbor-label">
+                  ← <I18nText zh="上一篇" en="Previous" />
+                </span>
+                <span className="post-neighbor-title">
+                  <I18nText zh={prevPost.title} en={prevPost.titleEn || prevPost.title} />
+                </span>
+              </Link>
+            ) : (
+              <span className="post-neighbor-card is-empty" aria-hidden="true" />
+            )}
+            {nextPost ? (
+              <Link className="post-neighbor-card is-next" href={`/posts/${nextPost.slug}`}>
+                <span className="post-neighbor-label">
+                  <I18nText zh="下一篇" en="Next" /> →
+                </span>
+                <span className="post-neighbor-title">
+                  <I18nText zh={nextPost.title} en={nextPost.titleEn || nextPost.title} />
+                </span>
+              </Link>
+            ) : (
+              <span className="post-neighbor-card is-empty" aria-hidden="true" />
+            )}
+          </nav>
+        ) : null}
+
         {commentsEnabled ? <PostComments postId={post.id} /> : null}
 
         <p style={{ marginTop: 56 }}>
@@ -395,6 +468,11 @@ export default async function PostDetailPage({
       </div>
     </main>
   );
+}
+
+// 标题这类「单行 + 行内数学」的片段：渲染后剥掉最外层 <p>，保持行内布局。
+function stripInlineWrapper(html: string): string {
+  return html.replace(/^<p>/, "").replace(/<\/p>\s*$/, "");
 }
 
 function getSlugCandidates(slug: string) {

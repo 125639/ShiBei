@@ -1,4 +1,8 @@
-import { I18nText } from "@/components/I18nText";
+"use client";
+
+import { useEffect, useState, type ReactNode } from "react";
+import { I18nText } from "@/components/I18nTextClient";
+import { chartLabelIndexes } from "@/lib/chart-layout";
 import type { StatsBucket, TopicSlice } from "@/lib/stats";
 
 const CHART_COLORS = [
@@ -25,57 +29,57 @@ export function BarChart({
   showAllLabels?: boolean;
   ariaLabel?: string;
 }) {
-  if (!buckets.length) return <p className="muted"><I18nText zh="暂无数据" en="No data yet" /></p>;
+  const [frameRef, width] = useChartWidth();
+  if (!buckets.length)
+    return (
+      <p className="muted">
+        <I18nText zh="暂无数据" en="No data yet" />
+      </p>
+    );
   const padX = 24;
   const padY = 18;
-  const width = 600;
   const innerW = width - padX * 2;
   const innerH = height - padY * 2;
   const max = Math.max(1, ...buckets.map((b) => b.count));
   const niceMax = niceCeil(max);
   const barW = innerW / buckets.length;
-  const labelEvery = showAllLabels ? 1 : Math.max(1, Math.ceil(buckets.length / 8));
+  const labelIndexes = chartLabelIndexes(buckets.length, width, showAllLabels);
 
   return (
-    <svg className="chart-bar" viewBox={`0 0 ${width} ${height}`} role="img" aria-label={ariaLabel}>
-      <desc>{buckets.map((bucket) => `${bucket.label}: ${bucket.count}`).join("；")}</desc>
-      {axisTicks(niceMax).map((v, i) => {
-        const y = padY + innerH * (1 - v / niceMax);
-        return (
-          <g key={i}>
-            <line className="chart-grid-line" x1={padX} x2={width - padX} y1={y} y2={y} />
-            <text x={padX - 6} y={y + 4} textAnchor="end" fontSize="11">
-              {v}
-            </text>
-          </g>
-        );
-      })}
-      {buckets.map((b, i) => {
-        const h = (b.count / niceMax) * innerH;
-        const x = padX + i * barW + 2;
-        const y = padY + innerH - h;
-        return (
-          <g key={i}>
-            <rect
-              className="bar"
-              x={x}
-              y={y}
-              width={Math.max(2, barW - 4)}
-              height={h}
-              fill={color}
-              rx={2}
-            >
-              <title>{`${b.label}: ${b.count}`}</title>
-            </rect>
-            {i % labelEvery === 0 && (
-              <text x={x + (barW - 4) / 2} y={height - 4} textAnchor="middle" fontSize="11">
-                {b.label}
+    <div ref={frameRef} className="chart-frame">
+      <svg className="chart-bar" viewBox={`0 0 ${width} ${height}`} role="img" aria-label={ariaLabel}>
+        <desc>{buckets.map((bucket) => `${bucket.label}: ${bucket.count}`).join("；")}</desc>
+        {axisTicks(niceMax).map((v, i) => {
+          const y = padY + innerH * (1 - v / niceMax);
+          return (
+            <g key={i}>
+              <line className="chart-grid-line" x1={padX} x2={width - padX} y1={y} y2={y} />
+              <text x={padX - 6} y={y + 4} textAnchor="end" fontSize="11">
+                {v}
               </text>
-            )}
-          </g>
-        );
-      })}
-    </svg>
+            </g>
+          );
+        })}
+        {buckets.map((b, i) => {
+          const h = (b.count / niceMax) * innerH;
+          const x = padX + i * barW + 2;
+          const y = padY + innerH - h;
+          return (
+            <g key={i}>
+              <rect className="bar" x={x} y={y} width={Math.max(2, barW - 4)} height={h} fill={color} rx={2}>
+                <title>{`${b.label}: ${b.count}`}</title>
+              </rect>
+              {labelIndexes.has(i) && (
+                <text x={x + (barW - 4) / 2} y={height - 4} textAnchor="middle" fontSize="11">
+                  {b.label}
+                </text>
+              )}
+            </g>
+          );
+        })}
+      </svg>
+      <ChartData buckets={buckets} />
+    </div>
   );
 }
 
@@ -92,10 +96,15 @@ export function LineChart({
   color?: string;
   ariaLabel?: string;
 }) {
-  if (!buckets.length) return <p className="muted"><I18nText zh="暂无数据" en="No data yet" /></p>;
+  const [frameRef, width] = useChartWidth();
+  if (!buckets.length)
+    return (
+      <p className="muted">
+        <I18nText zh="暂无数据" en="No data yet" />
+      </p>
+    );
   const padX = 28;
   const padY = 18;
-  const width = 600;
   const innerW = width - padX * 2;
   const innerH = height - padY * 2;
   const max = Math.max(1, ...buckets.map((b) => b.count));
@@ -109,51 +118,60 @@ export function LineChart({
   });
   const path = points.map((p, i) => `${i === 0 ? "M" : "L"} ${p.x.toFixed(1)} ${p.y.toFixed(1)}`).join(" ");
   const areaPath = `${path} L ${points[points.length - 1].x.toFixed(1)} ${(padY + innerH).toFixed(1)} L ${padX.toFixed(1)} ${(padY + innerH).toFixed(1)} Z`;
-  const labelEvery = Math.max(1, Math.ceil(buckets.length / 8));
+  const labelIndexes = chartLabelIndexes(buckets.length, width);
 
   return (
-    <svg className="chart-line" viewBox={`0 0 ${width} ${height}`} role="img" aria-label={ariaLabel}>
-      <desc>{buckets.map((bucket) => `${bucket.label}: ${bucket.count}`).join("；")}</desc>
-      {axisTicks(niceMax).map((v, i) => {
-        const y = padY + innerH * (1 - v / niceMax);
-        return (
-          <g key={i}>
-            <line className="chart-grid-line" x1={padX} x2={width - padX} y1={y} y2={y} />
-            <text x={padX - 6} y={y + 4} textAnchor="end" fontSize="11">
-              {v}
+    <div ref={frameRef} className="chart-frame">
+      <svg className="chart-line" viewBox={`0 0 ${width} ${height}`} role="img" aria-label={ariaLabel}>
+        <desc>{buckets.map((bucket) => `${bucket.label}: ${bucket.count}`).join("；")}</desc>
+        {axisTicks(niceMax).map((v, i) => {
+          const y = padY + innerH * (1 - v / niceMax);
+          return (
+            <g key={i}>
+              <line className="chart-grid-line" x1={padX} x2={width - padX} y1={y} y2={y} />
+              <text x={padX - 6} y={y + 4} textAnchor="end" fontSize="11">
+                {v}
+              </text>
+            </g>
+          );
+        })}
+        <path d={areaPath} fill={color} opacity={0.18} />
+        <path
+          d={path}
+          fill="none"
+          stroke={color}
+          strokeWidth={2}
+          strokeLinejoin="round"
+          strokeLinecap="round"
+        />
+        {points.map((p, i) => (
+          <circle key={i} cx={p.x} cy={p.y} r={3} fill={color}>
+            <title>{`${p.b.label}: ${p.b.count}`}</title>
+          </circle>
+        ))}
+        {points.map((p, i) =>
+          labelIndexes.has(i) ? (
+            <text key={`l-${i}`} x={p.x} y={height - 4} textAnchor="middle" fontSize="11">
+              {p.b.label}
             </text>
-          </g>
-        );
-      })}
-      <path d={areaPath} fill={color} opacity={0.18} />
-      <path d={path} fill="none" stroke={color} strokeWidth={2} strokeLinejoin="round" strokeLinecap="round" />
-      {points.map((p, i) => (
-        <circle key={i} cx={p.x} cy={p.y} r={3} fill={color}>
-          <title>{`${p.b.label}: ${p.b.count}`}</title>
-        </circle>
-      ))}
-      {points.map((p, i) =>
-        i % labelEvery === 0 ? (
-          <text key={`l-${i}`} x={p.x} y={height - 4} textAnchor="middle" fontSize="11">
-            {p.b.label}
-          </text>
-        ) : null
-      )}
-    </svg>
+          ) : null
+        )}
+      </svg>
+      <ChartData buckets={buckets} />
+    </div>
   );
 }
 
 /* ================= Donut chart ================= */
 
-export function DonutChart({
-  slices,
-  ariaLabel = "环形图"
-}: {
-  slices: TopicSlice[];
-  ariaLabel?: string;
-}) {
+export function DonutChart({ slices, ariaLabel = "环形图" }: { slices: TopicSlice[]; ariaLabel?: string }) {
   const total = slices.reduce((acc, s) => acc + s.count, 0);
-  if (!total) return <p className="muted"><I18nText zh="该时间段内无文章分类数据" en="No topic data in this window" /></p>;
+  if (!total)
+    return (
+      <p className="muted">
+        <I18nText zh="该时间段内无文章分类数据" en="No topic data in this window" />
+      </p>
+    );
 
   const size = 220;
   const radius = 90;
@@ -174,7 +192,9 @@ export function DonutChart({
     <div>
       <svg className="chart-donut" viewBox={`0 0 ${size} ${size}`} role="img" aria-label={ariaLabel}>
         <desc>
-          {arcs.map((arc) => `${arc.name}: ${arc.count}（${((arc.count / total) * 100).toFixed(1)}%）`).join("；")}
+          {arcs
+            .map((arc) => `${arc.name}: ${arc.count}（${((arc.count / total) * 100).toFixed(1)}%）`)
+            .join("；")}
         </desc>
         {arcs.map((a) => (
           <path key={a.id} d={a.path} fill={a.color}>
@@ -185,8 +205,12 @@ export function DonutChart({
           {total}
         </text>
         <text x={cx} y={cy + 16} textAnchor="middle" fontSize="11" fill="var(--muted)">
-          <tspan className="i18n-zh" lang="zh-CN">总条目</tspan>
-          <tspan className="i18n-en" lang="en">Total</tspan>
+          <tspan className="i18n-zh" lang="zh-CN">
+            总条目
+          </tspan>
+          <tspan className="i18n-en" lang="en">
+            Total
+          </tspan>
         </text>
       </svg>
       <div className="chart-legend">
@@ -218,32 +242,39 @@ export function StackedBarChart({
   height?: number;
   primaryColor?: string;
   secondaryColor?: string;
-  primaryLabel?: string;
-  secondaryLabel?: string;
+  primaryLabel?: ReactNode;
+  secondaryLabel?: ReactNode;
   ariaLabel?: string;
 }) {
-  if (!primary.length) return <p className="muted"><I18nText zh="暂无数据" en="No data yet" /></p>;
+  const [frameRef, width] = useChartWidth();
+  if (!primary.length)
+    return (
+      <p className="muted">
+        <I18nText zh="暂无数据" en="No data yet" />
+      </p>
+    );
   // 未显式传标签时，desc/title 等纯字符串场景用中文缺省，可见图例走双语 I18nText。
   const primaryText = primaryLabel ?? "文章";
   const secondaryText = secondaryLabel ?? "视频";
   const padX = 28;
   const padY = 22;
-  const width = 600;
   const innerW = width - padX * 2;
   const innerH = height - padY * 2;
-  const max = Math.max(
-    1,
-    ...primary.map((b, i) => (b.count || 0) + (secondary[i]?.count || 0))
-  );
+  const max = Math.max(1, ...primary.map((b, i) => (b.count || 0) + (secondary[i]?.count || 0)));
   const niceMax = niceCeil(max);
   const barW = innerW / primary.length;
-  const labelEvery = Math.max(1, Math.ceil(primary.length / 8));
+  const labelIndexes = chartLabelIndexes(primary.length, width);
 
   return (
-    <div>
+    <div ref={frameRef} className="chart-frame">
       <svg className="chart-bar" viewBox={`0 0 ${width} ${height}`} role="img" aria-label={ariaLabel}>
         <desc>
-          {primary.map((bucket, index) => `${bucket.label} · ${primaryText}: ${bucket.count}，${secondaryText}: ${secondary[index]?.count || 0}`).join("；")}
+          {primary
+            .map(
+              (bucket, index) =>
+                `${bucket.label} · ${primaryText}: ${bucket.count}，${secondaryText}: ${secondary[index]?.count || 0}`
+            )
+            .join("；")}
         </desc>
         {axisTicks(niceMax).map((v, i) => {
           const y = padY + innerH * (1 - v / niceMax);
@@ -265,27 +296,13 @@ export function StackedBarChart({
           const yV = yP - hV;
           return (
             <g key={i}>
-              <rect
-                x={x}
-                y={yP}
-                width={Math.max(2, barW - 4)}
-                height={hP}
-                fill={primaryColor}
-                rx={2}
-              >
+              <rect x={x} y={yP} width={Math.max(2, barW - 4)} height={hP} fill={primaryColor} rx={2}>
                 <title>{`${b.label} · ${primaryText}: ${b.count}`}</title>
               </rect>
-              <rect
-                x={x}
-                y={yV}
-                width={Math.max(2, barW - 4)}
-                height={hV}
-                fill={secondaryColor}
-                rx={2}
-              >
+              <rect x={x} y={yV} width={Math.max(2, barW - 4)} height={hV} fill={secondaryColor} rx={2}>
                 <title>{`${b.label} · ${secondaryText}: ${v}`}</title>
               </rect>
-              {i % labelEvery === 0 && (
+              {labelIndexes.has(i) && (
                 <text x={x + (barW - 4) / 2} y={height - 4} textAnchor="middle" fontSize="11">
                   {b.label}
                 </text>
@@ -304,6 +321,12 @@ export function StackedBarChart({
           {secondaryLabel ?? <I18nText zh="视频" en="Videos" />}
         </span>
       </div>
+      <ChartData
+        buckets={primary}
+        secondary={secondary}
+        primaryLabel={primaryText}
+        secondaryLabel={secondaryText}
+      />
     </div>
   );
 }
@@ -370,4 +393,61 @@ function donutPath(
     `A ${innerR} ${innerR} 0 ${largeArc} 0 ${x4.toFixed(2)} ${y4.toFixed(2)}`,
     "Z"
   ].join(" ");
+}
+
+function useChartWidth() {
+  const [frame, setFrame] = useState<HTMLDivElement | null>(null);
+  const [width, setWidth] = useState(600);
+  useEffect(() => {
+    if (!frame || typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(([entry]) => {
+      if (entry.contentRect.width > 0) setWidth(Math.max(160, Math.floor(entry.contentRect.width)));
+    });
+    observer.observe(frame);
+    return () => observer.disconnect();
+  }, [frame]);
+  return [setFrame, width] as const;
+}
+
+/** Touch and keyboard users can read every value without hovering tiny bars. */
+function ChartData({
+  buckets,
+  secondary,
+  primaryLabel,
+  secondaryLabel
+}: {
+  buckets: StatsBucket[];
+  secondary?: StatsBucket[];
+  primaryLabel?: ReactNode;
+  secondaryLabel?: ReactNode;
+}) {
+  return (
+    <details className="chart-data">
+      <summary>
+        <I18nText zh="查看详细数据" en="View data" />
+      </summary>
+      <div className="chart-data-scroll" tabIndex={0} role="region" aria-label="图表详细数据 / Chart data">
+        <table>
+          <thead>
+            <tr>
+              <th scope="col">
+                <I18nText zh="时间" en="Time" />
+              </th>
+              <th scope="col">{primaryLabel || <I18nText zh="数量" en="Count" />}</th>
+              {secondary ? <th scope="col">{secondaryLabel}</th> : null}
+            </tr>
+          </thead>
+          <tbody>
+            {buckets.map((bucket, index) => (
+              <tr key={index}>
+                <th scope="row">{bucket.label}</th>
+                <td>{bucket.count}</td>
+                {secondary ? <td>{secondary[index]?.count || 0}</td> : null}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </details>
+  );
 }

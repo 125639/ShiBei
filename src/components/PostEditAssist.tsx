@@ -1,7 +1,7 @@
 "use client";
 
-import { useMemo, useState } from "react";
-import { markdownToHtml } from "@/lib/markdown";
+import { useState } from "react";
+import { useMarkdownHtml } from "./useMarkdownHtml";
 import { I18nText } from "./I18nTextClient";
 
 type RevisionResult = {
@@ -50,7 +50,7 @@ export function PostEditAssist() {
   const [result, setResult] = useState<RevisionResult | null>(null);
   const [snapshot, setSnapshot] = useState<RevisionSnapshot | null>(null);
   const [applied, setApplied] = useState(false);
-  const resultPreviewHtml = useMemo(() => result ? markdownToHtml(result.content) : "", [result]);
+  const resultPreviewHtml = useMarkdownHtml(result?.content ?? null);
 
   async function run(instr: string, sc: Scope) {
     const text = instr.trim();
@@ -144,7 +144,7 @@ export function PostEditAssist() {
         />
       </div>
       <div className="meta-row" style={{ gap: 12, alignItems: "center", flexWrap: "wrap" }}>
-        <label className="meta-row" style={{ gap: 6, alignItems: "center", fontSize: 13 }}>
+        <label className="post-assist-scope">
           <span className="muted"><I18nText zh="调整范围：" en="Scope: " /></span>
           <select value={scope} onChange={(event) => setScope(event.target.value === "full" ? "full" : "content")}>
             <option value="content">仅正文 / Body only</option>
@@ -179,10 +179,11 @@ export function PostEditAssist() {
               <strong><I18nText zh={`排版后预览（${result.content.length} 字符）`} en={`Rendered preview (${result.content.length} chars)`} /></strong>
               <span className="admin-preview-live"><span aria-hidden="true" /> <I18nText zh="尚未应用" en="Not applied" /></span>
             </div>
-            <div
-              className="admin-assist-preview prose"
-              dangerouslySetInnerHTML={{ __html: resultPreviewHtml }}
-            />
+            <div className="admin-assist-preview prose" aria-busy={resultPreviewHtml === null}>
+              {resultPreviewHtml === null
+                ? <p className="muted" role="status"><I18nText zh="正在准备预览…" en="Preparing preview…" /></p>
+                : <div dangerouslySetInnerHTML={{ __html: resultPreviewHtml }} />}
+            </div>
             <details className="admin-assist-source">
               <summary><I18nText zh="查看模型返回的 Markdown 源码" en="View returned Markdown source" /></summary>
               <textarea id="post-assist-preview" readOnly value={result.content} rows={12} />

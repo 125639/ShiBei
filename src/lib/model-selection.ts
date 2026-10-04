@@ -16,7 +16,7 @@ const MODEL_FIELD_BY_USE: Record<ModelUse, keyof SiteModelFields> = {
   translation: "translationModelConfigId"
 };
 
-export function buildModelFallbackChain<T extends { id: string }>(
+export function buildModelFallbackChain<T extends { id: string; provider?: string; model?: string }>(
   configs: T[],
   primaryId: string
 ): (T & { fallbackConfigs: T[] }) | null {
@@ -42,7 +42,16 @@ export async function getModelConfigForUse(use: ModelUse) {
       orderBy: [{ isDefault: "desc" }, { updatedAt: "desc" }, { id: "asc" }]
     })
   ]);
-  const site = settings as SiteModelFields | null;
+  return selectModelConfigForUse(use, settings, configs);
+}
+
+/** Resolve ordered connections without coupling routing-policy tests to Prisma. */
+export function selectModelConfigForUse<T extends { id: string; provider?: string; model?: string; isEnabled?: boolean }>(
+  use: ModelUse,
+  site: SiteModelFields | null,
+  configs: T[]
+): (T & { fallbackConfigs: T[] }) | null {
+  configs = configs.filter((config) => config.isEnabled !== false);
   const configuredId = site?.[MODEL_FIELD_BY_USE[use]];
   let primary = configuredId ? configs.find((config) => config.id === configuredId) : null;
 

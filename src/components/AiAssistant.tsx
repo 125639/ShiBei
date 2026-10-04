@@ -12,6 +12,7 @@ import {
 import { createPortal } from "react-dom";
 import { I18nText, useRouteLanguage } from "./I18nTextClient";
 import { DEFAULT_LANGUAGE } from "@/lib/language";
+import { closeOnBackdrop, useResponsiveDialog } from "./mobile/useResponsiveDialog";
 
 type ChatMessage = {
   role: "user" | "assistant";
@@ -50,13 +51,19 @@ function renderInlineMarkdown(text: string) {
 }
 
 function AssistantMessageContent({ content }: { content: string }) {
-  const blocks = content.trim().split(/\n{2,}/).filter(Boolean);
+  const blocks = content
+    .trim()
+    .split(/\n{2,}/)
+    .filter(Boolean);
   if (!blocks.length) return null;
 
   return (
     <div className="assistant-message-content">
       {blocks.map((block, blockIndex) => {
-        const lines = block.split(/\n/).map((line) => line.trim()).filter(Boolean);
+        const lines = block
+          .split(/\n/)
+          .map((line) => line.trim())
+          .filter(Boolean);
         const isList = lines.length > 1 && lines.every((line) => /^[-*]\s+/.test(line));
         if (isList) {
           return (
@@ -85,19 +92,11 @@ function AssistantMessageContent({ content }: { content: string }) {
 const DEFAULT_SUGGESTION_GROUPS: AssistantSuggestionGroup[] = [
   {
     title: <I18nText zh="近期热点" en="Quick Reads" />,
-    prompts: [
-      "帮我概括这一页的重点",
-      "这里有哪些值得继续追问的问题？",
-      "用更通俗的话解释给我听"
-    ]
+    prompts: ["帮我概括这一页的重点", "这里有哪些值得继续追问的问题？", "用更通俗的话解释给我听"]
   },
   {
     title: <I18nText zh="推荐解决方案" en="Useful Angles" />,
-    prompts: [
-      "列出事实、观点和不确定信息",
-      "这件事可能带来什么影响？",
-      "帮我拟一个评论角度"
-    ]
+    prompts: ["列出事实、观点和不确定信息", "这件事可能带来什么影响？", "帮我拟一个评论角度"]
   }
 ];
 
@@ -107,10 +106,12 @@ const getServerReady = () => false;
 
 export function AiAssistant({
   context,
+  launcherTargetId,
   contextLabel = <I18nText zh="当前页面" en="Current Page" />,
   suggestionGroups = DEFAULT_SUGGESTION_GROUPS
 }: {
   context: string;
+  launcherTargetId?: string;
   contextLabel?: ReactNode;
   suggestionGroups?: AssistantSuggestionGroup[];
 }) {
@@ -123,6 +124,9 @@ export function AiAssistant({
   const [open, setOpen] = useState(false);
   const ready = useSyncExternalStore(subscribeToHydration, getClientReady, getServerReady);
   const logRef = useRef<HTMLDivElement | null>(null);
+  const dialogRef = useRef<HTMLDialogElement | null>(null);
+  const launcherRef = useRef<HTMLButtonElement | null>(null);
+  useResponsiveDialog(open, dialogRef, () => setOpen(false), "mobile", launcherRef);
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
   const mountedRef = useRef(true);
 
@@ -143,7 +147,9 @@ export function AiAssistant({
   // 打开面板：聚焦输入框；Esc 随时可关闭。
   useEffect(() => {
     if (!open) return;
-    inputRef.current?.focus();
+    // Mobile opens to the conversation, not straight into an on-screen keyboard.
+    if (window.matchMedia("(hover: hover) and (pointer: fine)").matches)
+      inputRef.current?.focus({ preventScroll: true });
     const onKeyDown = (event: globalThis.KeyboardEvent) => {
       if (event.key === "Escape") setOpen(false);
     };
@@ -187,7 +193,11 @@ export function AiAssistant({
   }
 
   function handleInputKeyDown(event: KeyboardEvent<HTMLTextAreaElement>) {
+    if (event.nativeEvent.isComposing || event.nativeEvent.keyCode === 229) return;
     if (event.key !== "Enter" || event.shiftKey) return;
+    // A phone keyboard's Return key inserts a line break; the explicit send
+    // button (or Ctrl/Command+Enter) sends. Never send an unfinished IME phrase.
+    if (window.matchMedia("(pointer: coarse)").matches && !event.ctrlKey && !event.metaKey) return;
     event.preventDefault();
     void sendMessage(input);
   }
@@ -198,12 +208,10 @@ export function AiAssistant({
   // 最底部（2026-07-07 线上实际发生）。挂到 body 后与任何动画容器解耦。
   if (!ready) return null;
 
-  return createPortal(
-    <aside
-      className={`ai-assistant-dock ready${open ? " open" : ""}`}
-      aria-label={language === "en" ? "AI Assistant" : "AI 助手"}
-    >
+  const launcherTarget = launcherTargetId ? document.getElementById(launcherTargetId) : null;
+  const launcher = (
       <button
+        ref={launcherRef}
         className="ai-assistant-launcher"
         type="button"
         aria-expanded={open}
@@ -211,22 +219,43 @@ export function AiAssistant({
         aria-controls="ai-assistant-panel"
         onClick={() => setOpen((current) => !current)}
       >
-        <span className="ai-assistant-launcher-badge" aria-hidden>AI</span>
-        <strong><I18nText zh="助手" en="Assistant" /></strong>
+        <span className="ai-assistant-launcher-badge" aria-hidden>
+          AI
+        </span>
+        <strong>
+          <I18nText zh="助手" en="Assistant" />
+        </strong>
       </button>
+  );
 
-      {/* inert：面板视觉隐藏时同时移出焦点链与无障碍树，防止 Tab 进入不可见区域 */}
-      <section className="ai-assistant-panel" id="ai-assistant-panel" inert={!open}>
+  return createPortal(
+    <aside
+      className={`ai-assistant-dock ready${open ? " open" : ""}`}
+      aria-label={language === "en" ? "AI Assistant" : "AI 助手"}
+    >
+      {launcherTarget ? createPortal(launcher, launcherTarget) : launcher}
+
+      {/* A native dialog keeps keyboard focus and backdrop taps inside the phone sheet. */}
+      <dialog
+        ref={dialogRef}
+        className="ai-assistant-panel"
+        id="ai-assistant-panel"
+        aria-labelledby="assistant-title"
+        onClick={(event) => closeOnBackdrop(event, () => setOpen(false))}
+      >
         <div className="ai-assistant-topbar">
           <div>
             <p className="eyebrow">AI Assistant</p>
-            <h2><I18nText zh="拾贝 AI 助手" en="ShiBei AI Assistant" /></h2>
+            <h2 id="assistant-title">
+              <I18nText zh="拾贝 AI 助手" en="ShiBei AI Assistant" />
+            </h2>
           </div>
           <div className="ai-assistant-window-actions">
             <span className="tag">{contextLabel}</span>
             <button
               type="button"
               className="ai-assistant-icon-button"
+              data-dialog-initial-focus
               aria-label={language === "en" ? "Close assistant" : "关闭助手"}
               onClick={() => setOpen(false)}
             >
@@ -238,10 +267,14 @@ export function AiAssistant({
         <div className="assistant-chat-log" ref={logRef} role="log" aria-live="polite">
           {messages.length === 0 ? (
             <div className="assistant-welcome">
-              <span className="assistant-spark" aria-hidden>*</span>
+              <span className="assistant-spark" aria-hidden>
+                *
+              </span>
               <h3>
                 <I18nText zh="你好，我是" en="Hello, I am" />{" "}
-                <strong><I18nText zh="拾贝 AI 助手" en="ShiBei AI" /></strong>
+                <strong>
+                  <I18nText zh="拾贝 AI 助手" en="ShiBei AI" />
+                </strong>
               </h3>
               <p>
                 <I18nText
@@ -267,14 +300,27 @@ export function AiAssistant({
                 ))}
               </div>
             </div>
-          ) : messages.map((message, index) => (
-            <div className={`assistant-message ${message.role}`} key={`${message.role}-${index}`}>
-              <strong>{message.role === "user" ? <I18nText zh="你" en="You" /> : "AI"}</strong>
-              <AssistantMessageContent content={message.content} />
-            </div>
-          ))}
-          {loading ? <p className="muted-block" role="status"><I18nText zh="AI 正在思考…" en="AI is thinking…" /></p> : null}
-          {error ? <p className="muted-block" role="alert"><I18nText zh="暂时无法获取回复,请稍后重试。" en="Couldn't get a reply right now. Please try again shortly." /></p> : null}
+          ) : (
+            messages.map((message, index) => (
+              <div className={`assistant-message ${message.role}`} key={`${message.role}-${index}`}>
+                <strong>{message.role === "user" ? <I18nText zh="你" en="You" /> : "AI"}</strong>
+                <AssistantMessageContent content={message.content} />
+              </div>
+            ))
+          )}
+          {loading ? (
+            <p className="muted-block" role="status">
+              <I18nText zh="AI 正在思考…" en="AI is thinking…" />
+            </p>
+          ) : null}
+          {error ? (
+            <p className="muted-block" role="alert">
+              <I18nText
+                zh="暂时无法获取回复,请稍后重试。"
+                en="Couldn't get a reply right now. Please try again shortly."
+              />
+            </p>
+          ) : null}
         </div>
 
         <form className="assistant-input-row" onSubmit={submit}>
@@ -283,20 +329,28 @@ export function AiAssistant({
             value={input}
             onChange={(event) => setInput(event.target.value)}
             onKeyDown={handleInputKeyDown}
-            placeholder={language === "en" ? "Tell me what you want to know. Shift + Enter for a new line." : "写下你想了解的内容，Shift + Enter 换行"}
+            placeholder={language === "en" ? "What would you like to know?" : "写下你想了解的内容…"}
             aria-label={language === "en" ? "AI Assistant Input" : "AI 助手输入"}
-            rows={3}
+            rows={2}
             maxLength={4000}
-            enterKeyHint="send"
+            enterKeyHint="enter"
           />
           <div className="assistant-input-footer">
-            <span><I18nText zh="内容由 AI 生成，仅供参考。" en="AI-generated content is for reference only." /></span>
-            <button className="button" type="submit" disabled={loading || !input.trim()} aria-busy={loading} aria-label={language === "en" ? "Send" : "发送"}>
+            <span>
+              <I18nText zh="内容由 AI 生成，仅供参考。" en="AI-generated content is for reference only." />
+            </span>
+            <button
+              className="button"
+              type="submit"
+              disabled={loading || !input.trim()}
+              aria-busy={loading}
+              aria-label={language === "en" ? "Send" : "发送"}
+            >
               <span aria-hidden="true">↑</span>
             </button>
           </div>
         </form>
-      </section>
+      </dialog>
     </aside>,
     document.body
   );

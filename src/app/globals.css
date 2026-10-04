@@ -277,14 +277,56 @@
   color-scheme: dark;
 }
 
+/* -- Theme: Panel (KPanel console blue, same palette as the admin shell) -- */
+:root[data-theme="panel"] {
+  --paper: #0a0f1b;
+  --paper-deep: #070b14;
+  --surface: rgba(22, 31, 53, 0.72);
+  --surface-soft: rgba(22, 31, 53, 0.45);
+  --surface-strong: #131c30;
+  --ink: #e7ecf6;
+  --ink-soft: #c7d0e0;
+  --muted: #8e9bb3;
+  --line: rgba(148, 165, 199, 0.14);
+  --line-strong: rgba(148, 165, 199, 0.3);
+  --accent: #3f8cff;
+  --accent-dark: #6ba4ff;
+  --accent-soft: #7ab3ff;
+  --toc-accent: #7ab3ff;
+  --white: #ffffff;
+  --code-bg: #0a101f;
+  --code-fg: #dbe4f3;
+  --shadow-card: 0 1px 2px rgba(2, 6, 16, 0.5), 0 10px 28px rgba(2, 6, 16, 0.28);
+  --border-w: 1px;
+  --border-w-strong: 1px;
+  --radius-sm: 6px;
+  --radius-md: 12px;
+  --radius-lg: 14px;
+  --bg-image:
+    radial-gradient(1100px 520px at 82% -12%, rgba(63, 140, 255, 0.09), transparent 62%),
+    radial-gradient(900px 480px at -10% 108%, rgba(124, 92, 255, 0.06), transparent 60%),
+    linear-gradient(180deg, #0a0f1b, #0b1120 55%, #0a0f1b);
+  --chart-1: #3f8cff;
+  --chart-2: #34d399;
+  --chart-3: #fbbf24;
+  --chart-4: #a78bfa;
+  --chart-5: #f472b6;
+  --chart-6: #22d3ee;
+  color-scheme: dark;
+}
+
 /* ==============================================================
    Font tokens — all FREE: system, Noto, LXGW WenKai, Source Han
    ============================================================== */
 
 :root,
 :root[data-font="serif-cjk"] {
-  --font-cjk-sans: "Noto Sans SC Variable", "Noto Sans SC", "Source Han Sans SC", "PingFang SC", "Microsoft YaHei", sans-serif;
-  --font-cjk-serif: "Source Han Serif SC", "Noto Serif CJK SC", "Songti SC", "SimSun", "Noto Sans SC Variable", serif;
+  /* 系统中文字体优先：此前把自托管的 Noto Sans SC 网络字体排在最前，
+     每个页面都要下载 600KB–1.1MB 的分片（按 unicode-range 按需加载也挡不住），
+     首屏先用系统字体渲染、字体到达后再整页跳一次。Windows / macOS / iOS /
+     Android 都自带高质量中文字体，直接用；不再引入 @fontsource 网络字体。 */
+  --font-cjk-sans: "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Microsoft YaHei UI", "Source Han Sans SC", "Noto Sans CJK SC", "Noto Sans SC", "WenQuanYi Micro Hei", sans-serif;
+  --font-cjk-serif: "Source Han Serif SC", "Noto Serif CJK SC", "Noto Serif SC", "Songti SC", "STSong", "SimSun", serif;
   --font-body: ui-serif, var(--font-cjk-serif);
   --font-display: ui-serif, var(--font-cjk-serif);
   --font-mono: ui-monospace, SFMono-Regular, "JetBrains Mono", Menlo, Consolas, "Liberation Mono", monospace;
@@ -292,8 +334,9 @@
 }
 
 :root[data-font="sans-cjk"] {
-  --font-body: ui-sans-serif, var(--font-cjk-sans);
-  --font-display: ui-sans-serif, var(--font-cjk-sans);
+  /* system-ui 负责拉丁字母与数字（SF Pro / Segoe UI / Roboto），汉字回落到后面的中文字体 */
+  --font-body: ui-sans-serif, system-ui, var(--font-cjk-sans);
+  --font-display: ui-sans-serif, system-ui, var(--font-cjk-sans);
   --font-mono: ui-monospace, SFMono-Regular, "JetBrains Mono", Menlo, Consolas, "Liberation Mono", monospace;
   --font-base-size: 16px;
 }

@@ -9,6 +9,8 @@ import {
 } from "../src/lib/internal-revalidation";
 import { notifyPublicContentRevalidation } from "../src/worker/public-cache";
 
+import { publicRevalidationPaths } from "../src/lib/public-revalidation-paths";
+
 const SECRET = "test-auth-secret-that-must-never-cross-the-wire";
 const NOW = 1_783_990_000_000;
 
@@ -102,5 +104,29 @@ describe("signed internal public-cache revalidation", () => {
     for (const invalid of ["posts/no-leading-slash", "//evil.test/x", "/posts/../admin", "/posts/%2e%2e/admin", "/x?y=1", "/x%3fy=1", "/x#y", "/x\\y"]) {
       assert.equal(normalizePublicRevalidationPath(invalid), null, invalid);
     }
+  });
+});
+
+
+describe("localized ISR invalidation", () => {
+  test("invalidates the real Chinese and English article URLs as well as aliases", () => {
+    const paths = publicRevalidationPaths(["/posts/example", "/zh/posts/example", "/en/posts/example"]);
+    for (const path of ["/", "/zh", "/en", "/posts", "/zh/posts", "/en/posts",
+      "/stats", "/zh/stats", "/en/stats", "/posts/example", "/zh/posts/example", "/en/posts/example"]) {
+      assert.ok(paths.includes(path), path);
+    }
+    assert.equal(paths.length, new Set(paths).size);
+    assert.ok(!paths.some(path => path.includes("/zh/zh/") || path.includes("/en/zh/")));
+  });
+
+  test("keeps nonlocalized endpoints unchanged and still rejects unsafe paths", () => {
+    const paths = publicRevalidationPaths([null, undefined, "/posts/../admin", "/posts/%2e%2e/admin", "//evil.test", "/zh//evil.test", "/posts/x?q=1", "/uploads/image/example.png"]);
+    assert.ok(paths.includes("/feed.xml"));
+    assert.ok(paths.includes("/sitemap.xml"));
+    assert.ok(paths.includes("/uploads/image/example.png"));
+    assert.ok(!paths.includes("/zh/feed.xml"));
+    assert.ok(!paths.includes("/en/sitemap.xml"));
+    assert.ok(!paths.includes("/zh/uploads/image/example.png"));
+    assert.ok(!paths.some(path => path.includes("..") || path.includes("evil") || path.includes("?")));
   });
 });

@@ -85,8 +85,17 @@ async function jsonRequest(path, init = {}) {
   return { response, payload, raw: text };
 }
 
+function publicPageUrl(path) {
+  const url = new URL(path, BASE);
+  assert.equal(url.origin, new URL(BASE).origin);
+  const bare = url.pathname.replace(/^\/(?:zh|en)(?=\/|$)/, "");
+  assert.match(bare, /^\/community(?:\/|$)/);
+  url.pathname = `/zh${bare}`;
+  return url.toString();
+}
+
 async function assertPublicSlugGone(path, forbiddenText) {
-  const response = await fetch(`${BASE}${path}`, { redirect: "manual" });
+  const response = await fetch(publicPageUrl(path), { redirect: "manual" });
   const body = await response.text();
   // Next.js App Router may have already started a streamed browser response
   // before notFound() resolves. Its documented contract is then HTTP 200 plus
@@ -142,12 +151,20 @@ async function memberOnlyCookie() {
 }
 
 let manualSourceDocId;
+let testGenreId;
 let sharedSlug;
 let manualSlug;
 
 try {
-  const genre = await prisma.creationGenre.findFirst({ where: { isEnabled: true } });
-  assert.ok(genre, "测试库至少需要一个启用题材（先运行 db:seed）");
+  const templateGenre = await prisma.creationGenre.findFirst({ where: { isEnabled: true } });
+  assert.ok(templateGenre, "测试库至少需要一个启用题材（先运行 db:seed）");
+  // Fixtures are inserted directly into Prisma, not through the publishing API.
+  // Give this run its own list-cache key instead of depending on a cold global list.
+  const genre = await prisma.creationGenre.create({ data: {
+    slug: marker, name: `${marker} isolated genre`,
+    dimensions: templateGenre.dimensions, threshold: templateGenre.threshold
+  } });
+  testGenreId = genre.id;
 
   const privateWork = await prisma.creativeWork.create({
     data: {
@@ -249,12 +266,12 @@ try {
   assert.equal(await prisma.communityModerationLog.count({ where: { targetWorkId: privateWork.id } }), 0);
   pass("管理员列表和目标接口都不枚举或治理私有草稿");
 
-  const primedShared = await fetch(`${BASE}/community/${sharedSlug}`, { redirect: "manual" });
+  const primedShared = await fetch(publicPageUrl(`/community/${sharedSlug}`), { redirect: "manual" });
   assert.equal(primedShared.status, 200);
   const legacySharedHtml = await primedShared.text();
   assert.doesNotMatch(legacySharedHtml, new RegExp(sharedSummary));
   assert.equal(includesRenderedScore(legacySharedHtml, 88), false);
-  const legacyListHtml = await (await fetch(`${BASE}/community`, { redirect: "manual" })).text();
+  const legacyListHtml = await (await fetch(publicPageUrl(`/community?genre=${encodeURIComponent(genre.slug)}`), { redirect: "manual" })).text();
   assert.match(legacyListHtml, new RegExp(sharedTitle));
   assert.doesNotMatch(legacyListHtml, new RegExp(sharedSummary));
   pass("旧 V1 评分公开作品不会展示未经评分的摘要或冒充当前标尺分数");
@@ -440,7 +457,7 @@ try {
   });
   assert.equal(revisedPublish.response.status, 200, revisedPublish.raw.slice(0, 300));
   const revisedPublicHtml = await (
-    await fetch(`${BASE}${revisedPublish.payload.url}`, { redirect: "manual" })
+    await fetch(publicPageUrl(revisedPublish.payload.url), { redirect: "manual" })
   ).text();
   assert.match(revisedPublicHtml, new RegExp(revisedSummary.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
   assert.equal(includesRenderedScore(revisedPublicHtml, 91), true);
@@ -520,7 +537,7 @@ try {
   assert.match(publishRestoredA.payload.error || "", /匿名公开内容违反社区规范/);
   pass("A→B 两轮下架后恢复 A，owner/score/publish 仍命中 A 且不泄露 B 原因");
 
-  const primedManual = await fetch(`${BASE}/community/${manualSlug}`, { redirect: "manual" });
+  const primedManual = await fetch(publicPageUrl(`/community/${manualSlug}`), { redirect: "manual" });
   assert.equal(primedManual.status, 200);
   const removeManual = await postModeration(manualWork.id, "DELETE", "手写作品确认严重违规", admin);
   assert.equal(removeManual.response.status, 200, removeManual.raw.slice(0, 300));
@@ -576,5 +593,6 @@ try {
   }
   await prisma.creativeWork.deleteMany({ where: { id: { in: targetWorkIds } } }).catch(() => undefined);
   await prisma.communityModerationLog.deleteMany({ where: { targetWorkId: { in: targetWorkIds } } }).catch(() => undefined);
+  if (testGenreId) await prisma.creationGenre.deleteMany({ where: { id: testGenreId } }).catch(() => undefined);
   await prisma.$disconnect();
 }

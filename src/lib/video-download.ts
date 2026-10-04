@@ -143,6 +143,7 @@ async function runYtDlp(target: TrustedVideoDownloadTarget, videoId: string, max
   const cookies = await loadYtDlpCookiesFile();
   const proxy = await startPinnedEgressProxy({
     allowedHostSuffixes: target.allowedHostSuffixes,
+    allowedHttpsPortsByHost: target.allowedHttpsPortsByHost,
     maxConnections: 24
   });
   const proxyUrl = new URL(proxy.serverUrl);

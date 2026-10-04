@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState, type RefObject } from "react";
-import Link from "next/link";
+import { AdminLink as Link } from "./admin/AdminLink";
 import type { JobStatus } from "@prisma/client";
 import { I18nText } from "./I18nTextClient";
 import { StatusPill } from "./StatusPill";

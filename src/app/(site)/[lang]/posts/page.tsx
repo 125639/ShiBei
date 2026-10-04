@@ -5,44 +5,39 @@ import type { Metadata } from "next";
 import type { Prisma } from "@prisma/client";
 import { I18nText } from "@/components/I18nText";
 import { Pagination } from "@/components/Pagination";
-import { normalizePage } from "@/lib/pagination";
-import { extractPostCover, postCoverStyle } from "@/lib/post-cover";
+import { extractPostCover } from "@/lib/post-cover";
+import Form from "next/form";
+import { PostCard } from "@/components/public/PostCard";
+import { PostsCollection } from "@/components/public/PostsCollection";
+import { Icon, ShellMark } from "@/components/public/Icons";
+import { readingMinutes } from "@/lib/reading-time";
+import { setRequestLanguage } from "@/lib/i18n-server";
+import { withLanguagePrefix } from "@/lib/language";
+import { buildPostsHref, parsePostFilters, type PostSearchParams } from "@/lib/public-post-filters";
 import { prisma } from "@/lib/prisma";
 import { isDisplayMode, type DisplayMode } from "@/lib/topics";
 
-export const metadata: Metadata = {
-  title: "内容文章",
-  description: "浏览全部已发布文章，支持按主题筛选与关键词搜索。",
-  alternates: { canonical: "/posts" }
-};
+// Query parameters are request-specific. Keep the explicit data caches below,
+// but do not generate an ISR HTML entry for this page on its first request.
+export const dynamic = "force-dynamic";
 
-const COMPILE_KIND_LABELS: Record<string, { zh: string; en: string }> = {
-  SINGLE_ARTICLE: { zh: "单篇文章", en: "Article" },
-  DAILY_DIGEST: { zh: "每日合集", en: "Daily digest" },
-  WEEKLY_ROUNDUP: { zh: "周报/合集", en: "Weekly roundup" }
-};
-
-function CompileKindTag({ kind }: { kind: string }) {
-  const label = COMPILE_KIND_LABELS[kind];
-  return <span className="tag">{label ? <I18nText zh={label.zh} en={label.en} /> : kind}</span>;
+export async function generateMetadata({ params }: { params: Promise<{ lang: string }> }): Promise<Metadata> {
+  const { lang } = await params;
+  const language = setRequestLanguage(lang);
+  return {
+    title: language === "en" ? "Stories" : "全部文章",
+    description:
+      language === "en"
+        ? "A collection of thoughtful stories. Explore by topic or find your next good read."
+        : "探索值得读的内容，按主题浏览，或搜索下一个让你感到好奇的话题。",
+    alternates: {
+      canonical: withLanguagePrefix(language, "/posts"),
+      languages: { "zh-CN": "/zh/posts", en: "/en/posts", "x-default": "/zh/posts" }
+    }
+  };
 }
 
-const GRID_FEATURED_VARIANTS = ["bento-large", "bento-wide"] as const;
 const PAGE_SIZE = 24;
-
-type PostListEntry = {
-  id: string;
-  slug: string;
-  title: string;
-  titleEn?: string | null;
-  summary: string;
-  summaryEn?: string | null;
-  publishedAt: Date | null;
-  kind: string;
-  cover: string | null;
-  tags: { id: string; name: string }[];
-  topics: { id: string; name: string; slug: string }[];
-};
 
 /** 列表页数据获取：浏览路径（无搜索词）会经 unstable_cache 复用，搜索路径直查。 */
 async function fetchPostsPageData(topicSlug: string | null, query: string, page: number) {
@@ -56,28 +51,37 @@ async function fetchPostsPageData(topicSlug: string | null, query: string, page:
       select: { id: true, name: true, slug: true }
     }),
     topicSlug
-      ? prisma.contentTopic.findUnique({ where: { slug: topicSlug }, select: { id: true, name: true, slug: true } })
+      ? prisma.contentTopic.findUnique({
+          where: { slug: topicSlug },
+          select: { id: true, name: true, slug: true }
+        })
       : Promise.resolve(null)
   ]);
 
   const where: Prisma.PostWhereInput = {
     status: "PUBLISHED",
     publicationBlockedReason: null,
-    ...(activeTopic ? { topics: { some: { id: activeTopic.id } } } : {}),
-    ...(query ? {
-      OR: [
-        { title: { contains: query, mode: "insensitive" } },
-        { summary: { contains: query, mode: "insensitive" } },
-        { tags: { some: { name: { contains: query, mode: "insensitive" } } } },
-        { topics: { some: { name: { contains: query, mode: "insensitive" } } } }
-      ]
-    } : {})
+    ...(topicSlug ? { topics: { some: { slug: topicSlug } } } : {}),
+    ...(query
+      ? {
+          OR: [
+            { title: { contains: query, mode: "insensitive" } },
+            { titleEn: { contains: query, mode: "insensitive" } },
+            { summary: { contains: query, mode: "insensitive" } },
+            { summaryEn: { contains: query, mode: "insensitive" } },
+            { tags: { some: { name: { contains: query, mode: "insensitive" } } } },
+            { topics: { some: { name: { contains: query, mode: "insensitive" } } } }
+          ]
+        }
+      : {})
   };
 
   const [rawPosts, totalPosts] = await Promise.all([
     prisma.post.findMany({
       where,
-      orderBy: [{ sortOrder: "asc" }, { publishedAt: "desc" }],
+      // id 作第三唯一排序键：批量发布会产生 (sortOrder, publishedAt) 完全
+      // 相同的整批文章，没有它并列批次顺序不稳定，也与相邻文章导航脱节。
+      orderBy: [{ sortOrder: "asc" }, { publishedAt: "desc" }, { id: "asc" }],
       skip: (page - 1) * PAGE_SIZE,
       take: PAGE_SIZE,
       select: {
@@ -97,80 +101,106 @@ async function fetchPostsPageData(topicSlug: string | null, query: string, page:
     prisma.post.count({ where })
   ]);
 
-  return { settings, topics, activeTopic, rawPosts, totalPosts };
+  return {
+    settings,
+    topics,
+    activeTopic,
+    totalPosts,
+    posts: rawPosts.map(({ content, publishedAt, ...post }) => ({
+      ...post,
+      publishedAtIso: publishedAt?.toISOString() || null,
+      cover: extractPostCover(content),
+      minutes: readingMinutes(content)
+    }))
+  };
 }
 
 // 浏览路径缓存：内容变更由 revalidatePublicContent → revalidateTag("public-content") 精准失效。
 // 注意 unstable_cache 会把 Date 序列化成字符串，消费侧统一 new Date() 还原。
 const getCachedPostsBrowseData = unstable_cache(
   async (topicSlug: string | null, page: number) => fetchPostsPageData(topicSlug, "", page),
-  ["posts-browse"],
+  ["posts-browse-v2"],
   { revalidate: 300, tags: ["public-content"] }
 );
 
-export default async function PostsPage({ searchParams }: { searchParams: Promise<{ topic?: string; q?: string; page?: string }> }) {
-  const params = await searchParams;
-  const topicSlug = params.topic?.trim() || null;
-  const query = params.q?.trim().slice(0, 120) || "";
-  const page = normalizePage(params.page);
-
-  const { settings, topics, activeTopic, rawPosts, totalPosts } = query
+export default async function PostsPage({
+  params,
+  searchParams
+}: {
+  params: Promise<{ lang: string }>;
+  searchParams: Promise<PostSearchParams>;
+}) {
+  const { lang } = await params;
+  const language = setRequestLanguage(lang);
+  const { topic: topicSlug, query, page } = parsePostFilters(await searchParams);
+  const { settings, topics, activeTopic, posts, totalPosts } = query
     ? await fetchPostsPageData(topicSlug, query, page)
     : await getCachedPostsBrowseData(topicSlug, page);
-
   const mode: DisplayMode = isDisplayMode(settings?.contentDisplayMode || "")
     ? (settings!.contentDisplayMode as DisplayMode)
     : "grid";
-
-  const posts: PostListEntry[] = rawPosts.map(({ content, ...post }) => ({
-    ...post,
-    // 缓存命中时 publishedAt 是 ISO 字符串，直查时是 Date；统一还原成 Date
-    publishedAt: post.publishedAt ? new Date(post.publishedAt) : null,
-    cover: extractPostCover(content)
-  }));
   const totalPages = Math.max(1, Math.ceil(totalPosts / PAGE_SIZE));
-
-  // ?page= 超过实际页数（手改 URL / 内容减少后回访旧链接）时回到有效页，
-  // 避免展示误导性的「内容即将上线」空状态。
-  if (totalPosts > 0 && page > totalPages) {
-    redirect(buildPostsHref(topicSlug, query, totalPages));
-  }
+  if (totalPosts > 0 && page > totalPages)
+    redirect(withLanguagePrefix(language, buildPostsHref(topicSlug, query, totalPages)));
 
   return (
-    <main className="container bento-page public-list-page posts-page">
-      <section className="page-intro bento-card bento-wide">
-        <p className="eyebrow">Posts</p>
-        <h1 className="page-title"><I18nText zh="内容文章" en="Posts" /></h1>
-        <p className="muted">
-          <I18nText
-            zh={<>内容由抓取与生成产出，经过审核后在此呈现。{activeTopic ? `当前筛选：${activeTopic.name}。` : null}{query ? ` 搜索：${query}。` : null}</>}
-            en={<>Curated and reviewed before appearing here.{activeTopic ? ` Current filter: ${activeTopic.name}.` : null}{query ? ` Search: ${query}.` : null}</>}
-          />
-        </p>
-      </section>
-
-      <form className="form-card filter-form" action="/posts" method="get">
-        {topicSlug ? <input type="hidden" name="topic" value={topicSlug} /> : null}
-        <div className="field">
-          <label htmlFor="post-search"><I18nText zh="搜索文章" en="Search posts" /></label>
-          <input id="post-search" type="search" name="q" defaultValue={query} placeholder="标题、摘要、标签或主题" enterKeyHint="search" maxLength={120} />
+    <main className="publication-container publication-posts">
+      <section className="publication-page-intro" aria-labelledby="posts-title">
+        <div>
+          <p className="publication-overline">THE READING ROOM</p>
+          <h1 id="posts-title">
+            <I18nText zh="总有一篇，让你停留。" en="Find your next good read." />
+          </h1>
+          <p>
+            <I18nText
+              zh="从一个话题出发，发现新的视角。每一篇内容，都经过认真整理。"
+              en="Start with a topic. Discover a new perspective. Every story, thoughtfully curated."
+            />
+          </p>
         </div>
-        <button className="button" type="submit"><I18nText zh="搜索" en="Search" /></button>
-        {(query || topicSlug) ? (
-          <Link className="button secondary" href="/posts"><I18nText zh="清除" en="Clear" /></Link>
+        <span className="publication-archive-mark" aria-hidden="true">
+          <ShellMark />
+        </span>
+      </section>
+      <Form
+        key={`${topicSlug || ""}:${query}`}
+        className="publication-post-search"
+        action={withLanguagePrefix(language, "/posts")}
+      >
+        {topicSlug ? <input type="hidden" name="topic" value={topicSlug} /> : null}
+        <Icon name="search" />
+        <label className="sr-only" htmlFor="post-search">
+          <I18nText zh="搜索文章" en="Search stories" />
+        </label>
+        <input
+          id="post-search"
+          type="search"
+          name="q"
+          defaultValue={query}
+          placeholder={
+            language === "en" ? "Search a title, topic, or idea…" : "搜索标题、主题，或一个感兴趣的词…"
+          }
+          enterKeyHint="search"
+          maxLength={120}
+        />
+        {query || topicSlug ? (
+          <Link className="publication-text-link" href="/posts">
+            <I18nText zh="重置" en="Reset" />
+          </Link>
         ) : null}
-      </form>
-
-      {mode === "topic-tabs" && topics.length > 0 ? (
-        <nav className="topic-tabs" aria-label="主题筛选">
-          <Link href={buildPostsHref(null, query)} className={topicSlug ? "" : "active"} aria-current={topicSlug ? undefined : "page"}>
-            <I18nText zh="全部" en="All" />
+        <button className="publication-button" type="submit">
+          <I18nText zh="搜索" en="Search" />
+        </button>
+      </Form>
+      {topics.length > 0 ? (
+        <nav className="publication-topics" aria-label={language === "en" ? "Filter by topic" : "按主题筛选"}>
+          <Link href={buildPostsHref(null, query)} aria-current={!topicSlug ? "page" : undefined}>
+            <I18nText zh="全部主题" en="All topics" />
           </Link>
           {topics.map((topic) => (
             <Link
               key={topic.id}
               href={buildPostsHref(topic.slug, query)}
-              className={topicSlug === topic.slug ? "active" : ""}
               aria-current={topicSlug === topic.slug ? "page" : undefined}
             >
               {topic.name}
@@ -178,151 +208,72 @@ export default async function PostsPage({ searchParams }: { searchParams: Promis
           ))}
         </nav>
       ) : null}
-
-      {posts.length === 0 ? (
-        query ? (
-          <div className="bento-card empty-grid-card">
-            <h3><I18nText zh={`没有找到与「${query}」匹配的文章`} en={`No posts match "${query}"`} /></h3>
-            <p>
-              <I18nText
-                zh="换个关键词试试，或清除筛选查看全部文章。"
-                en="Try a different keyword, or clear the filters to browse all posts."
-              />
-            </p>
-            <Link className="button secondary" href={topicSlug ? buildPostsHref(topicSlug, "") : "/posts"}>
-              <I18nText zh="清除搜索" en="Clear search" />
-            </Link>
-          </div>
-        ) : (
-          <div className="bento-card empty-grid-card">
-            <h3>
-              <I18nText
-                zh={activeTopic ? `${activeTopic.name}：内容即将上线` : "内容即将上线"}
-                en={activeTopic ? `${activeTopic.name}: coming soon` : "Coming soon"}
-              />
-            </h3>
-            <p>
-              <I18nText
-                zh="我们正在整理最新内容，请稍后再来。"
-                en="We're preparing fresh content — please check back shortly."
-              />
-            </p>
-          </div>
-        )
+      {posts.length ? (
+        <PostsCollection
+          defaultLayout={mode === "list" || mode === "magazine" ? mode : "grid"}
+          count={totalPosts}
+          query={query}
+          topic={activeTopic?.name}
+        >
+          {posts.map((post, index) => (
+            <PostCard
+              key={post.id}
+              post={post}
+              index={(page - 1) * PAGE_SIZE + index}
+              featured={mode === "magazine" && index === 0}
+            />
+          ))}
+        </PostsCollection>
       ) : (
-        <PostsLayout mode={mode} posts={posts} />
-      )}
-      <Pagination basePath="/posts" page={page} totalPages={totalPages} params={{ topic: topicSlug, q: query }} />
-    </main>
-  );
-}
-
-function buildPostsHref(topic: string | null, query: string, page?: number) {
-  const params = new URLSearchParams();
-  if (topic) params.set("topic", topic);
-  if (query) params.set("q", query);
-  if (page && page > 1) params.set("page", String(page));
-  const qs = params.toString();
-  return qs ? `/posts?${qs}` : "/posts";
-}
-
-function PostsLayout({ mode, posts }: { mode: DisplayMode; posts: PostListEntry[] }) {
-  // .posts-collection：快速美化面板的「文章布局」偏好按它做纯 CSS 重排
-  if (mode === "magazine" && posts.length > 0) {
-    const [hero, ...rest] = posts;
-    return (
-      <div className="bento-grid news-bento posts-collection">
-        <article className={`bento-card bento-feature news-magazine-hero linked-card ${hero.cover ? "has-cover" : ""}`} style={postCoverStyle(hero.cover, 1200)}>
-          {hero.cover ? <span className="post-cover" aria-hidden /> : null}
-          <div>
-            <div className="meta-row">
-              <span>{hero.publishedAt?.toLocaleDateString("zh-CN")}</span>
-              {hero.topics.slice(0, 3).map((topic) => (
-                <Link key={topic.id} className="tag" href={`/posts?topic=${encodeURIComponent(topic.slug)}`}>{topic.name}</Link>
-              ))}
-              <CompileKindTag kind={hero.kind} />
-            </div>
-            <h2>
-              <Link className="card-link" href={`/posts/${hero.slug}`}>
-                <I18nText zh={hero.title} en={hero.titleEn || hero.title} />
-              </Link>
-            </h2>
-            <p><I18nText zh={hero.summary} en={hero.summaryEn || hero.summary} /></p>
-          </div>
-          <div>
-            <span className="text-link" aria-hidden="true"><I18nText zh="阅读封面文章" en="Read feature" /></span>
-          </div>
-        </article>
-        {rest.map((post, index) => (
-          <PostCard key={post.id} post={post} variant={rest.length >= 3 && index === 0 ? "bento-wide" : ""} />
-        ))}
-      </div>
-    );
-  }
-
-  if (mode === "list") {
-    return (
-      <div className="news-list posts-collection">
-        {posts.map((post) => (
-          <article className="news-list-item linked-card" key={post.id}>
-            <span className="timeline-dot" aria-hidden />
-            <div>
-              <div className="meta-row">
-                <span>{post.publishedAt?.toLocaleDateString("zh-CN")}</span>
-                {post.topics.slice(0, 2).map((topic) => (
-                  <Link key={topic.id} className="tag" href={`/posts?topic=${encodeURIComponent(topic.slug)}`}>{topic.name}</Link>
-                ))}
-                <CompileKindTag kind={post.kind} />
-              </div>
-              <h3>
-                <Link className="card-link" href={`/posts/${post.slug}`}>
-                  <I18nText zh={post.title} en={post.titleEn || post.title} />
-                </Link>
-              </h3>
-              <p className="muted"><I18nText zh={post.summary} en={post.summaryEn || post.summary} /></p>
-            </div>
-          </article>
-        ))}
-      </div>
-    );
-  }
-
-  // Default: grid (also used by topic-tabs)
-  return (
-    <div className="bento-grid news-bento posts-collection">
-      {posts.map((post, index) => (
-        <PostCard
-          key={post.id}
-          post={post}
-          variant={posts.length >= 4 ? GRID_FEATURED_VARIANTS[index] || "" : ""}
-        />
-      ))}
-    </div>
-  );
-}
-
-function PostCard({ post, variant = "" }: { post: PostListEntry; variant?: string }) {
-  return (
-    <article className={`bento-card post-card linked-card ${variant} ${post.cover ? "has-cover" : ""}`} style={postCoverStyle(post.cover)}>
-      {post.cover ? <span className="post-cover" aria-hidden /> : null}
-      <div>
-        <div className="meta-row">
-          <span>{post.publishedAt?.toLocaleDateString("zh-CN")}</span>
-          {post.topics.slice(0, 2).map((topic) => (
-            <Link key={topic.id} className="tag" href={`/posts?topic=${encodeURIComponent(topic.slug)}`}>{topic.name}</Link>
-          ))}
-          {post.tags.slice(0, 1).map((tag) => (
-            <span className="tag" key={tag.id}>{tag.name}</span>
-          ))}
-        </div>
-        <h3>
-          <Link className="card-link" href={`/posts/${post.slug}`}>
-            <I18nText zh={post.title} en={post.titleEn || post.title} />
+        <div className="publication-empty" role="status">
+          <Icon name={query || topicSlug ? "search" : "spark"} width="42" height="42" />
+          <h3>
+            <I18nText
+              zh={
+                query
+                  ? `没有找到与「${query}」匹配的文章`
+                  : topicSlug
+                    ? "这个主题下暂时没有文章"
+                    : "好内容，正在路上。"
+              }
+              en={
+                query
+                  ? `No stories match “${query}”`
+                  : topicSlug
+                    ? "No stories in this topic yet"
+                    : "Good stories are on their way."
+              }
+            />
+          </h3>
+          <p>
+            <I18nText
+              zh={
+                query || topicSlug
+                  ? "试试其他关键词，或清除筛选，发现更多内容。"
+                  : "第一批内容正在整理中。欢迎先去社区分享你的新发现。"
+              }
+              en={
+                query || topicSlug
+                  ? "Try another keyword, or clear the filters to discover more."
+                  : "Our first collection is taking shape. Share a discovery with the community."
+              }
+            />
+          </p>
+          <Link className="publication-button" href={query || topicSlug ? "/posts" : "/community"}>
+            <I18nText
+              zh={query || topicSlug ? "浏览全部文章" : "逛逛社区"}
+              en={query || topicSlug ? "Browse all stories" : "Explore the community"}
+            />
+            <Icon name="arrow" width="17" height="17" />
           </Link>
-        </h3>
-        <p><I18nText zh={post.summary} en={post.summaryEn || post.summary} /></p>
-      </div>
-      <span className="text-link" aria-hidden="true"><I18nText zh="阅读全文" en="Read article" /></span>
-    </article>
+        </div>
+      )}
+      <Pagination
+        basePath="/posts"
+        page={page}
+        totalPages={totalPages}
+        params={{ topic: topicSlug, q: query }}
+      />
+    </main>
   );
 }

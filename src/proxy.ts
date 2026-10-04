@@ -122,6 +122,8 @@ export function proxy(request: NextRequest) {
 // 健康检查与同步路由。健康检查必须始终可访问，否则反代/容器运行时无法判断状态。
 // videos/music 上传也要排除：代理层不应读取或缓冲大文件 FormData，
 // 否则上传会增加无意义的内存与延迟；sync 也因同样原因排除。
+// 注意：排除后中间件的跨来源校验也不再覆盖该路径，安全边界由路由自身的
+// isSameOriginMutation() 承担（见 upload/route.ts）。
 export const config = {
   matcher: [
     "/((?!_next/static|_next/image|favicon.ico|uploads/|api/health|api/admin/sync|api/admin/videos|api/admin/music).*)",

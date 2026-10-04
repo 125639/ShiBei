@@ -30,7 +30,7 @@ export function TaskProgress({
   const [clock, setClock] = useState({ key: "", elapsed: 0 });
 
   useEffect(() => {
-    if (!active) return;
+    if (!active || !showElapsed) return;
     const started = Date.now();
     const tick = () => {
       setClock({
@@ -45,7 +45,7 @@ export function TaskProgress({
       window.clearTimeout(immediate);
       window.clearInterval(timer);
     };
-  }, [active, clockKey]);
+  }, [active, clockKey, showElapsed]);
 
   const determinate = typeof value === "number" && Number.isFinite(value) && max > 0;
   const safeValue = determinate ? clampProgress(value, max) : 0;

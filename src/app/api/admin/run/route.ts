@@ -52,9 +52,13 @@ export async function POST(request: Request) {
       await queue.add("fetch", { fetchJobId: job.id }, { priority: 1 });
     });
   } else if (tempUrl) {
-    const queue = getFetchQueue();
+    // 任务详情页「重跑」通过 tempUrl 带回原 sourceUrl。关键词 URL 必须仍投
+    // research 队列：若误投通用 fetch 队列，它会绕过 RESEARCH_WORKER_CONCURRENCY，
+    // 与正常研究任务并发撞同一个模型，正是供应商 running=8/max=6 的来源之一。
+    const keywordRetry = tempUrl.startsWith("keyword://research?");
+    const queue = keywordRetry ? getResearchQueue() : getFetchQueue();
     const type = String(form.get("tempType") || "WEB") as SourceType;
-    const saveTemp = form.get("saveTemp") === "true";
+    const saveTemp = form.get("saveTemp") === "true" && !keywordRetry;
     await withQueue(queue, async () => {
       const source = saveTemp
         ? await prisma.source.create({
@@ -72,7 +76,7 @@ export async function POST(request: Request) {
           videoAttachMode
         }
       });
-      await queue.add("fetch", { fetchJobId: job.id });
+      await queue.add("fetch", { fetchJobId: job.id }, keywordRetry ? { priority: 1 } : undefined);
     });
   } else if (sourceId) {
     const queue = getFetchQueue();

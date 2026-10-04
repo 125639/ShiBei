@@ -10,19 +10,21 @@ import { setAssistantPageContext } from "@/lib/client/assistant-page-context";
  */
 export function AssistantPageContext({
   context,
+  launcherTargetId,
   contextLabel,
   suggestionGroups
 }: {
   context: string;
+  launcherTargetId?: string;
   contextLabel?: ReactNode;
   suggestionGroups?: AssistantSuggestionGroup[];
 }) {
   useEffect(() => {
-    return setAssistantPageContext({ context, contextLabel, suggestionGroups });
+    return setAssistantPageContext({ context, contextLabel, suggestionGroups, launcherTargetId });
     // 标签与建议列表跟随页面内容整体变化；仅以 context 文本为变更信号，
     // 避免父组件重渲染时因对象身份变化反复重注册。
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [context]);
+  }, [context, launcherTargetId]);
 
   return null;
 }

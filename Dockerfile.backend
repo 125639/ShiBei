@@ -7,53 +7,67 @@
 
 FROM node:22-bookworm AS base
 WORKDIR /app
+# Optional download mirror for restricted build networks; unset keeps Prisma defaults.
+ARG PRISMA_ENGINES_MIRROR
+ARG NPM_CONFIG_REGISTRY
 ENV NEXT_TELEMETRY_DISABLED=1
 ENV APP_MODE=backend
 
 FROM base AS deps
 COPY package.json package-lock.json* ./
-RUN npm ci
+RUN npm ci --no-audit --no-fund
 
 FROM deps AS builder
 COPY . .
 RUN npx prisma generate
 RUN npm run build
-# 运行镜像瘦身（同 Dockerfile.frontend 的说明）：去构建缓存、开发依赖与
-# @next/swc 二进制；tsx(worker/seed 运行期要用)已在生产依赖，不受 prune 影响。
-RUN rm -rf .next/cache \
- && npm prune --omit=dev \
+# Produce the same platform-specific runtime directory as bare-metal releases.
+# Compiler caches, dev packages, unused native targets and source maps never
+# enter the runner layer; the original build workspace remains disposable.
+RUN npm prune --omit=dev --no-audit --no-fund \
  && npx prisma generate \
- && rm -rf node_modules/@next/swc-linux-x64-gnu node_modules/@next/swc-linux-x64-musl
+ && node scripts/package-runtime.mjs --out /runtime --reuse-installed
 
-FROM base AS runner
+FROM node:22-bookworm-slim AS runner
+WORKDIR /app
+ENV NEXT_TELEMETRY_DISABLED=1
 ENV NODE_ENV=production
 ENV APP_MODE=backend
 ENV NODE_OPTIONS="--max-old-space-size=512"
-RUN apt-get update && apt-get install -y --no-install-recommends \
+# Optional signed Debian mirrors. Defaults retain the upstream sources.
+ARG APT_MIRROR
+ARG APT_SECURITY_MIRROR
+RUN if [ -n "$APT_MIRROR" ]; then sed -i "s|http://deb.debian.org/debian$|$APT_MIRROR|" /etc/apt/sources.list.d/debian.sources; fi \
+ && if [ -n "$APT_SECURITY_MIRROR" ]; then sed -i "s|http://deb.debian.org/debian-security$|$APT_SECURITY_MIRROR|" /etc/apt/sources.list.d/debian.sources; fi \
+ && apt-get update && apt-get install -y --no-install-recommends \
       ca-certificates \
+      openssl \
       fonts-noto-cjk \
       python3 \
       python3-pip \
       ffmpeg \
     && rm -rf /var/lib/apt/lists/*
+ARG PIP_INDEX_URL
 RUN pip3 install --break-system-packages --no-cache-dir 'yt-dlp>=2024.10.0'
 # Chromium 安装只依赖 node_modules 里的 playwright 版本：必须放在业务产物
 # （.next/src 等每次提交必变的层）之前，否则每次代码提交都会重新下载数百 MB
 # 浏览器 + apt 依赖（与 Dockerfile 完整版同一教训）。
-COPY --from=builder /app/package.json ./package.json
-COPY --from=builder /app/node_modules ./node_modules
+COPY --from=builder /runtime/package.json ./package.json
+COPY --from=builder /runtime/package-lock.json ./package-lock.json
+COPY --from=builder /runtime/node_modules ./node_modules
 # 国内构建机直连 Playwright 官方 CDN 经常超时；需要时传
 # --build-arg PLAYWRIGHT_DOWNLOAD_HOST=https://npmmirror.com/mirrors/playwright/
 ARG PLAYWRIGHT_DOWNLOAD_HOST=""
 ENV PLAYWRIGHT_DOWNLOAD_HOST=${PLAYWRIGHT_DOWNLOAD_HOST}
-RUN npx playwright install --with-deps chromium && rm -rf /var/lib/apt/lists/*
-COPY --from=builder /app/.next ./.next
-COPY --from=builder /app/public ./public
-COPY --from=builder /app/prisma ./prisma
-COPY --from=builder /app/src ./src
-COPY --from=builder /app/scripts ./scripts
-COPY --from=builder /app/next.config.mjs ./next.config.mjs
-COPY --from=builder /app/tsconfig.json ./tsconfig.json
+RUN npx playwright install --with-deps --only-shell chromium && rm -rf /var/lib/apt/lists/*
+COPY --from=builder /runtime/.next ./.next
+COPY --from=builder /runtime/public ./public
+COPY --from=builder /runtime/prisma ./prisma
+COPY --from=builder /runtime/src ./src
+COPY --from=builder /runtime/scripts ./scripts
+COPY --from=builder /runtime/next.config.mjs ./next.config.mjs
+COPY --from=builder /runtime/tsconfig.json ./tsconfig.json
+COPY --from=builder /runtime/runtime-manifest.json ./runtime-manifest.json
 # 构建元数据放在所有重层之后：ARG 一变只重建其后的层；放前面会导致
 # 每次提交都重装 apt/ffmpeg/chromium（与 Dockerfile 完整版同一教训）。
 ARG GIT_COMMIT=unknown

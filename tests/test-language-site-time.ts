@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
@@ -125,4 +126,20 @@ test("localizeHref prefixes in-site public links and leaves everything else alon
   assert.equal(localizeHref("en", "#top"), "#top");
   assert.equal(localizeHref("en", "mailto:a@b.c"), "mailto:a@b.c");
   assert.equal(localizeHref("en", ""), "");
+});
+
+
+test("public locale routes do not query deployment databases during image builds", () => {
+  const source = readFileSync(new URL("../src/app/(site)/[lang]/layout.tsx", import.meta.url), "utf8");
+  assert.match(source, /export function generateStaticParams\(\)[^{]+\{[\s\S]*?return \[\];/);
+  assert.doesNotMatch(source, /export const dynamicParams\s*=\s*false/);
+  assert.match(source, /isLanguageKey/);
+});
+
+
+test("query-dependent public pages opt out of on-demand static HTML", () => {
+  for (const page of ["posts", "stats", "news", "community"]) {
+    const source = readFileSync(new URL(`../src/app/(site)/[lang]/${page}/page.tsx`, import.meta.url), "utf8");
+    assert.match(source, /export const dynamic = "force-dynamic"/, page);
+  }
 });

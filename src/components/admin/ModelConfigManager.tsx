@@ -67,6 +67,10 @@ const MODEL_ROLES: Array<{
   }
 ];
 
+function configsForRole(configs: ModelConfigManagerItem[], _role: ModelRoleKey) {
+  return configs;
+}
+
 const EMPTY_PROBE: ProbeState = { kind: "idle", message: "" };
 
 const MODEL_STATUS_MESSAGES: Record<string, { zh: string; en: string }> = {
@@ -87,7 +91,7 @@ const MODEL_ERROR_MESSAGES: Record<string, { zh: string; en: string }> = {
   },
   invalid_temperature: { zh: "Temperature 必须在 0–2 之间。", en: "Temperature must be between 0 and 2." },
   invalid_max_tokens: { zh: "Max Tokens 必须是 1–200000 的整数。", en: "Max Tokens must be an integer from 1 to 200000." },
-  invalid_assignment: { zh: "任务分工中包含已删除的模型，请刷新页面后重新选择。", en: "Task routing references a removed model. Refresh and choose again." },
+  invalid_assignment: { zh: "任务分工包含已删除或停用的模型。", en: "Task routing references a removed or disabled model." },
   not_found: { zh: "模型配置不存在，可能已被删除；请刷新后重试。", en: "The model configuration no longer exists. Refresh and try again." },
   delete_failed: { zh: "删除失败，配置未被改动，请稍后重试。", en: "Delete failed and no configuration was changed. Try again." },
   save_failed: { zh: "保存失败，原配置未被改动，请稍后重试。", en: "Save failed and the existing configuration was not changed. Try again." }
@@ -208,8 +212,8 @@ function ModelRoutingPanel({
           <h2><I18nText zh="每项功能由哪个模型负责" en="Choose a model for each task" /></h2>
           <p className="muted model-config-intro">
             <I18nText
-              zh="留空时，大多数任务跟随默认模型；英文翻译会先跟随站内 AI 助手，再回退到默认模型。只有确有需要时再单独指定。"
-              en="When unset, most tasks follow the default model. Translation follows the site assistant first, then falls back to the default. Override only when needed."
+              zh="留空时，大多数任务跟随默认模型；英文翻译会先跟随站内 AI 助手，再回退到默认模型。"
+              en="When unset, most tasks follow the default model. Translation follows the site assistant first, then falls back to the default."
             />
           </p>
         </div>
@@ -230,7 +234,7 @@ function ModelRoutingPanel({
               id={`routing-${role.key}`}
               name={role.key}
               defaultValue={assignments[role.key] || ""}
-              disabled={configs.length === 0}
+              disabled={configsForRole(configs, role.key).length === 0}
             >
               <option value="">
                 {role.key === "translationModelConfigId"
@@ -241,7 +245,7 @@ function ModelRoutingPanel({
                     ? `跟随默认 / Default · ${defaultConfig.name} · ${defaultConfig.model}`
                     : "请先添加模型连接 / Add a connection first"}
               </option>
-              {configs.map((config) => (
+              {configsForRole(configs, role.key).map((config) => (
                 <option key={config.id} value={config.id}>{config.name} · {config.model}</option>
               ))}
             </select>
@@ -463,7 +467,8 @@ function ExistingModelConfigForm({
   }
 
   const assignedRoles = MODEL_ROLES.filter((role) => assignments[role.key] === config.id);
-  const followsDefault = config.isDefault && MODEL_ROLES.some((role) => !assignments[role.key]);
+  const followsDefault = config.isDefault
+    && MODEL_ROLES.some((role) => !assignments[role.key]);
 
   return (
     <details className="model-config-row">
@@ -555,7 +560,7 @@ function AdvancedGenerationFields({
   temperature,
   maxTokens,
   isDefault,
-  connectionEnabled
+  connectionEnabled,
 }: {
   prefix: string;
   temperature: number;
@@ -718,6 +723,7 @@ export function ModelIdField({ id, value, onChange, options }: { id: string; val
 }
 
 function ProbeControls({ state, onProbe }: { state: ProbeState; onProbe: (action: ProbeAction) => void }) {
+
   const busy = state.kind === "loading";
   return (
     <div className="model-probe-block">

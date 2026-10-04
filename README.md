@@ -10,6 +10,8 @@
 
 ---
 
+> 发布与升级前请阅读 [发布检查清单](docs/release-checklist.md)，包括三种模式 CI、迁移备份和已验证范围。
+
 ## 目录
 
 - [项目特点](#项目特点)
@@ -403,6 +405,8 @@ npm run sync-worker
 
 ### 类型检查 + 构建
 
+> 1 核 / 0.8G 目标机不要本地编译：当前版本在 800MiB、无 swap 的限制下，两轮完整构建都因内存不足失败。请在构建机 / CI 编译，再部署运行包或包含定制代码的预构建镜像。见 [构建内存实测](docs/build-memory-audit.md)。
+
 ```bash
 npm run typecheck         # 静态类型检查
 npm run build             # 生产构建（含 prisma generate）
@@ -410,6 +414,22 @@ npm run lint              # ESLint
 npm run check             # lint + typecheck
 bash tests/run-all.sh     # 单元测试 / 集成测试 / 图片缓存与挂载测试
 ```
+
+### 公开站前端验收
+
+`npm run test:ui` 可对独立预览站运行浏览器回归检查，覆盖移动端导航、主题、搜索、阅读工具与无脚本阅读。组件结构、动效策略和隔离构建步骤见 [公开站前端与验收](docs/public-ui.md)。
+
+### 后台性能验收
+
+后台常驻布局、按需加载和权限回归检查：`npm run test:admin-ui`。运行条件与实现边界见 [后台响应速度优化](docs/admin-performance.md)。
+
+### 手机端验收
+
+`npm run test:mobile` 检查手机视口、图表、外观与助手弹层、软键盘布局和后台编辑器。细节见 [手机端体验与验收](docs/mobile-experience.md)。
+
+### 精简运行包
+
+构建后可运行 `npm run package:runtime -- --out dist/runtime` 生成独立生产目录，`npm run size` 查看体积。平台要求、数据隔离与 Docker 精简方式见 [运行包体积与可重复打包](docs/runtime-size.md)。
 
 ### 数据库 Schema 演进
 

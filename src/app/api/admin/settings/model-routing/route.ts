@@ -21,9 +21,15 @@ export async function POST(request: Request) {
   if (selectedIds.length) {
     const existing = await prisma.modelConfig.findMany({
       where: { id: { in: selectedIds }, isEnabled: true },
-      select: { id: true }
+      select: { id: true, provider: true, model: true }
     });
-    if (existing.length !== selectedIds.length) {
+    const invalidRole = MODEL_ROLE_FIELDS.some((field) => {
+      const id = assignments[field];
+      if (!id) return false;
+      const config = existing.find((item) => item.id === id);
+      return !config;
+    });
+    if (existing.length !== selectedIds.length || invalidRole) {
       return redirectTo("/admin/settings?tab=models&modelError=invalid_assignment", request);
     }
   }

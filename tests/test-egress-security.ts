@@ -8,7 +8,7 @@ import {
   createSafeScrapingContext,
   SAFE_CHROMIUM_LAUNCH_ARGS
 } from "../src/lib/browser-egress";
-import { hostMatchesAllowedSuffixes, startPinnedEgressProxy } from "../src/lib/pinned-egress-proxy";
+import { hostMatchesAllowedSuffixes, isAllowedProxyPort, startPinnedEgressProxy } from "../src/lib/pinned-egress-proxy";
 import { safeFetch } from "../src/lib/url-safety";
 import { hardenedYtDlpNetworkArgs, trustedVideoDownloadTarget } from "../src/lib/video-download-policy";
 
@@ -199,5 +199,35 @@ describe("outbound SSRF boundary", () => {
       await safeContext.close();
       await browser.close();
     }
+  });
+});
+
+
+describe("scoped Bilibili CDN HTTPS port support", () => {
+  test("only Bilibili MCDN can use the explicitly configured TLS port", () => {
+    const target = trustedVideoDownloadTarget("https://www.bilibili.com/video/BV1GJ411x7h7/");
+    const ports = target?.allowedHttpsPortsByHost;
+    assert.deepEqual(ports, { "mcdn.bilivideo.cn": [8082] });
+    assert.equal(isAllowedProxyPort("xy1.mcdn.bilivideo.cn", "https:", 8082, ports), true);
+    for (const host of ["mcdn.bilivideo.cn.evil.example", "notmcdn.bilivideo.cn", "www.bilibili.com", "localhost", "127.0.0.1", "www.youtube.com"]) {
+      assert.equal(isAllowedProxyPort(host, "https:", 8082, ports), false, host);
+    }
+    assert.equal(isAllowedProxyPort("xy1.mcdn.bilivideo.cn", "http:", 8082, ports), false);
+    assert.equal(isAllowedProxyPort("xy1.mcdn.bilivideo.cn", "https:", 8443, ports), false);
+    assert.equal(isAllowedProxyPort("xy1.mcdn.bilivideo.cn", "https:", 8082), false);
+    assert.equal(trustedVideoDownloadTarget("https://youtu.be/AbCdEf12345")?.allowedHttpsPortsByHost, undefined);
+  });
+
+  test("a configured port exception cannot bypass proxy authentication or private-IP denial", async () => {
+    const proxy = await startPinnedEgressProxy({
+      allowedHostSuffixes: ["localhost"], allowedHttpsPortsByHost: { localhost: [8082] }
+    });
+    try {
+      const unauthenticated = await rawProxyRequest(proxy.serverUrl, "CONNECT localhost:8082 HTTP/1.1\r\nHost: localhost:8082\r\n\r\n");
+      assert.match(unauthenticated, /^HTTP\/1\.1 407 /);
+      const authorization = proxyAuthorization(proxy.username, proxy.password);
+      const privateTarget = await rawProxyRequest(proxy.serverUrl, `CONNECT localhost:8082 HTTP/1.1\r\nHost: localhost:8082\r\nProxy-Authorization: ${authorization}\r\n\r\n`);
+      assert.match(privateTarget, /^HTTP\/1\.1 403 /);
+    } finally { await proxy.close(); }
   });
 });

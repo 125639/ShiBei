@@ -115,9 +115,12 @@ export function parseModelConfigForm(
     throw new ModelConfigValidationError("invalid_model", "model");
   }
 
+
   const apiKey = stringValue(form, "apiKey");
+  // 本地 sidecar 通常不带凭据；强行要求 Key 只会让自建部署无法保存。
+  const keyRequired = options.requireApiKey;
   if (
-    (options.requireApiKey && !apiKey) ||
+    (keyRequired && !apiKey) ||
     apiKey.length > MODEL_CONFIG_LIMITS.apiKey ||
     hasControlCharacters(apiKey)
   ) {

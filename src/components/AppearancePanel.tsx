@@ -28,7 +28,7 @@ import {
   type WallpaperMode
 } from "@/lib/quick-style";
 import { useUserPrefs } from "./useUserPrefs";
-import { useDismissableOverlay } from "./useDismissableOverlay";
+import { closeOnBackdrop, useResponsiveDialog } from "./mobile/useResponsiveDialog";
 
 type AppearanceDefaults = {
   theme?: string;
@@ -47,7 +47,7 @@ export function AppearancePanel({ siteDefaults }: { siteDefaults?: AppearanceDef
   const [open, setOpen] = useState(false);
   const [qs, setQs] = useState<QuickStyle>(DEFAULT_QUICK_STYLE);
   const [hydrated, setHydrated] = useState(false);
-  const rootRef = useRef<HTMLDivElement | null>(null);
+  const dialogRef = useRef<HTMLDialogElement | null>(null);
   const triggerRef = useRef<HTMLButtonElement | null>(null);
   const defaults = useMemo(() => normalizeDefaults(siteDefaults), [siteDefaults]);
   const { prefs, update } = useUserPrefs(defaults);
@@ -63,10 +63,20 @@ export function AppearancePanel({ siteDefaults }: { siteDefaults?: AppearanceDef
       setQs(readQuickStyle());
       setHydrated(true);
     }, 0);
-    return () => window.clearTimeout(timer);
+    // The public article toolbar uses the same saved layout preference. Keep the
+    // mounted header panel in sync so changing a color cannot restore stale layout.
+    const observer = new MutationObserver(() => {
+      const layout = readQuickStyle().postsLayout;
+      setQs((current) => (current.postsLayout === layout ? current : { ...current, postsLayout: layout }));
+    });
+    observer.observe(document.documentElement, { attributes: true, attributeFilter: ["data-posts-layout"] });
+    return () => {
+      window.clearTimeout(timer);
+      observer.disconnect();
+    };
   }, []);
 
-  useDismissableOverlay(open, rootRef, () => setOpen(false), triggerRef);
+  useResponsiveDialog(open, dialogRef, () => setOpen(false), "always", triggerRef);
 
   function commit(partial: Partial<QuickStyle>) {
     setQs((prev) => {
@@ -92,13 +102,14 @@ export function AppearancePanel({ siteDefaults }: { siteDefaults?: AppearanceDef
     prefs.theme === defaults.theme;
 
   return (
-    <div className="theme-switcher quick-style" ref={rootRef}>
+    <div className="theme-switcher quick-style">
       <button
         ref={triggerRef}
         type="button"
         className="theme-switcher-trigger"
         aria-expanded={open}
-        aria-controls="appearance-menu"
+        aria-controls="appearance-dialog"
+        aria-haspopup="dialog"
         aria-label={isEnglish ? "Appearance" : "外观设置"}
         onClick={() => setOpen((value) => !value)}
       >
@@ -108,131 +119,197 @@ export function AppearancePanel({ siteDefaults }: { siteDefaults?: AppearanceDef
         </span>
       </button>
 
-      <div id="appearance-menu" className="quick-style-menu" hidden={!open}>
-        <section className="quick-style-section">
-          <div className="quick-style-heading">
-            <h4><I18nText zh="颜色主题" en="Color Theme" /></h4>
-          </div>
-          <div className="quick-style-options appearance-theme-grid" role="group" aria-label={isEnglish ? "Color theme" : "颜色主题"}>
-            {THEMES.map((theme) => {
-              const active = prefs.theme === theme.key;
-              return (
-                <button
-                  key={theme.key}
-                  type="button"
-                  aria-pressed={active}
-                  className={`quick-style-option${active ? " active" : ""}`}
-                  onClick={() => update({ theme: theme.key as ThemeKey })}
-                >
-                  <ThemeSwatch colors={theme.swatch} />
-                  <span>{theme.label}</span>
-                  {active ? <span className="quick-style-check" aria-hidden>✓</span> : null}
-                </button>
-              );
-            })}
-          </div>
-        </section>
-
-        <section className="quick-style-section">
-          <div className="quick-style-heading">
-            <h4><I18nText zh="主题色相" en="Accent Hue" /></h4>
-            <span className="quick-style-badge">
-              {qs.hue !== null ? `${qs.hue}°` : <I18nText zh="跟随主题" en="Theme" />}
-            </span>
-          </div>
-          <input
-            className="quick-style-hue"
-            type="range"
-            min={0}
-            max={360}
-            step={1}
-            value={qs.hue ?? 210}
-            disabled={!hydrated}
-            aria-label={isEnglish ? "Accent hue" : "主题色相"}
-            aria-valuetext={qs.hue !== null ? `${qs.hue}°` : (isEnglish ? "Follow theme" : "跟随主题")}
-            onChange={(event) => commit({ hue: clampHue(Number(event.target.value)) })}
-          />
-          {qs.hue !== null ? (
-            <button type="button" className="quick-style-clear" onClick={() => commit({ hue: null })}>
-              <I18nText zh="↺ 恢复主题原色" en="↺ Use theme color" />
-            </button>
-          ) : null}
-        </section>
-
-        <section className="quick-style-section">
-          <div className="quick-style-heading">
-            <h4><I18nText zh="壁纸模式" en="Wallpaper" /></h4>
-          </div>
-          <div className="quick-style-options" role="group" aria-label={isEnglish ? "Wallpaper mode" : "壁纸模式"}>
-            {([
-              { key: "default", zh: "跟随主题", en: "Theme default" },
-              { key: "aurora", zh: "光晕壁纸", en: "Aurora glow" },
-              { key: "plain", zh: "纯色背景", en: "Plain color" }
-            ] as Array<{ key: WallpaperMode; zh: string; en: string }>).map((option) => (
-              <button
-                key={option.key}
-                type="button"
-                aria-pressed={qs.wallpaper === option.key}
-                className={`quick-style-option${qs.wallpaper === option.key ? " active" : ""}`}
-                onClick={() => commit({ wallpaper: option.key })}
-              >
-                <span><I18nText zh={option.zh} en={option.en} /></span>
-                {qs.wallpaper === option.key ? <span className="quick-style-check" aria-hidden>✓</span> : null}
-              </button>
-            ))}
-          </div>
-        </section>
-
-        <section className="quick-style-section">
-          <div className="quick-style-heading">
-            <h4><I18nText zh="文章布局" en="Posts Layout" /></h4>
-          </div>
-          <div className="quick-style-options quick-style-options-row" role="group" aria-label={isEnglish ? "Posts layout" : "文章布局"}>
-            {([
-              { key: "default", zh: "默认", en: "Default" },
-              { key: "grid", zh: "网格", en: "Grid" },
-              { key: "list", zh: "列表", en: "List" }
-            ] as Array<{ key: PostsLayoutMode; zh: string; en: string }>).map((option) => (
-              <button
-                key={option.key}
-                type="button"
-                aria-pressed={qs.postsLayout === option.key}
-                className={`quick-style-option${qs.postsLayout === option.key ? " active" : ""}`}
-                onClick={() => commit({ postsLayout: option.key })}
-              >
-                <span><I18nText zh={option.zh} en={option.en} /></span>
-                {qs.postsLayout === option.key ? <span className="quick-style-check" aria-hidden>✓</span> : null}
-              </button>
-            ))}
-          </div>
-        </section>
-
-        {effectiveUi === "firefly" ? (
+      <dialog
+        ref={dialogRef}
+        id="appearance-dialog"
+        className="appearance-dialog"
+        aria-labelledby="appearance-title"
+        onClick={(event) => closeOnBackdrop(event, () => setOpen(false))}
+      >
+        <header className="appearance-dialog-heading">
+          <h2 id="appearance-title">
+            <I18nText zh="阅读外观" en="Reading appearance" />
+          </h2>
+          <button
+            type="button"
+            className="appearance-dialog-close"
+            data-dialog-initial-focus
+            aria-label={isEnglish ? "Close appearance settings" : "关闭外观设置"}
+            onClick={() => setOpen(false)}
+          >
+            ×
+          </button>
+        </header>
+        <div id="appearance-menu" className="quick-style-menu">
           <section className="quick-style-section">
             <div className="quick-style-heading">
-              <h4><I18nText zh="横幅设置" en="Banner" /></h4>
+              <h4>
+                <I18nText zh="颜色主题" en="Color Theme" />
+              </h4>
             </div>
-            <label className="quick-style-switch">
-              <span><I18nText zh="首页壁纸横幅" en="Wallpaper banner" /></span>
-              <input
-                type="checkbox"
-                checked={qs.ffBanner}
-                onChange={(event) => commit({ ffBanner: event.target.checked })}
-              />
-              <span className="quick-style-switch-track" aria-hidden />
-            </label>
+            <div
+              className="quick-style-options appearance-theme-grid"
+              role="group"
+              aria-label={isEnglish ? "Color theme" : "颜色主题"}
+            >
+              {THEMES.map((theme) => {
+                const active = prefs.theme === theme.key;
+                return (
+                  <button
+                    key={theme.key}
+                    type="button"
+                    aria-pressed={active}
+                    className={`quick-style-option${active ? " active" : ""}`}
+                    onClick={() => update({ theme: theme.key as ThemeKey })}
+                  >
+                    <ThemeSwatch colors={theme.swatch} />
+                    <span>{theme.label}</span>
+                    {active ? (
+                      <span className="quick-style-check" aria-hidden>
+                        ✓
+                      </span>
+                    ) : null}
+                  </button>
+                );
+              })}
+            </div>
           </section>
-        ) : null}
 
-        <footer className="quick-style-footer">
-          <button type="button" className="quick-style-clear" onClick={resetAll} disabled={isDefault}>
-            <I18nText zh="全部恢复默认" en="Reset all" />
-          </button>
-          <LocalizedLink className="quick-style-more" href="/settings">
-            <I18nText zh="更多设置 →" en="More settings →" />
-          </LocalizedLink>
-        </footer>
-      </div>
+          <section className="quick-style-section">
+            <div className="quick-style-heading">
+              <h4>
+                <I18nText zh="主题色相" en="Accent Hue" />
+              </h4>
+              <span className="quick-style-badge">
+                {qs.hue !== null ? `${qs.hue}°` : <I18nText zh="跟随主题" en="Theme" />}
+              </span>
+            </div>
+            <input
+              className="quick-style-hue"
+              type="range"
+              min={0}
+              max={360}
+              step={1}
+              value={qs.hue ?? 210}
+              disabled={!hydrated}
+              aria-label={isEnglish ? "Accent hue" : "主题色相"}
+              aria-valuetext={qs.hue !== null ? `${qs.hue}°` : isEnglish ? "Follow theme" : "跟随主题"}
+              onChange={(event) => commit({ hue: clampHue(Number(event.target.value)) })}
+            />
+            {qs.hue !== null ? (
+              <button type="button" className="quick-style-clear" onClick={() => commit({ hue: null })}>
+                <I18nText zh="↺ 恢复主题原色" en="↺ Use theme color" />
+              </button>
+            ) : null}
+          </section>
+
+          <section className="quick-style-section">
+            <div className="quick-style-heading">
+              <h4>
+                <I18nText zh="壁纸模式" en="Wallpaper" />
+              </h4>
+            </div>
+            <div
+              className="quick-style-options"
+              role="group"
+              aria-label={isEnglish ? "Wallpaper mode" : "壁纸模式"}
+            >
+              {(
+                [
+                  { key: "default", zh: "跟随主题", en: "Theme default" },
+                  { key: "aurora", zh: "光晕壁纸", en: "Aurora glow" },
+                  { key: "plain", zh: "纯色背景", en: "Plain color" }
+                ] as Array<{ key: WallpaperMode; zh: string; en: string }>
+              ).map((option) => (
+                <button
+                  key={option.key}
+                  type="button"
+                  aria-pressed={qs.wallpaper === option.key}
+                  className={`quick-style-option${qs.wallpaper === option.key ? " active" : ""}`}
+                  onClick={() => commit({ wallpaper: option.key })}
+                >
+                  <span>
+                    <I18nText zh={option.zh} en={option.en} />
+                  </span>
+                  {qs.wallpaper === option.key ? (
+                    <span className="quick-style-check" aria-hidden>
+                      ✓
+                    </span>
+                  ) : null}
+                </button>
+              ))}
+            </div>
+          </section>
+
+          <section className="quick-style-section">
+            <div className="quick-style-heading">
+              <h4>
+                <I18nText zh="文章布局" en="Posts Layout" />
+              </h4>
+            </div>
+            <div
+              className="quick-style-options quick-style-options-row"
+              role="group"
+              aria-label={isEnglish ? "Posts layout" : "文章布局"}
+            >
+              {(
+                [
+                  { key: "default", zh: "默认", en: "Default" },
+                  { key: "grid", zh: "网格", en: "Grid" },
+                  { key: "list", zh: "列表", en: "List" }
+                ] as Array<{ key: PostsLayoutMode; zh: string; en: string }>
+              ).map((option) => (
+                <button
+                  key={option.key}
+                  type="button"
+                  aria-pressed={qs.postsLayout === option.key}
+                  className={`quick-style-option${qs.postsLayout === option.key ? " active" : ""}`}
+                  onClick={() => commit({ postsLayout: option.key })}
+                >
+                  <span>
+                    <I18nText zh={option.zh} en={option.en} />
+                  </span>
+                  {qs.postsLayout === option.key ? (
+                    <span className="quick-style-check" aria-hidden>
+                      ✓
+                    </span>
+                  ) : null}
+                </button>
+              ))}
+            </div>
+          </section>
+
+          {effectiveUi === "firefly" ? (
+            <section className="quick-style-section">
+              <div className="quick-style-heading">
+                <h4>
+                  <I18nText zh="横幅设置" en="Banner" />
+                </h4>
+              </div>
+              <label className="quick-style-switch">
+                <span>
+                  <I18nText zh="首页壁纸横幅" en="Wallpaper banner" />
+                </span>
+                <input
+                  type="checkbox"
+                  checked={qs.ffBanner}
+                  onChange={(event) => commit({ ffBanner: event.target.checked })}
+                />
+                <span className="quick-style-switch-track" aria-hidden />
+              </label>
+            </section>
+          ) : null}
+
+          <footer className="quick-style-footer">
+            <button type="button" className="quick-style-clear" onClick={resetAll} disabled={isDefault}>
+              <I18nText zh="全部恢复默认" en="Reset all" />
+            </button>
+            <LocalizedLink className="quick-style-more" href="/settings">
+              <I18nText zh="更多设置 →" en="More settings →" />
+            </LocalizedLink>
+          </footer>
+        </div>
+      </dialog>
     </div>
   );
 }

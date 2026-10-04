@@ -1,0 +1,780 @@
+/* Shared phone fixes, loaded after public/admin design layers. Keep real local
+ * overflow scrollable; do not hide wider content with a global overflow-x hack. */
+.appearance-dialog {
+  position: fixed;
+  inset: calc(var(--visible-viewport-top, 0px) + 86px) max(24px, env(safe-area-inset-right)) auto auto;
+  width: min(370px, calc(100vw - 32px));
+  max-width: none;
+  max-height: calc(var(--visible-viewport-height, 100dvh) - 110px);
+  margin: 0;
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  background: var(--surface-strong);
+  color: var(--ink);
+  box-shadow: var(--ui-shadow-lg);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+.appearance-dialog:not([open]),
+:root[data-theme][data-ui] dialog.ai-assistant-panel:not([open]) {
+  display: none;
+}
+.appearance-dialog::backdrop,
+dialog.ai-assistant-panel::backdrop {
+  background: rgb(15 25 24 / 35%);
+}
+.appearance-dialog-heading {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 14px 8px 20px;
+  border-bottom: 1px solid var(--line);
+  background: var(--surface-strong);
+}
+.appearance-dialog-heading h2 {
+  margin: 0;
+  font-size: 17px;
+}
+.appearance-dialog-close {
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: 50%;
+  background: transparent;
+  color: var(--ink);
+  font-size: 24px;
+  cursor: pointer;
+}
+:root[data-theme][data-ui] .appearance-dialog .quick-style-menu {
+  position: static;
+  inset: auto;
+  width: 100%;
+  max-width: none;
+  max-height: none;
+  margin: 0;
+  padding: 18px;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+  animation: none;
+}
+:root[data-theme][data-ui] dialog.ai-assistant-panel {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  max-width: none;
+  max-height: none;
+  color: var(--ink);
+}
+:root[data-theme][data-ui] dialog.ai-assistant-panel[open] {
+  display: flex;
+  flex-direction: column;
+}
+:root[data-theme][data-ui] .chart-frame {
+  width: 100%;
+  min-width: 0;
+}
+:root[data-theme][data-ui] .chart-frame > svg {
+  display: block;
+  width: 100%;
+  min-width: 0;
+  height: auto;
+  max-height: none;
+  overflow: visible;
+}
+.chart-data {
+  margin-top: 10px;
+  border-top: 1px solid var(--line);
+  font-size: 12px;
+  color: var(--muted);
+}
+.chart-data > summary {
+  min-height: 44px;
+  padding: 12px 0;
+  cursor: pointer;
+}
+.chart-data-scroll {
+  max-height: 260px;
+  overflow: auto;
+  overscroll-behavior: contain;
+}
+.chart-data table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+.chart-data th,
+.chart-data td {
+  padding: 9px 12px;
+  text-align: right;
+  border-bottom: 1px solid var(--line);
+}
+.chart-data th:first-child {
+  text-align: left;
+}
+.post-assist-scope {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  max-width: 100%;
+  flex: 1 1 240px;
+  font-size: 13px;
+}
+.post-assist-scope select {
+  width: 100%;
+  min-width: 0;
+  min-height: 44px;
+  padding: 9px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--ink);
+  font: inherit;
+}
+@media (max-width: 960px) {
+  :root {
+    --ui-header-offset: 82px;
+  }
+  :root[data-theme][data-ui] .admin-mobile-menu-panel {
+    max-height: calc(var(--visible-viewport-height, 100dvh) - 86px);
+    overflow-y: auto;
+    overscroll-behavior: contain;
+  }
+  .admin-main,
+  .admin-page-header,
+  .post-assist-scope {
+    min-width: 0;
+  }
+}
+@media (max-width: 720px), (max-height: 520px) and (pointer: coarse) {
+  .appearance-dialog {
+    --sheet-height: min(680px, calc(var(--visible-viewport-height, 100dvh) - 24px));
+    top: calc(
+      var(--visible-viewport-top, 0px) + var(--visible-viewport-height, 100dvh) - var(--sheet-height) - 12px
+    );
+    right: max(12px, env(safe-area-inset-right));
+    left: max(12px, env(safe-area-inset-left));
+    bottom: auto;
+    width: auto;
+    height: var(--sheet-height);
+    max-height: var(--sheet-height);
+    border-radius: 20px;
+  }
+  .appearance-dialog-heading {
+    padding-block: 10px;
+  }
+  :root[data-theme][data-ui] .appearance-dialog .quick-style-menu {
+    padding: 16px 18px max(18px, env(safe-area-inset-bottom));
+  }
+  .appearance-dialog .quick-style-hue {
+    min-height: 44px;
+  }
+  .appearance-dialog .quick-style-option {
+    min-height: 44px;
+  }
+  :root[data-theme][data-ui] dialog.ai-assistant-panel[open] {
+    --assistant-height: min(700px, calc(var(--visible-viewport-height, 100dvh) - 16px));
+    position: fixed;
+    top: calc(
+      var(--visible-viewport-top, 0px) + var(--visible-viewport-height, 100dvh) - var(--assistant-height) -
+        8px
+    );
+    left: max(8px, env(safe-area-inset-left));
+    right: max(8px, env(safe-area-inset-right));
+    bottom: auto;
+    width: auto;
+    height: var(--assistant-height);
+    max-height: var(--assistant-height);
+    min-height: 0;
+    border-radius: 18px;
+    transform: none;
+    opacity: 1;
+    visibility: visible;
+    pointer-events: auto;
+    overflow: hidden;
+  }
+  .ai-assistant-dock.open .ai-assistant-launcher {
+    visibility: hidden;
+  }
+  :root[data-theme][data-ui] .ai-assistant-dock.open {
+    position: static;
+    width: 0;
+    height: 0;
+    min-width: 0;
+  }
+  .ai-assistant-topbar {
+    flex: 0 0 auto;
+    padding: 12px 14px;
+    gap: 8px;
+  }
+  .ai-assistant-topbar .eyebrow {
+    display: none;
+  }
+  .ai-assistant-topbar h2 {
+    font-size: 17px;
+  }
+  .ai-assistant-window-actions {
+    min-width: 0;
+    gap: 8px;
+  }
+  .ai-assistant-window-actions .tag {
+    max-width: 96px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: 11px;
+  }
+  :root[data-theme][data-ui] .ai-assistant-icon-button {
+    width: 44px;
+    height: 44px;
+    min-width: 44px;
+    min-height: 44px;
+  }
+  .assistant-chat-log {
+    min-height: 0;
+    flex: 1 1 0;
+    overflow: auto;
+    overscroll-behavior: contain;
+    padding: 16px;
+  }
+  .assistant-spark {
+    display: none;
+  }
+  .assistant-welcome h3 {
+    font-size: 25px;
+    line-height: 1.5;
+    letter-spacing: 0;
+  }
+  .assistant-welcome p {
+    font-size: 14px;
+    line-height: 1.8;
+  }
+  .assistant-suggestion-grid {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 10px;
+  }
+  .assistant-suggestion-card button {
+    min-height: 44px;
+    font-size: 14px;
+    line-height: 1.6;
+  }
+  .assistant-input-row {
+    flex: 0 0 auto;
+    min-height: 0;
+    padding: 10px 14px max(10px, env(safe-area-inset-bottom));
+  }
+  .assistant-input-row textarea {
+    min-height: 64px;
+    max-height: 104px;
+    height: 72px;
+    padding: 12px;
+    font-size: 16px;
+    line-height: 1.5;
+    resize: none;
+  }
+  .assistant-input-footer {
+    margin-top: 6px;
+    font-size: 10px;
+  }
+  .assistant-input-footer .button {
+    min-height: 44px;
+    min-width: 44px;
+  }
+  .publication-dialog {
+    top: calc(var(--visible-viewport-top, 0px) + 12px);
+    bottom: auto;
+    max-height: calc(var(--visible-viewport-height, 100dvh) - 24px);
+    margin-block: 0;
+    overscroll-behavior: contain;
+  }
+}
+@media (max-width: 700px) {
+  html {
+    scroll-padding-top: 80px;
+    scrollbar-gutter: auto;
+  }
+  .publication-container,
+  .publication-header-inner,
+  .publication-footer {
+    width: calc(100% - 32px);
+  }
+  .publication-header-inner {
+    gap: 8px;
+    min-height: 64px;
+  }
+  .publication-brand {
+    flex: 1;
+    min-width: 0;
+    gap: 8px;
+  }
+  .publication-brand > span {
+    min-width: 0;
+  }
+  .publication-brand strong {
+    max-width: 100%;
+    font-size: 18px;
+  }
+  .publication-brand small {
+    font-size: 7px;
+    letter-spacing: 0.05em;
+  }
+  .publication-actions {
+    flex-shrink: 0;
+    gap: 0;
+  }
+  .publication-search-trigger,
+  .publication-menu-trigger,
+  :root[data-theme][data-ui] .publication-appearance .theme-switcher-trigger {
+    width: 44px;
+    height: 44px;
+    min-width: 44px;
+    min-height: 44px;
+  }
+  .publication-hero {
+    gap: 24px;
+    padding-block: 28px 24px;
+  }
+  .publication-hero h1 {
+    font-size: clamp(34px, 8.8vw, 46px);
+    margin-block: 18px 25px;
+  }
+  .publication-hero-description {
+    font-size: 14px;
+    line-height: 1.8;
+    margin-bottom: 20px;
+  }
+  .publication-hero-bottom {
+    margin-top: 23px;
+  }
+  .publication-hero-bottom strong {
+    font-size: 12px;
+  }
+  .publication-hero-bottom div > span {
+    font-size: 11px;
+  }
+  .hero-scene {
+    min-height: 330px;
+    padding: 16px 18px;
+  }
+  .scene-artwork {
+    min-height: 180px;
+  }
+  .scene-sculpture {
+    scale: 0.75;
+  }
+  .scene-stamp {
+    bottom: 18px;
+    right: 3%;
+    font-size: 18px;
+    padding: 9px 13px;
+  }
+  .scene-note {
+    padding: 12px 0 8px;
+    min-height: 60px;
+  }
+  .scene-note strong {
+    font-size: 12px;
+  }
+  .scene-note p {
+    font-size: 11px;
+    line-height: 1.65;
+  }
+  .scene-modes button {
+    min-height: 40px;
+    padding-inline: 14px;
+    font-size: 12px;
+  }
+  .scene-motion-toggle {
+    min-width: 44px;
+    min-height: 44px;
+    font-size: 10px;
+  }
+  .scene-coordinate,
+  .scene-footnote {
+    display: none;
+  }
+  .publication-ticker {
+    gap: 10px;
+  }
+  .publication-ticker > a {
+    min-width: 0;
+    min-height: 44px;
+  }
+  .publication-ticker > a > span {
+    display: block;
+    min-width: 0;
+  }
+  .publication-ticker > a .i18n-zh,
+  .publication-ticker > a .i18n-en {
+    display: block;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .publication-ticker-label {
+    font-size: 10px;
+  }
+  .publication-stories {
+    padding-block: 32px 36px;
+  }
+  .publication-section-heading h2 {
+    font-size: 23px;
+  }
+  .publication-section-heading > .publication-text-link {
+    font-size: 12px;
+    min-height: 44px;
+  }
+  .shelf-filters button,
+  .publication-topics a {
+    min-height: 44px;
+    font-size: 12px;
+    padding-inline: 14px;
+  }
+  .publication-topics {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    max-width: 100%;
+    scrollbar-width: thin;
+    padding-bottom: 5px;
+  }
+  .publication-topics a {
+    flex-shrink: 0;
+  }
+  .story-card h3 {
+    font-size: 19px;
+  }
+  .story-summary {
+    font-size: 14px;
+    line-height: 1.8;
+  }
+  .story-meta,
+  .story-topic {
+    font-size: 12px;
+  }
+  .story-card-bottom {
+    font-size: 11px;
+  }
+  .story-art {
+    aspect-ratio: 2;
+  }
+  .publication-view-switch button {
+    width: 44px;
+    height: 44px;
+  }
+  .publication-post-search {
+    flex-wrap: nowrap;
+    gap: 8px;
+  }
+  .publication-post-search input[type="search"] {
+    min-width: 0;
+    font-size: 16px;
+  }
+  .publication-post-search .publication-button {
+    min-height: 44px;
+  }
+  :root[data-theme][data-ui] .article-toc-mobile {
+    position: static;
+    margin-bottom: 24px;
+  }
+  .publication-copy {
+    min-height: 44px;
+    padding-inline: 12px;
+    font-size: 12px;
+  }
+  .publication-reading-estimate {
+    font-size: 12px;
+  }
+  .publication-reading-dock {
+    max-width: calc(100% - 136px);
+    min-width: 0;
+    min-height: 48px;
+    padding: 4px 4px 4px 12px;
+    gap: 6px;
+    bottom: max(12px, env(safe-area-inset-bottom));
+  }
+  .publication-reading-dock button {
+    width: 44px;
+    height: 44px;
+    flex-shrink: 0;
+  }
+  .publication-reading-dock > span {
+    font-size: 10px;
+  }
+  .publication-reading-meter {
+    width: 34px;
+  }
+  :root[data-theme][data-ui] .ai-assistant-dock:not(.open) {
+    right: max(12px, env(safe-area-inset-right));
+    bottom: max(12px, env(safe-area-inset-bottom));
+    width: 48px;
+    height: 48px;
+  }
+  :root[data-theme][data-ui] .ai-assistant-launcher {
+    width: 48px;
+    height: 48px;
+    min-height: 48px;
+  }
+  :root[data-theme][data-ui] .music-player {
+    max-width: calc(100vw - 80px);
+    bottom: max(12px, env(safe-area-inset-bottom));
+    left: max(12px, env(safe-area-inset-left));
+    flex-wrap: wrap;
+    gap: 4px;
+  }
+  :root[data-theme][data-ui] .music-player[data-collapsed] {
+    width: 48px;
+    padding: 2px;
+  }
+  .music-player button {
+    width: 44px;
+    min-height: 44px;
+  }
+  .music-player .music-title {
+    min-width: 0;
+    max-width: 100%;
+    flex-basis: calc(100% - 100px);
+  }
+  body:has(.publication-reading-dock:not([hidden])) .music-player:not([data-collapsed]) {
+    bottom: max(78px, calc(env(safe-area-inset-bottom) + 66px));
+  }
+  /* Writing already has its own contextual AI controls; a second floating AI
+     button is redundant and covers editor tools on narrow screens. */
+  body:has(.writing-page) .ai-assistant-dock:not(.open) {
+    display: none;
+  }
+  :root[data-mobile-keyboard] .ai-assistant-dock:not(.open),
+  :root[data-mobile-keyboard] .publication-reading-dock,
+  :root[data-mobile-keyboard] .music-player {
+    display: none;
+  }
+  .publication-footer a {
+    min-height: 36px;
+  }
+  .publication-footer-disclaimer {
+    padding-bottom: 60px;
+  }
+  .publication-dialog-spaces > a {
+    min-height: 64px;
+  }
+  .publication-dialog-footer {
+    align-items: center;
+  }
+  .publication-dialog-footer a,
+  .publication-dialog-footer button {
+    display: inline-flex;
+    align-items: center;
+    min-height: 44px;
+  }
+  .publication-dialog-keyboard {
+    display: none;
+  }
+  .chart-data {
+    font-size: 13px;
+  }
+  :root[data-theme][data-ui] .chart-card {
+    padding: 18px 16px;
+    min-width: 0;
+  }
+  :root[data-theme][data-ui] .chart-card h2 {
+    font-size: 18px;
+    line-height: 1.5;
+  }
+  .chart-legend {
+    flex-wrap: wrap;
+    gap: 8px 12px;
+    font-size: 12px;
+  }
+  .post-assist-scope {
+    grid-template-columns: minmax(0, 1fr);
+    flex-basis: 100%;
+    gap: 6px;
+    font-size: 14px;
+  }
+  .post-assist-scope select {
+    font-size: 16px;
+  }
+  :root[data-theme][data-ui] .admin-page-header {
+    gap: 16px;
+    padding-top: 10px;
+  }
+  :root[data-theme][data-ui] .admin-mobile-menu-trigger {
+    min-height: 44px;
+  }
+  :root[data-theme][data-ui] .admin-markdown-head > div {
+    min-width: 0;
+  }
+  :root[data-theme][data-ui] .admin-markdown-tabs {
+    display: flex;
+    min-width: 0;
+    overflow-x: auto;
+  }
+  :root[data-theme][data-ui] .admin-markdown-tabs button {
+    min-height: 44px;
+    flex: 1 0 auto;
+    padding-inline: 10px;
+    font-size: 13px;
+  }
+  :root[data-theme][data-ui] .admin-markdown-formatbar {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    max-width: 100%;
+    overscroll-behavior-x: contain;
+    padding-bottom: 6px;
+  }
+  :root[data-theme][data-ui] .admin-markdown-formatbar button {
+    min-height: 44px;
+    min-width: 44px;
+    flex-shrink: 0;
+  }
+  :root[data-theme][data-ui] .admin-markdown-workspace.focus-mode {
+    top: calc(var(--visible-viewport-top, 0px) + 6px);
+    bottom: auto;
+    left: max(6px, env(safe-area-inset-left));
+    right: max(6px, env(safe-area-inset-right));
+    height: calc(var(--visible-viewport-height, 100dvh) - 12px);
+    padding: 12px;
+    border-radius: 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    overflow: hidden;
+  }
+  .admin-markdown-workspace.focus-mode .admin-markdown-head {
+    display: none;
+  }
+  .admin-markdown-workspace.focus-mode .admin-markdown-controls {
+    margin: 0;
+    flex-shrink: 0;
+  }
+  .admin-markdown-workspace.focus-mode .admin-markdown-formatbar {
+    margin: 0;
+    flex-shrink: 0;
+  }
+  .admin-markdown-workspace.focus-mode .admin-markdown-panels {
+    flex: 1;
+    min-height: 0;
+    overflow: auto;
+  }
+  .admin-markdown-workspace.focus-mode .admin-markdown-panels.mode-split {
+    grid-template-rows: repeat(2, minmax(180px, 1fr));
+  }
+  .admin-markdown-workspace.focus-mode .admin-markdown-panel-label {
+    display: none;
+  }
+  :root[data-theme][data-ui] .admin-markdown-workspace.focus-mode .admin-markdown-source-panel textarea,
+  :root[data-theme][data-ui] .admin-markdown-workspace.focus-mode .admin-markdown-preview {
+    height: 100%;
+    min-height: 0;
+    max-height: none;
+  }
+  .admin-markdown-workspace.focus-mode .admin-markdown-source-panel,
+  .admin-markdown-workspace.focus-mode .admin-markdown-preview-panel {
+    min-height: 0;
+  }
+  .admin-markdown-workspace.focus-mode .admin-markdown-help {
+    display: none;
+  }
+  :root[data-theme][data-ui] .admin-tabs {
+    scrollbar-width: thin;
+    padding-bottom: 6px;
+  }
+  .admin-tabs button {
+    min-height: 44px;
+  }
+  .admin-main .row-actions {
+    flex-wrap: wrap;
+  }
+  :root[data-theme][data-ui]
+    .admin-main
+    input:not([type="checkbox"]):not([type="radio"]):not([type="color"]):not([type="range"]),
+  :root[data-theme][data-ui] .admin-main select,
+  :root[data-theme][data-ui] .admin-main textarea {
+    min-width: 0;
+    max-width: 100%;
+    font-size: 16px;
+  }
+  :root[data-theme][data-ui] .writing-title {
+    font-size: 32px;
+  }
+  .writing-list-toggle {
+    min-height: 44px;
+  }
+  .writing-sidebar.open {
+    max-height: min(65dvh, 460px);
+    overflow-y: auto;
+    overscroll-behavior: contain;
+  }
+  :root[data-theme][data-ui] .writing-doc-delete {
+    width: 44px;
+    height: 44px;
+  }
+  .writing-canvas .row-actions {
+    flex-wrap: wrap;
+  }
+}
+@media (max-width: 360px) {
+  .publication-container,
+  .publication-header-inner,
+  .publication-footer {
+    width: calc(100% - 24px);
+  }
+  .publication-brand small {
+    display: none;
+  }
+  .publication-reading-meter {
+    display: none;
+  }
+  .scene-motion-toggle span {
+    display: none;
+  }
+  .scene-modes button {
+    padding-inline: 11px;
+  }
+}
+@media (max-height: 520px) and (pointer: coarse) {
+  .assistant-welcome h3 {
+    font-size: 21px;
+  }
+  .ai-assistant-topbar {
+    padding-block: 6px;
+  }
+  .assistant-input-row {
+    padding-block: 6px;
+  }
+  .assistant-input-row textarea {
+    height: 58px;
+    min-height: 48px;
+  }
+  .assistant-chat-log {
+    padding-block: 10px;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .appearance-dialog,
+  .appearance-dialog *,
+  dialog.ai-assistant-panel,
+  dialog.ai-assistant-panel * {
+    scroll-behavior: auto;
+    animation: none;
+  }
+}
+@media print {
+  .appearance-dialog,
+  .ai-assistant-dock,
+  .chart-data {
+    display: none;
+  }
+}

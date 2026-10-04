@@ -10,6 +10,7 @@ import type { AssistantSuggestionGroup } from "@/components/AiAssistant";
  */
 export type AssistantPageContextValue = {
   context: string;
+  launcherTargetId?: string;
   contextLabel?: ReactNode;
   suggestionGroups?: AssistantSuggestionGroup[];
 };

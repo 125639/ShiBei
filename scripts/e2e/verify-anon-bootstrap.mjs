@@ -7,6 +7,7 @@
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { createRequire } from "node:module";
+import { AUTH_COOKIE_NAMES, authCookieFrom } from "./auth-cookie-names.mjs";
 
 try {
   if (typeof process.loadEnvFile === "function") process.loadEnvFile(".env");
@@ -46,18 +47,17 @@ function bootstrapHeaders(extra = {}) {
 }
 
 function isAnonCookieName(name) {
-  return /^(?:__Host-)?shibei(?:_dev)?_anon_id$/.test(name);
+  return AUTH_COOKIE_NAMES.anonymousIdentity.includes(name);
 }
 
 function hasAnonSetCookie(raw) {
-  return /(?:^|,\s*)(?:__Host-)?shibei(?:_dev)?_anon_id=/.test(raw || "");
+  return (raw || "").split(/,(?=[^;,]+=)/).some((item) =>
+    AUTH_COOKIE_NAMES.anonymousIdentity.some((name) => item.trim().startsWith(`${name}=`))
+  );
 }
 
 function anonCookieFrom(response) {
-  const raw = response.headers.get("set-cookie") || "";
-  const match = raw.match(/(?:^|,\s*)((?:__Host-)?shibei(?:_dev)?_anon_id=[^;,]+)/);
-  if (!match) throw new Error("response did not set the anonymous identity cookie");
-  return match[1];
+  return authCookieFrom(response, "anonymousIdentity");
 }
 
 function gate(target, timeoutMs = 30_000) {

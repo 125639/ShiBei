@@ -1,24 +1,35 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useTransition } from "react";
 import { useRouter } from "next/navigation";
 
-/** 活跃后台任务存在时刷新服务端页面数据；隐藏标签页不发送无意义请求。 */
+/** Poll only visible, idle screens. Wait for the previous refresh to commit so a
+ * slow server cannot accumulate an interval's worth of overlapping RSC renders.
+ */
 export function AutoRefresh({ active, intervalMs = 5_000 }: { active: boolean; intervalMs?: number }) {
   const router = useRouter();
-
+  const [pending, startTransition] = useTransition();
   useEffect(() => {
-    if (!active) return;
-    const refreshWhenVisible = () => {
-      if (document.visibilityState === "visible") router.refresh();
+    if (!active || pending) return;
+    let timer: ReturnType<typeof setTimeout>;
+    const schedule = () => {
+      timer = setTimeout(refresh, Math.max(1000, intervalMs));
     };
-    const timer = window.setInterval(refreshWhenVisible, intervalMs);
-    document.addEventListener("visibilitychange", refreshWhenVisible);
+    const refresh = () => {
+      clearTimeout(timer);
+      const editing = document.activeElement?.closest('input, textarea, select, [contenteditable="true"]');
+      if (document.visibilityState !== "visible" || !navigator.onLine || editing) {
+        schedule();
+        return;
+      }
+      startTransition(() => router.refresh());
+    };
+    schedule();
+    document.addEventListener("visibilitychange", refresh);
     return () => {
-      window.clearInterval(timer);
-      document.removeEventListener("visibilitychange", refreshWhenVisible);
+      clearTimeout(timer);
+      document.removeEventListener("visibilitychange", refresh);
     };
-  }, [active, intervalMs, router]);
-
+  }, [active, intervalMs, pending, router]);
   return null;
 }

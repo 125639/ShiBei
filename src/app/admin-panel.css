@@ -1,0 +1,1018 @@
+/* ==============================================================
+   ShiBei Admin — Panel skin (KPanel-style dark console)
+   - Only loaded by the admin root layout, never by the public site.
+   - `data-theme="panel"` is forced by the admin layout, so every rule
+     here can safely assume it owns the whole document.
+   - Specificity: design-system.css gates its admin block behind
+     `:root[data-theme][data-ui]` (0,4,0); rules that must win over it
+     repeat the same prefix and rely on this file loading last.
+   ============================================================== */
+
+/* --------------------------------------------------------------
+   1. Theme tokens — deep navy console palette
+   -------------------------------------------------------------- */
+:root[data-theme="panel"] {
+  --paper: #0a0f1b;
+  --paper-deep: #070b14;
+  --surface: rgba(22, 31, 53, 0.72);
+  --surface-soft: rgba(22, 31, 53, 0.45);
+  --surface-strong: #131c30;
+  --ink: #e7ecf6;
+  --ink-soft: #c7d0e0;
+  --muted: #8e9bb3;
+  --line: rgba(148, 165, 199, 0.14);
+  --line-strong: rgba(148, 165, 199, 0.3);
+  --accent: #3f8cff;
+  --accent-dark: #6ba4ff;
+  --accent-soft: #7ab3ff;
+  --toc-accent: #7ab3ff;
+  --white: #ffffff;
+  --code-bg: #0a101f;
+  --code-fg: #dbe4f3;
+  --shadow-card: 0 1px 2px rgba(2, 6, 16, 0.5), 0 10px 28px rgba(2, 6, 16, 0.28);
+  --border-w: 1px;
+  --border-w-strong: 1px;
+  --radius-sm: 6px;
+  --radius-md: 12px;
+  --radius-lg: 14px;
+  --bg-image:
+    radial-gradient(1100px 520px at 82% -12%, rgba(63, 140, 255, 0.09), transparent 62%),
+    radial-gradient(900px 480px at -10% 108%, rgba(124, 92, 255, 0.06), transparent 60%),
+    linear-gradient(180deg, #0a0f1b, #0b1120 55%, #0a0f1b);
+  --chart-1: #3f8cff;
+  --chart-2: #34d399;
+  --chart-3: #fbbf24;
+  --chart-4: #a78bfa;
+  --chart-5: #f472b6;
+  --chart-6: #22d3ee;
+
+  --button-bg: var(--accent);
+  --focus-ring: var(--accent);
+  --danger-button-bg: #e5484d;
+  --danger-button-fg: #ffffff;
+  --success-fg: #4ade80;
+  --success-bg: rgba(52, 211, 153, 0.12);
+  --success-border: rgba(52, 211, 153, 0.35);
+  --warning-fg: #fbd38d;
+  --warning-bg: rgba(251, 191, 36, 0.12);
+  --warning-border: rgba(251, 191, 36, 0.35);
+  --danger-fg: #fca5a5;
+  --danger-bg: rgba(248, 113, 113, 0.12);
+  --danger-border: rgba(248, 113, 113, 0.35);
+  --info-fg: #93c5fd;
+  --info-bg: rgba(96, 165, 250, 0.12);
+  --info-border: rgba(96, 165, 250, 0.35);
+  color-scheme: dark;
+
+  /* Panel-skin-only tokens (not part of the site token contract) */
+  --panel-shell-bg: #080d18;
+  --panel-card: #111a2d;
+  --panel-card-border: rgba(148, 165, 199, 0.12);
+  --panel-hover: rgba(148, 165, 199, 0.08);
+  --panel-active: rgba(63, 140, 255, 0.16);
+  --panel-field-bg: rgba(7, 12, 23, 0.7);
+}
+
+/* --------------------------------------------------------------
+   2. Document canvas
+   -------------------------------------------------------------- */
+:root[data-theme="panel"] body {
+  background: var(--bg-image);
+  background-attachment: fixed;
+  color: var(--ink);
+}
+
+:root[data-theme="panel"] ::selection {
+  background: rgba(63, 140, 255, 0.35);
+  color: #ffffff;
+}
+
+:root[data-theme="panel"] * {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(148, 165, 199, 0.28) transparent;
+}
+
+:root[data-theme="panel"] *::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+:root[data-theme="panel"] *::-webkit-scrollbar-thumb {
+  border: 3px solid transparent;
+  border-radius: 999px;
+  background: rgba(148, 165, 199, 0.26);
+  background-clip: content-box;
+}
+
+:root[data-theme="panel"] *::-webkit-scrollbar-thumb:hover {
+  background: rgba(148, 165, 199, 0.42);
+  background-clip: content-box;
+}
+
+/* The ambient glow layer from ui-polish.css stays, but calm it down
+   for a dense workspace. */
+:root[data-theme="panel"] body::before {
+  opacity: 0.55;
+}
+
+/* --------------------------------------------------------------
+   3. Shell layout: sidebar | (topbar + content)
+   -------------------------------------------------------------- */
+:root[data-theme="panel"][data-ui] .admin-layout {
+  grid-template-columns: 264px minmax(0, 1fr);
+  background: transparent;
+}
+
+.admin-shell-main {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+/* --------------------------------------------------------------
+   4. Sidebar
+   -------------------------------------------------------------- */
+:root[data-theme="panel"][data-ui] .admin-sidebar {
+  min-height: 100vh;
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
+  padding: 16px 12px 12px;
+  border-right: 1px solid var(--line);
+  background: var(--panel-shell-bg);
+  color: var(--ink);
+  box-shadow: 1px 0 0 rgba(2, 6, 16, 0.4);
+}
+
+:root[data-theme="panel"][data-ui] .admin-brand {
+  display: flex;
+  align-items: center;
+  margin: 2px 4px 14px;
+  padding: 0 4px;
+}
+
+:root[data-theme="panel"][data-ui] .admin-brand-mark,
+:root[data-theme="panel"] .login-brand-mark {
+  border: 0;
+  border-radius: 10px;
+  background: linear-gradient(145deg, #3f8cff, #7c5cff);
+  color: #ffffff;
+  box-shadow: 0 6px 18px rgba(63, 140, 255, 0.35), inset 0 1px 0 rgba(255, 255, 255, 0.28);
+}
+
+:root[data-theme="panel"] .admin-brand-text {
+  font-size: 14.5px;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+}
+
+:root[data-theme="panel"][data-ui] .admin-sidebar-desktop .admin-mode-badge {
+  border-color: rgba(148, 165, 199, 0.25) !important;
+  background: rgba(148, 165, 199, 0.1) !important;
+  color: var(--muted) !important;
+}
+
+:root[data-theme="panel"][data-ui] .admin-desktop-nav {
+  display: grid;
+  gap: 12px;
+}
+
+:root[data-theme="panel"][data-ui] .admin-nav-section {
+  margin: 0;
+}
+
+:root[data-theme="panel"][data-ui] .admin-nav-heading {
+  margin: 0 0 4px;
+  padding: 0 12px;
+  color: rgba(142, 155, 179, 0.62);
+  font-size: 10px;
+  font-weight: 650;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+:root[data-theme="panel"][data-ui] .admin-nav-links {
+  display: grid;
+  gap: 1px;
+}
+
+:root[data-theme="panel"][data-ui] .admin-sidebar :is(a, button) {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 34px;
+  margin: 0;
+  padding: 6px 12px;
+  border: 0;
+  border-radius: 9px;
+  color: rgba(199, 208, 224, 0.82);
+  font-size: 13px;
+  font-weight: 550;
+  text-align: left;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+:root[data-theme="panel"][data-ui] .admin-sidebar :is(a, button):hover {
+  background: var(--panel-hover);
+  color: #ffffff;
+}
+
+:root[data-theme="panel"][data-ui] .admin-sidebar a.active {
+  border: 0;
+  background: linear-gradient(90deg, var(--panel-active), rgba(63, 140, 255, 0.05));
+  color: #ffffff;
+  font-weight: 620;
+  box-shadow: none;
+}
+
+:root[data-theme="panel"] .admin-sidebar a.active .admin-nav-icon {
+  color: var(--accent-soft);
+}
+
+:root[data-theme="panel"] .admin-nav-icon {
+  flex: none;
+  color: rgba(142, 155, 179, 0.85);
+  transition: color 0.15s ease;
+}
+
+:root[data-theme="panel"] .admin-sidebar :is(a, button):hover .admin-nav-icon {
+  color: var(--accent-soft);
+}
+
+:root[data-theme="panel"] .admin-nav-label {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Footer: status row + user card */
+:root[data-theme="panel"][data-ui] .admin-sidebar-footer {
+  display: grid;
+  gap: 8px;
+  margin-top: auto;
+  padding-top: 14px;
+}
+
+.admin-sidebar-status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 6px;
+  color: var(--muted);
+  font-size: 11.5px;
+}
+
+.admin-status-dot {
+  flex: none;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #34d399;
+  box-shadow: 0 0 0 3px rgba(52, 211, 153, 0.18);
+}
+
+.admin-sidebar-version {
+  margin-left: auto;
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 10.5px;
+  letter-spacing: 0.02em;
+  color: rgba(142, 155, 179, 0.7);
+}
+
+.admin-user-card {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px;
+  border: 1px solid var(--panel-card-border);
+  border-radius: 12px;
+  background: rgba(22, 31, 53, 0.55);
+}
+
+.admin-user-avatar {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 9px;
+  background: linear-gradient(145deg, #3f8cff, #7c5cff);
+  color: #ffffff;
+  font-size: 14px;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.admin-user-meta {
+  display: grid;
+  min-width: 0;
+  gap: 1px;
+}
+
+.admin-user-meta strong {
+  overflow: hidden;
+  color: var(--ink);
+  font-size: 12.5px;
+  font-weight: 640;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.admin-user-meta span {
+  color: var(--muted);
+  font-size: 10.5px;
+}
+
+.admin-user-logout {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 30px;
+  height: 30px;
+  margin-left: auto;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.admin-user-logout:hover {
+  background: rgba(248, 113, 113, 0.14);
+  color: #fca5a5;
+}
+
+/* Language toggle now lives in the topbar */
+:root[data-theme="panel"][data-ui] .admin-topbar .admin-lang-toggle {
+  display: inline-flex;
+  margin: 0;
+  padding: 3px;
+  border: 1px solid var(--panel-card-border);
+  border-radius: 9px;
+  background: rgba(22, 31, 53, 0.55);
+}
+
+:root[data-theme="panel"][data-ui] .admin-topbar .admin-lang-toggle button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 26px;
+  margin: 0;
+  padding: 3px 10px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 11.5px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+:root[data-theme="panel"][data-ui] .admin-topbar .admin-lang-toggle button.active {
+  background: var(--panel-active);
+  color: #ffffff;
+}
+
+/* --------------------------------------------------------------
+   5. Topbar
+   -------------------------------------------------------------- */
+.admin-topbar {
+  position: sticky;
+  top: 0;
+  z-index: 40;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  min-height: 58px;
+  padding: 9px clamp(20px, 2.6vw, 40px);
+  border-bottom: 1px solid var(--line);
+  background: color-mix(in srgb, var(--panel-shell-bg) 88%, transparent);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+}
+
+.admin-topbar-heading {
+  display: grid;
+  gap: 1px;
+  min-width: 0;
+}
+
+.admin-topbar-crumb {
+  color: var(--muted);
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+}
+
+.admin-topbar-name {
+  overflow: hidden;
+  color: var(--ink);
+  font-size: 15.5px;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.admin-topbar-actions {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 10px;
+}
+
+.admin-topbar-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 30px;
+  padding: 4px 11px;
+  border: 1px solid var(--panel-card-border);
+  border-radius: 999px;
+  background: rgba(22, 31, 53, 0.55);
+  color: var(--ink-soft);
+  font-size: 11.5px;
+  font-weight: 600;
+}
+
+.admin-topbar-chip .admin-mode-label {
+  color: var(--muted);
+  font-weight: 550;
+}
+
+.admin-topbar-icon-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 30px;
+  padding: 4px 11px;
+  border: 1px solid var(--panel-card-border);
+  border-radius: 9px;
+  background: rgba(22, 31, 53, 0.55);
+  color: var(--ink-soft);
+  font-size: 12px;
+  font-weight: 600;
+  text-decoration: none;
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+}
+
+.admin-topbar-icon-btn:hover {
+  border-color: rgba(63, 140, 255, 0.4);
+  background: var(--panel-active);
+  color: #ffffff;
+}
+
+/* --------------------------------------------------------------
+   6. Main column & page toolbar
+   -------------------------------------------------------------- */
+:root[data-theme="panel"][data-ui] .admin-main {
+  flex: 1;
+  width: 100%;
+  max-width: 1540px;
+  margin: 0 auto;
+  padding: 26px clamp(20px, 2.6vw, 40px) 64px;
+  color: var(--ink);
+}
+
+/* List pages: the topbar owns the title, headers degrade to a right-aligned
+   toolbar. Detail pages keep their in-page title (detected via :has). */
+:root[data-theme="panel"] .admin-page-header {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 14px;
+  margin-bottom: 18px;
+  padding: 0;
+  border: 0;
+}
+
+:root[data-theme="panel"] .admin-page-header:has(h1) {
+  justify-content: space-between;
+  padding-bottom: 14px;
+  border-bottom: 1px solid var(--line);
+}
+
+/* 列表页顶部保留的上下文说明（筛选状态/功能开关提示），与右侧操作同行 */
+:root[data-theme="panel"] .admin-page-header:has(.admin-page-lede) {
+  justify-content: space-between;
+  align-items: flex-end;
+}
+
+:root[data-theme="panel"] .admin-page-lede {
+  min-width: 0;
+  max-width: 640px;
+}
+
+:root[data-theme="panel"] .admin-page-lede .muted {
+  margin: 0;
+  font-size: 12.5px;
+  line-height: 1.6;
+}
+
+:root[data-theme="panel"][data-ui] .admin-main > h1,
+:root[data-theme="panel"][data-ui] .admin-page-header h1 {
+  margin: 0;
+  font-size: 22px;
+  font-weight: 700;
+  letter-spacing: 0;
+}
+
+:root[data-theme="panel"] .admin-page-header .eyebrow {
+  margin: 0 0 3px;
+  color: var(--muted);
+}
+
+:root[data-theme="panel"] .admin-page-header .muted {
+  margin: 4px 0 0;
+  font-size: 13px;
+}
+
+/* --------------------------------------------------------------
+   7. Cards, panels, metric tiles
+   -------------------------------------------------------------- */
+:root[data-theme="panel"][data-ui] :is(.admin-panel, .form-card, .metric-card, .chart-card, .card) {
+  padding: 20px;
+  border: 1px solid var(--panel-card-border);
+  border-radius: 12px;
+  background: var(--panel-card);
+  box-shadow: 0 1px 2px rgba(2, 6, 16, 0.45);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+
+:root[data-theme="panel"][data-ui] .admin-panel h2,
+:root[data-theme="panel"] .form-card h2 {
+  margin-bottom: 14px;
+  font-size: 15.5px;
+  font-weight: 680;
+  letter-spacing: 0;
+}
+
+:root[data-theme="panel"][data-ui] .admin-grid-3 {
+  gap: 14px;
+}
+
+:root[data-theme="panel"] .metric-card {
+  gap: 4px;
+  min-height: 0;
+  padding: 18px;
+  transition: border-color 0.15s ease;
+}
+
+:root[data-theme="panel"] .metric-card:hover {
+  border-color: rgba(63, 140, 255, 0.35);
+}
+
+:root[data-theme="panel"] .metric-icon {
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  margin-bottom: 8px;
+  border-radius: 9px;
+  background: rgba(63, 140, 255, 0.14);
+  color: var(--accent-soft);
+}
+
+:root[data-theme="panel"] .metric-danger .metric-icon {
+  background: rgba(248, 113, 113, 0.14);
+  color: #fca5a5;
+}
+
+:root[data-theme="panel"] .metric-warn .metric-icon {
+  background: rgba(251, 191, 36, 0.14);
+  color: #fbd38d;
+}
+
+:root[data-theme="panel"] .metric-accent .metric-icon {
+  background: rgba(63, 140, 255, 0.2);
+}
+
+:root[data-theme="panel"][data-ui] .metric-value {
+  font-size: 30px;
+  font-weight: 720;
+  letter-spacing: -0.01em;
+  font-variant-numeric: tabular-nums;
+}
+
+:root[data-theme="panel"] .metric-label {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 550;
+  letter-spacing: 0.02em;
+  text-transform: none;
+}
+
+:root[data-theme="panel"] .metric-card-action {
+  color: var(--accent-soft);
+  font-size: 12px;
+}
+
+:root[data-theme="panel"] .metric-danger {
+  border-color: rgba(248, 113, 113, 0.35);
+  background: linear-gradient(180deg, rgba(248, 113, 113, 0.07), var(--panel-card) 55%);
+}
+
+:root[data-theme="panel"] .metric-warn {
+  border-color: rgba(251, 191, 36, 0.32);
+}
+
+:root[data-theme="panel"] .metric-accent {
+  border-color: rgba(63, 140, 255, 0.32);
+}
+
+/* Progress bars */
+:root[data-theme="panel"] .progress-track {
+  background: rgba(148, 165, 199, 0.12);
+}
+
+:root[data-theme="panel"] .progress-fill {
+  background: linear-gradient(90deg, var(--accent), var(--accent-dark));
+}
+
+/* Dashboard composites */
+.admin-dash-stats {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.admin-dash-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.35fr) minmax(0, 1fr);
+  gap: 14px;
+  align-items: start;
+}
+
+.admin-trend-charts {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+}
+
+.admin-trend-charts h3 {
+  margin: 0 0 8px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 620;
+  letter-spacing: 0.04em;
+}
+
+.admin-quick-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.admin-quick-card {
+  display: grid;
+  gap: 6px;
+  padding: 16px;
+  border: 1px solid var(--panel-card-border);
+  border-radius: 12px;
+  background: rgba(22, 31, 53, 0.5);
+  color: var(--ink);
+  text-decoration: none;
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+
+.admin-quick-card:hover {
+  border-color: rgba(63, 140, 255, 0.4);
+  background: rgba(63, 140, 255, 0.08);
+}
+
+.admin-quick-card strong {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  font-size: 13.5px;
+  font-weight: 650;
+}
+
+.admin-quick-card strong .admin-nav-icon {
+  color: var(--accent-soft);
+}
+
+.admin-quick-card span {
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.55;
+}
+
+/* --------------------------------------------------------------
+   8. Buttons — rectangular KPanel style
+   -------------------------------------------------------------- */
+:root[data-theme="panel"] .button,
+:root[data-theme="panel"] .danger-button {
+  min-height: 38px;
+  padding: 8px 15px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: linear-gradient(180deg, #4d97ff, #3f8cff);
+  color: #ffffff;
+  font-size: 13px;
+  font-weight: 620;
+  letter-spacing: 0.01em;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.16), 0 1px 2px rgba(2, 6, 16, 0.5);
+  transition: background 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease, filter 0.15s ease;
+}
+
+:root[data-theme="panel"] .button:hover,
+:root[data-theme="panel"] .danger-button:hover {
+  transform: none;
+  filter: brightness(1.09);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.16), 0 4px 14px rgba(63, 140, 255, 0.28);
+}
+
+:root[data-theme="panel"] .button:active {
+  transform: none;
+  filter: brightness(0.97);
+}
+
+:root[data-theme="panel"] .button.secondary {
+  border-color: rgba(148, 165, 199, 0.24);
+  background: rgba(148, 165, 199, 0.1);
+  color: #dbe4f5;
+  box-shadow: none;
+}
+
+:root[data-theme="panel"] .button.secondary:hover {
+  border-color: rgba(63, 140, 255, 0.45);
+  background: rgba(63, 140, 255, 0.14);
+  color: #ffffff;
+  filter: none;
+  box-shadow: none;
+}
+
+:root[data-theme="panel"] .button.ghost {
+  border-color: var(--line-strong);
+  background: transparent;
+  color: var(--ink-soft);
+}
+
+:root[data-theme="panel"] .button.ghost:hover {
+  background: var(--panel-hover);
+  color: #ffffff;
+  filter: none;
+  box-shadow: none;
+}
+
+:root[data-theme="panel"] .button.danger,
+:root[data-theme="panel"] .button-danger {
+  border-color: transparent;
+  background: linear-gradient(180deg, #f05f5f, #e5484d);
+  color: #ffffff;
+}
+
+:root[data-theme="panel"] .button.danger:hover,
+:root[data-theme="panel"] .button-danger:hover {
+  background: #ef5f63;
+  filter: brightness(1.06);
+}
+
+:root[data-theme="panel"] .button:focus-visible,
+:root[data-theme="panel"] .danger-button:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px rgba(63, 140, 255, 0.4);
+}
+
+:root[data-theme="panel"] .text-link {
+  color: var(--accent-soft);
+}
+
+/* --------------------------------------------------------------
+   9. Forms, tabs, tables, tags
+   -------------------------------------------------------------- */
+:root[data-theme="panel"] :is(.field, .form-stack, .form-card, .admin-panel, .admin-ai-command) :is(input, select, textarea) {
+  border: 1px solid rgba(148, 165, 199, 0.24);
+  border-radius: 8px;
+  background: var(--panel-field-bg);
+  color: var(--ink);
+}
+
+:root[data-theme="panel"] :is(.field, .form-stack, .form-card, .admin-panel, .admin-ai-command) :is(input, select, textarea)::placeholder {
+  color: rgba(142, 155, 179, 0.65);
+}
+
+:root[data-theme="panel"] :is(.field, .form-stack, .form-card, .admin-panel, .admin-ai-command) :is(input, select, textarea):focus {
+  border-color: rgba(63, 140, 255, 0.65);
+  box-shadow: 0 0 0 3px rgba(63, 140, 255, 0.22);
+  outline: none;
+}
+
+:root[data-theme="panel"] .field > label,
+:root[data-theme="panel"] .form-card label {
+  color: var(--ink-soft);
+}
+
+:root[data-theme="panel"] .form-error {
+  border: 1px solid var(--danger-border);
+  background: var(--danger-bg);
+  color: var(--danger-fg);
+}
+
+:root[data-theme="panel"] .form-notice,
+:root[data-theme="panel"] .form-success {
+  border: 1px solid var(--success-border);
+  background: var(--success-bg);
+  color: var(--success-fg);
+}
+
+/* Segmented tab strips */
+:root[data-theme="panel"][data-ui] :is(.topic-tabs, .admin-tabs) {
+  border: 1px solid var(--panel-card-border);
+  background: rgba(22, 31, 53, 0.55);
+}
+
+:root[data-theme="panel"][data-ui] :is(.topic-tabs, .admin-tabs) button {
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--muted);
+}
+
+:root[data-theme="panel"][data-ui] :is(.topic-tabs, .admin-tabs) button:hover {
+  color: var(--ink);
+}
+
+:root[data-theme="panel"][data-ui] :is(.topic-tabs, .admin-tabs) button.active,
+:root[data-theme="panel"][data-ui] :is(.topic-tabs, .admin-tabs) button[aria-pressed="true"],
+:root[data-theme="panel"][data-ui] :is(.topic-tabs, .admin-tabs) button[aria-selected="true"] {
+  background: var(--panel-active);
+  color: #ffffff;
+}
+
+/* Data tables & list rows */
+:root[data-theme="panel"][data-ui] .admin-table {
+  border: 1px solid var(--panel-card-border);
+  border-radius: 10px;
+}
+
+:root[data-theme="panel"][data-ui] .admin-table th {
+  background: rgba(148, 165, 199, 0.07);
+  color: var(--muted);
+}
+
+:root[data-theme="panel"][data-ui] .admin-table :is(th, td) {
+  border-color: var(--line);
+}
+
+:root[data-theme="panel"] .table-item {
+  border: 1px solid var(--panel-card-border);
+  border-radius: 10px;
+  background: rgba(22, 31, 53, 0.45);
+}
+
+:root[data-theme="panel"] .table-item:hover {
+  border-color: rgba(63, 140, 255, 0.32);
+  background: rgba(22, 31, 53, 0.75);
+}
+
+:root[data-theme="panel"] .table-item.is-selected {
+  border-color: rgba(63, 140, 255, 0.55);
+  background: rgba(63, 140, 255, 0.1);
+}
+
+:root[data-theme="panel"] .tag {
+  border-color: var(--line-strong);
+  background: rgba(148, 165, 199, 0.09);
+  color: var(--ink-soft);
+}
+
+:root[data-theme="panel"] code {
+  background: var(--code-bg);
+  color: var(--code-fg);
+}
+
+:root[data-theme="panel"] details.chart-data summary {
+  color: var(--muted);
+}
+
+/* --------------------------------------------------------------
+   10. Loading skeleton & route error
+   -------------------------------------------------------------- */
+:root[data-theme="panel"][data-ui] .admin-route-loading {
+  grid-template-columns: 264px minmax(0, 1fr);
+  background: var(--paper);
+}
+
+:root[data-theme="panel"][data-ui] .admin-route-loading > aside {
+  background: var(--panel-shell-bg);
+}
+
+:root[data-theme="panel"] .admin-loading-brand,
+:root[data-theme="panel"] .admin-loading-nav,
+:root[data-theme="panel"] .admin-loading-card,
+:root[data-theme="panel"] .admin-loading-panel,
+:root[data-theme="panel"] .admin-loading-title {
+  background: rgba(148, 165, 199, 0.09);
+}
+
+:root[data-theme="panel"][data-ui] .admin-route-error .admin-panel {
+  background: var(--panel-card);
+}
+
+/* --------------------------------------------------------------
+   11. Login (lives inside the admin root layout, outside the shell)
+   -------------------------------------------------------------- */
+:root[data-theme="panel"] .login-shell {
+  min-height: 100vh;
+  padding: 24px;
+  background: var(--bg-image);
+}
+
+:root[data-theme="panel"] .login-surface {
+  border: 1px solid var(--panel-card-border);
+  border-radius: 16px;
+  background: var(--panel-card);
+  box-shadow: 0 24px 70px rgba(2, 6, 16, 0.55);
+  overflow: hidden;
+}
+
+:root[data-theme="panel"] .login-brand-panel {
+  border-right: 1px solid var(--line);
+  background: linear-gradient(165deg, rgba(63, 140, 255, 0.12), rgba(124, 92, 255, 0.07) 55%, transparent);
+}
+
+:root[data-theme="panel"] .login-feature-list li {
+  color: var(--muted);
+}
+
+:root[data-theme="panel"] .login-form-panel {
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+/* --------------------------------------------------------------
+   12. Mobile (matches design-system.css admin breakpoint)
+   -------------------------------------------------------------- */
+@media (max-width: 960px) {
+  :root[data-theme="panel"] .admin-topbar {
+    display: none;
+  }
+
+  :root[data-theme="panel"][data-ui] .admin-layout {
+    grid-template-columns: 1fr;
+  }
+
+  :root[data-theme="panel"][data-ui] .admin-main {
+    padding: 20px 16px 56px;
+  }
+
+  :root[data-theme="panel"][data-ui] .admin-mobile-header {
+    border-bottom: 1px solid var(--line);
+    background: var(--panel-shell-bg);
+  }
+
+  :root[data-theme="panel"][data-ui] .admin-mobile-menu-trigger {
+    border: 1px solid var(--panel-card-border);
+    background: rgba(22, 31, 53, 0.55);
+    color: var(--ink);
+  }
+
+  :root[data-theme="panel"][data-ui] .admin-mobile-menu-panel {
+    border: 1px solid var(--panel-card-border);
+    background: var(--panel-shell-bg);
+    box-shadow: 0 24px 60px rgba(2, 6, 16, 0.6);
+  }
+
+  :root[data-theme="panel"][data-ui] .admin-mobile-nav-link {
+    color: rgba(199, 208, 224, 0.82);
+  }
+
+  :root[data-theme="panel"][data-ui] .admin-mobile-nav-link:hover,
+  :root[data-theme="panel"][data-ui] .admin-mobile-nav-link.active {
+    background: var(--panel-active);
+    color: #ffffff;
+  }
+
+  :root[data-theme="panel"][data-ui] .admin-mobile-actions > :is(a, form button) {
+    color: var(--ink-soft);
+  }
+
+  .admin-dash-stats,
+  .admin-dash-grid,
+  .admin-quick-grid,
+  .admin-trend-charts {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* --------------------------------------------------------------
+   13. Motion preferences
+   -------------------------------------------------------------- */
+@media (prefers-reduced-motion: reduce) {
+  .admin-topbar,
+  :root[data-theme="panel"] .button,
+  :root[data-theme="panel"] .metric-card,
+  .admin-quick-card {
+    transition: none;
+  }
+}

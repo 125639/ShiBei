@@ -291,3 +291,129 @@ body::before {
     transition: none;
   }
 }
+
+/* ---------- 8. 首页 Hero：中文断行、尺度与空站状态 ---------- */
+/* 旧规则把 h1 限宽写成 11.5ch（ch 按数字 0 的宽度计，只够 6 个汉字），
+   字号又定死 74px，中文标题在词中间硬断（"整理成值/得读的"）。改为：
+   · 字号随视口收缩，保证文案列放得下 10.5em（"整理成值得读的内容。"）；
+   · word-break: keep-all 只允许在标点和 <wbr> 处断行，overflow-wrap 兜底不溢出；
+   · text-wrap: balance 让多行长度均衡，不支持的内核忽略即可。 */
+.home-hero-copy h1 {
+  max-width: none;
+  font-size: clamp(40px, 4.4vw, 64px);
+  line-height: 1.14;
+  letter-spacing: -0.01em;
+  text-wrap: balance;
+  word-break: keep-all;
+  overflow-wrap: anywhere;
+  line-break: strict;
+}
+
+.home-hero-copy .lead {
+  text-wrap: pretty;
+}
+
+/* 首屏留白收一点：原来 28px 页顶 + 84px hero 顶距，标题要到视口 1/3 以下才出现 */
+:root[data-theme][data-ui] .home-page {
+  padding-top: 12px;
+}
+
+.home-hero-v2 {
+  /* 不再用 610px 最小高度撑满视口：内容变紧凑后那只是一块空白，"最新文章"被推到首屏之外 */
+  min-height: 0;
+  padding-top: clamp(36px, 5vw, 60px);
+}
+
+@media (max-width: 960px) {
+  .home-hero-copy h1 {
+    font-size: clamp(38px, 6vw, 60px);
+  }
+}
+
+@media (max-width: 640px) {
+  .home-hero-copy h1 {
+    font-size: clamp(30px, 8.6vw, 44px);
+  }
+}
+
+/* 简报卡按内容定高：空站时 470px 的深色空腔比内容本身还高 */
+.home-brief-card {
+  min-height: 0;
+}
+
+.home-brief-card::after {
+  right: -12px;
+  bottom: -58px;
+  font-size: 180px;
+  color: color-mix(in srgb, var(--hero-card-fg) 5%, transparent);
+}
+
+/* 关闭态的 AI 悬浮球被 dock 的 translateX(24px) 顶出视口，右侧被裁掉 10px */
+:root[data-theme][data-ui] .ai-assistant-dock:not(.open) {
+  right: max(20px, env(safe-area-inset-right));
+  bottom: max(20px, env(safe-area-inset-bottom));
+  transform: none;
+}
+
+/* 导航标语限宽 26ch 是按数字宽度算的，只够 12 个汉字，整句被截成"…"；
+   品牌区块又被写死 flex-basis 270px（图标 40px + 间距后只剩 219px 给文字）。
+   桌面端放开到按内容取宽、最多 340px，空间不够时仍可收缩并以省略号兜底。 */
+.brand-copy .brand-tagline {
+  max-width: min(28em, 30vw);
+}
+
+@media (min-width: 961px) {
+  .site-header .brand-mark {
+    flex: 0 1 auto;
+    max-width: 340px;
+  }
+}
+
+/* 空状态：给一点身份感，而不是一块虚线空框 */
+:root[data-theme][data-ui] .empty-grid-card {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  justify-items: center;
+  align-items: center;
+  align-content: center;
+  gap: 6px;
+  padding: 44px 28px 48px;
+  border-style: dashed;
+  border-color: color-mix(in srgb, var(--accent) 24%, var(--line));
+  background-image: radial-gradient(420px 170px at 50% 0%, color-mix(in srgb, var(--accent) 8%, transparent), transparent 70%);
+}
+
+/* 复用了 .bento-card::before（原本是绝对定位、z-index:-1 的背景渐层），
+   必须把 inset / z-index / opacity 全部重置，否则图标会贴到卡片背后并被压暗 */
+:root[data-theme][data-ui] .empty-grid-card::before {
+  content: "拾";
+  position: static;
+  inset: auto;
+  z-index: auto;
+  opacity: 1;
+  pointer-events: none;
+  display: grid;
+  place-items: center;
+  width: 52px;
+  height: 52px;
+  margin: 0 auto 8px;
+  border-radius: 16px;
+  background: color-mix(in srgb, var(--accent) 12%, var(--surface-strong));
+  color: var(--accent);
+  font-family: var(--font-display);
+  font-size: 24px;
+  font-weight: 700;
+}
+
+:root[data-theme][data-ui] .empty-grid-card h3 {
+  margin: 0;
+  font-size: 20px;
+  text-align: center;
+}
+
+:root[data-theme][data-ui] .empty-grid-card p {
+  max-width: 36em;
+  margin: 0;
+  color: var(--muted);
+  text-align: center;
+}

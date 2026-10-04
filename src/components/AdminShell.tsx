@@ -1,69 +1,20 @@
-import { LocalizedLink as Link } from "@/components/LocalizedLink";
-import { ActiveLink } from "./ActiveLink";
+import { AdminIcon } from "./admin/icons";
 import { AdminLanguageToggle } from "./AdminLanguageToggle";
+import { AdminNavLink } from "./admin/AdminNavLink";
+import { AdminTopbar } from "./admin/AdminTopbar";
 import { I18nText } from "./I18nText";
+import { LocalizedLink as Link } from "./LocalizedLink";
 import { RouteDisclosure } from "./RouteDisclosure";
 import { UpdateNotifier } from "./UpdateNotifier";
 import { UpdateNavBadge } from "./UpdateNavBadge";
-import { appModeSupports, getAppMode, type AppCapability, type AppMode } from "@/lib/app-mode";
+import { appModeSupports, getAppMode, type AppMode } from "@/lib/app-mode";
+import { ADMIN_NAV_GROUPS, type AdminNavGroup } from "@/lib/admin-nav";
+import { getSessionUsername } from "@/lib/auth";
+import { getBuildInfo } from "@/lib/build-info";
 
-type NavItem = { href: string; zh: string; en: string; modes?: AppMode[]; capability?: AppCapability };
-type NavGroup = { zh: string; en: string; items: NavItem[] };
-
-// 后台导航按心智模型分组：总览 / 人工内容与治理 / AI 与自动化工具 / 媒体库 / 系统。
-// 桌面侧栏与移动菜单复用同一份信息架构（见下方 AdminNavigation）。
-const NAV_GROUPS: NavGroup[] = [
-  {
-    zh: "总览",
-    en: "Overview",
-    items: [
-      { href: "/admin", zh: "仪表盘", en: "Dashboard", modes: ["frontend", "backend", "full"] },
-      { href: "/admin/stats", zh: "数据看板", en: "Stats", modes: ["frontend", "backend", "full"] },
-      { href: "/admin/jobs", zh: "任务诊断", en: "Jobs", capability: "local-worker" }
-    ]
-  },
-  {
-    zh: "内容",
-    en: "Content",
-    items: [
-      { href: "/admin/posts", zh: "文章与草稿", en: "Posts", modes: ["frontend", "backend", "full"] },
-      { href: "/admin/comments", zh: "评论管理", en: "Comments", modes: ["frontend", "full"] },
-      { href: "/admin/community", zh: "社区治理", en: "Community Moderation", modes: ["frontend", "full"] },
-      { href: "/admin/invites", zh: "邀请码", en: "Invites", modes: ["frontend", "full"] }
-    ]
-  },
-  {
-    zh: "内容自动化",
-    en: "Automation",
-    items: [
-      { href: "/admin/ai", zh: "AI 管理员", en: "AI Admin", capability: "local-worker" },
-      { href: "/admin/sources", zh: "来源库", en: "Sources", capability: "local-worker" },
-      { href: "/admin/modules", zh: "来源模块", en: "Modules", capability: "local-worker" },
-      { href: "/admin/auto-curation", zh: "自动内容", en: "Auto-Curation", capability: "local-worker" }
-    ]
-  },
-  {
-    zh: "媒体库",
-    en: "Media",
-    items: [
-      { href: "/admin/videos", zh: "视频库", en: "Videos", modes: ["frontend", "backend", "full"] },
-      { href: "/admin/music", zh: "背景音乐", en: "Music", modes: ["frontend", "backend", "full"] }
-    ]
-  },
-  {
-    zh: "系统",
-    en: "System",
-    items: [
-      { href: "/admin/settings", zh: "系统设置", en: "Settings", modes: ["frontend", "backend", "full"] },
-      { href: "/admin/sync", zh: "数据同步", en: "Sync", modes: ["frontend", "backend", "full"] },
-      { href: "/admin/update", zh: "系统更新", en: "Update", modes: ["frontend", "backend", "full"] }
-    ]
-  }
-];
-
-export function AdminShell({ children }: { children: React.ReactNode }) {
+export async function AdminShell({ children }: { children: React.ReactNode }) {
   const mode = getAppMode();
-  const visibleGroups = NAV_GROUPS
+  const visibleGroups = ADMIN_NAV_GROUPS
     .map((group) => ({
       ...group,
       items: group.items.filter((item) =>
@@ -73,6 +24,9 @@ export function AdminShell({ children }: { children: React.ReactNode }) {
     }))
     .filter((group) => group.items.length > 0);
   const showFrontLink = mode !== "backend";
+  const username = await getSessionUsername();
+  const buildInfo = getBuildInfo();
+  const displayName = username || "admin";
 
   return (
     <div className="admin-layout">
@@ -85,12 +39,37 @@ export function AdminShell({ children }: { children: React.ReactNode }) {
         <AdminBrand mode={mode} />
         <AdminNavigation groups={visibleGroups} variant="desktop" />
         <div className="admin-sidebar-footer">
-          <AdminLanguageToggle />
-          <AdminUtilityActions showFrontLink={showFrontLink} variant="desktop" />
+          <div className="admin-sidebar-status">
+            <span className="admin-status-dot" aria-hidden="true" />
+            <span>
+              <I18nText zh="系统在线" en="System online" />
+            </span>
+            <span className="admin-sidebar-version">
+              {buildInfo.commit && buildInfo.commit !== "unknown" ? buildInfo.commit.slice(0, 7) : "dev"}
+            </span>
+          </div>
+          <div className="admin-user-card">
+            <span className="admin-user-avatar" aria-hidden="true">{displayName.slice(0, 1)}</span>
+            <span className="admin-user-meta">
+              <strong>{displayName}</strong>
+              <span>
+                <I18nText zh="管理员" en="Administrator" />
+              </span>
+            </span>
+            <form action="/api/admin/logout" method="post">
+              <button className="admin-user-logout" type="submit" title="退出登录 / Log out">
+                <AdminIcon name="logout" size={15} />
+                <span className="sr-only">
+                  <I18nText zh="退出登录" en="Log out" />
+                </span>
+              </button>
+            </form>
+          </div>
         </div>
       </aside>
 
-      {/* 原生 details/summary 在脚本失效时仍可完整使用。 */}
+      {/* 原生 details/summary 在脚本失效时仍可完整使用。
+          DOM 顺序：侧栏 → 移动头 → 主列，保证移动端单列布局时移动头在内容之上。 */}
       <header className="admin-mobile-header">
         <Link className="admin-mobile-brand" href="/admin">
           <AdminBrand mode={mode} variant="mobile" />
@@ -111,7 +90,12 @@ export function AdminShell({ children }: { children: React.ReactNode }) {
         </RouteDisclosure>
       </header>
 
-      <main className="admin-main" id="admin-main" tabIndex={-1}>{children}</main>
+      <div className="admin-shell-main">
+        <AdminTopbar mode={mode} showFrontLink={showFrontLink}>
+          <AdminLanguageToggle />
+        </AdminTopbar>
+        <main className="admin-main" id="admin-main" tabIndex={-1}>{children}</main>
+      </div>
     </div>
   );
 }
@@ -139,7 +123,7 @@ function ModeBadge({ mode }: { mode: Exclude<AppMode, "full"> }) {
   return <span className="tag admin-mode-badge">{mode}</span>;
 }
 
-function AdminNavigation({ groups, variant }: { groups: NavGroup[]; variant: "desktop" | "mobile" }) {
+function AdminNavigation({ groups, variant }: { groups: AdminNavGroup[]; variant: "desktop" | "mobile" }) {
   const mobile = variant === "mobile";
 
   return (
@@ -151,15 +135,15 @@ function AdminNavigation({ groups, variant }: { groups: NavGroup[]; variant: "de
           </h2>
           <div className={mobile ? "admin-mobile-nav-links" : "admin-nav-links"}>
             {group.items.map((item) => (
-              <ActiveLink
+              <AdminNavLink
                 className={mobile ? "admin-mobile-nav-link" : undefined}
                 href={item.href}
+                icon={mobile ? undefined : item.icon}
                 key={item.href}
-                match={item.href === "/admin" ? "exact" : "prefix"}
               >
                 <I18nText zh={item.zh} en={item.en} />
                 {item.href === "/admin/update" ? <UpdateNavBadge /> : null}
-              </ActiveLink>
+              </AdminNavLink>
             ))}
           </div>
         </section>
@@ -173,19 +157,17 @@ function AdminUtilityActions({
   variant
 }: {
   showFrontLink: boolean;
-  variant: "desktop" | "mobile";
+  variant: "mobile";
 }) {
-  const mobile = variant === "mobile";
-
   return (
-    <div className={mobile ? "admin-mobile-actions" : "admin-sidebar-actions"}>
+    <div className="admin-mobile-actions">
       {showFrontLink ? (
-        <Link className={mobile ? "admin-mobile-action" : undefined} href="/">
+        <Link className="admin-mobile-action" href="/">
           <I18nText zh="返回前台" en="Back to Site" />
         </Link>
       ) : null}
       <form action="/api/admin/logout" method="post">
-        <button className={mobile ? "admin-mobile-action" : undefined} type="submit">
+        <button className="admin-mobile-action" type="submit">
           <I18nText zh="退出登录" en="Logout" />
         </button>
       </form>

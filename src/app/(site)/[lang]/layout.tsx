@@ -1,17 +1,20 @@
 import type { Metadata, Viewport } from "next";
 import { notFound } from "next/navigation";
-import "@fontsource-variable/noto-sans-sc";
+// 不再引入 @fontsource-variable/noto-sans-sc：字体栈已改为系统中文字体优先（见 globals.css），
+// 省下每页 0.6–1.1MB 的字体分片与首屏字体跳变。
 import "../../globals.css";
 import "../../design-system.css";
 import "../../ui-polish.css";
+import "../../publication.css";
 import { UserPreferencesScript } from "@/components/UserPreferencesScript";
-import { CustomCursor } from "@/components/CustomCursor";
+import { CursorEnhancement } from "@/components/CursorEnhancement";
 import { NavigationProgress } from "@/components/NavigationProgress";
+import { MobileViewport } from "@/components/mobile/MobileViewport";
+import "../../mobile.css";
 import { LanguageProvider } from "@/components/I18nTextClient";
 import { PublicShell } from "@/components/PublicShell";
 import {
   DEFAULT_LANGUAGE,
-  SUPPORTED_LANGUAGES,
   isLanguageKey,
   withLanguagePrefix,
   type LanguageKey
@@ -21,7 +24,8 @@ import { DEFAULT_DENSITY, DEFAULT_FONT, DEFAULT_THEME } from "@/lib/themes";
 import { getCachedSiteChromeSettings } from "@/lib/site-settings-cache";
 import { siteOrigin } from "@/lib/site-url";
 
-// 两个语种都是编译期已知的，预渲染出来即可。
+// 公开页面依赖部署时的数据库，镜像构建阶段不预渲染任何语种。
+// 空参数列表让首页/关于/统计等页面在首次访问时生成，仍保留各页的 ISR。
 //
 // 刻意**不**设 dynamicParams = false：单段路径（/favicon.ico、
 // /apple-touch-icon.png 等浏览器默认请求）会被 [lang] 捕获成 lang="favicon.ico"，
@@ -29,16 +33,19 @@ import { siteOrigin } from "@/lib/site-url";
 // 而不是走 404。下面 layout 里的 isLanguageKey 守卫会用 notFound() 干净地
 // 处理这些值，代价只是给垃圾路径多一次按需渲染。
 export function generateStaticParams(): Array<{ lang: LanguageKey }> {
-  return SUPPORTED_LANGUAGES.map((lang) => ({ lang }));
+  return [];
 }
 
 export const viewport: Viewport = {
   width: "device-width",
   initialScale: 1,
   viewportFit: "cover",
+  interactiveWidget: "resizes-content",
   themeColor: [
     { media: "(prefers-color-scheme: light)", color: "#f7f8fc" },
-    { media: "(prefers-color-scheme: dark)", color: "#0d1320" }
+    // 系统深色访客的首访回退主题是 panel（见 UserPreferencesScript），
+    // 地址栏底色与其画布色对齐。静态声明不跟随用户手动切换的其他主题。
+    { media: "(prefers-color-scheme: dark)", color: "#0a0f1b" }
   ]
 };
 
@@ -127,9 +134,10 @@ export default async function SiteRootLayout({
       </head>
       <body>
         <LanguageProvider language={language}>
+          <MobileViewport />
           <NavigationProgress />
           <PublicShell>{children}</PublicShell>
-          <CustomCursor />
+          <CursorEnhancement />
         </LanguageProvider>
       </body>
     </html>

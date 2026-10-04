@@ -8,7 +8,10 @@ type MarkdownModule = typeof import("@/lib/markdown");
 let markdownModulePromise: Promise<MarkdownModule> | null = null;
 
 function loadMarkdownModule() {
-  markdownModulePromise ??= import("@/lib/markdown");
+  markdownModulePromise ??= import("@/lib/markdown").catch((error) => {
+    markdownModulePromise = null;
+    throw error;
+  });
   return markdownModulePromise;
 }
 
@@ -38,6 +41,10 @@ export function useMarkdownHtml(
     let cancelled = false;
     void loadMarkdownModule().then(({ markdownToHtml }) => {
       if (!cancelled) setParsed({ input: markdown, html: markdownToHtml(markdown, { videosById, hideVideos }) });
+    }).catch(() => {
+      // Chunk delivery may fail during a deploy/offline. Show an honest state,
+      // never fall back to unsanitized HTML or leave an unhandled rejection.
+      if (!cancelled) setParsed({ input: markdown, html: '<p role="status"><span class="i18n-zh">预览暂时不可用，请刷新后重试。原稿未改变。</span><span class="i18n-en">Preview unavailable. Reload to retry; the draft is unchanged.</span></p>' });
     });
     return () => {
       cancelled = true;

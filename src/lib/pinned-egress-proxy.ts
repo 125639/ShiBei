@@ -18,6 +18,8 @@ export type PinnedEgressProxy = {
 type PinnedEgressProxyOptions = {
   /** Empty means any public hostname. Values match the host and its subdomains. */
   allowedHostSuffixes?: readonly string[];
+  /** Explicit HTTPS port exceptions, still subject to hostname and public-IP checks. */
+  allowedHttpsPortsByHost?: Readonly<Record<string, readonly number[]>>;
   connectTimeoutMs?: number;
   idleTimeoutMs?: number;
   maxConnections?: number;
@@ -42,21 +44,37 @@ export function hostMatchesAllowedSuffixes(hostname: string, suffixes: readonly 
   });
 }
 
+export function isAllowedProxyPort(
+  hostname: string,
+  protocol: string,
+  port: number,
+  exceptions: Readonly<Record<string, readonly number[]>> = {}
+) {
+  if (!Number.isInteger(port) || port < 1 || port > 65535) return false;
+  if (protocol === "http:") return port === 80;
+  if (protocol !== "https:") return false;
+  if (port === 443) return true;
+  return Object.entries(exceptions).some(([suffix, ports]) =>
+    hostMatchesAllowedSuffixes(hostname, [suffix]) && ports.includes(port)
+  );
+}
+
 async function validateProxyTarget(
   rawUrl: string,
   expectedProtocol: "http:" | "https:",
   expectedPort: number,
-  allowedHostSuffixes: readonly string[]
+  allowedHostSuffixes: readonly string[],
+  allowedHttpsPortsByHost: Readonly<Record<string, readonly number[]>> = {}
 ): Promise<ValidatedProxyTarget> {
   const parsed = new URL(rawUrl);
   if (parsed.protocol !== expectedProtocol || parsed.username || parsed.password) {
     throw new Error("代理目标协议或凭据不受支持");
   }
   const port = parsed.port ? Number(parsed.port) : expectedPort;
-  if (port !== expectedPort) {
-    throw new Error("代理仅允许标准 HTTP/HTTPS 端口");
-  }
   const hostname = normalizeHostname(parsed.hostname);
+  if (!isAllowedProxyPort(hostname, expectedProtocol, port, allowedHttpsPortsByHost)) {
+    throw new Error("代理目标端口不在受信范围内");
+  }
   if (allowedHostSuffixes.length && !hostMatchesAllowedSuffixes(hostname, allowedHostSuffixes)) {
     throw new Error("代理目标不在受信主机范围内");
   }
@@ -281,7 +299,7 @@ export async function startPinnedEgressProxy(
 
     let target: ValidatedProxyTarget;
     try {
-      target = await validateProxyTarget(`https://${req.url || ""}/`, "https:", 443, allowedHostSuffixes);
+      target = await validateProxyTarget(`https://${req.url || ""}/`, "https:", 443, allowedHostSuffixes, options.allowedHttpsPortsByHost);
     } catch {
       socketResponse(downstream, 403, "Forbidden");
       return;

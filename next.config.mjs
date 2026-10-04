@@ -15,6 +15,8 @@ const SECURITY_HEADERS = [
 
 /** @type {import("next").NextConfig} */
 const nextConfig = {
+  // Keep local preview builds isolated from a running production server.
+  distDir: process.env.SHIBEI_DIST_DIR || ".next",
   // Reduce CSS payload + better chunk hashing for repeat visits.
   poweredByHeader: false,
   reactStrictMode: true,

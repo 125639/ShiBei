@@ -7,7 +7,7 @@ import {
   ensureAnonymousBootstrap
 } from "@/lib/client/anon-bootstrap";
 import { MODEL_PROVIDER_PRESETS } from "@/lib/model-providers";
-import { markdownToHtml } from "@/lib/markdown";
+import { useMarkdownHtml } from "@/components/useMarkdownHtml";
 import {
   createDocumentRecoverySnapshot,
   createDocumentSaveCoordinator,
@@ -268,12 +268,10 @@ export function WritingStudio() {
     return text.length;
   }, [active?.content]);
 
-  // 正文预览 HTML：编辑器路由保留同步解析器（/write 本就是重编辑器），
-  // 但用 useMemo 缓存——依赖只挂 content/output 字符串本身：自动保存的
-  // 状态轮转会更新 active 对象（completedAt/updatedAt）但不改正文，
-  // 不该触发整篇 markdown 的重新 parse+sanitize。AI 结果卡片同理。
-  const activePreviewHtml = useMemo(() => markdownToHtml(active?.content || ""), [active?.content]);
-  const aiOutputHtml = useMemo(() => markdownToHtml(ai?.output || ""), [ai?.output]);
+  // The editor already has its own Markdown bridge. Only download the article
+  // renderer/sanitizer when a completed preview or an AI result is actually shown.
+  const activePreviewHtml = useMarkdownHtml(writingView === "preview" || active?.creativeWorkId ? active?.content || "" : null);
+  const aiOutputHtml = useMarkdownHtml(ai?.status === "done" ? ai.output : null);
 
   // —— 模型偏好持久化(不存 key) ——
   useEffect(() => {
@@ -1371,7 +1369,8 @@ export function WritingStudio() {
             </div>
             <article className="writing-finish-preview">
               <h1>{active.title || "无标题"}</h1>
-              <div className="prose" dangerouslySetInnerHTML={{ __html: activePreviewHtml }} />
+              <div className="prose" aria-busy={activePreviewHtml === null}
+                dangerouslySetInnerHTML={{ __html: activePreviewHtml ?? "<p>正在准备成稿预览…</p>" }} />
             </article>
             <div className="row-actions">
               <a
@@ -1402,7 +1401,8 @@ export function WritingStudio() {
 
             <article className="writing-finish-preview" aria-label="手写文章预览">
               <h1>{active.title || "无标题"}</h1>
-              <div className="prose" dangerouslySetInnerHTML={{ __html: activePreviewHtml }} />
+              <div className="prose" aria-busy={activePreviewHtml === null}
+                dangerouslySetInnerHTML={{ __html: activePreviewHtml ?? "<p>正在准备成稿预览…</p>" }} />
             </article>
 
             <div className="row-actions">
@@ -1650,10 +1650,11 @@ export function WritingStudio() {
             {ai.status === "done" ? (
               <>
                 <p className="sr-only" role="status">AI {ai.label}内容已生成</p>
-                {/* markdownToHtml 内部走 DOMPurify,富文本预览与插入结果一致；useMemo 缓存避免每次重渲染重解析 */}
+                {/* The same sanitized renderer is shared with article previews, loaded on demand. */}
                 <div
                   className="ai-review-output prose"
-                  dangerouslySetInnerHTML={{ __html: aiOutputHtml }}
+                  aria-busy={aiOutputHtml === null}
+                  dangerouslySetInnerHTML={{ __html: aiOutputHtml ?? "<p>正在准备预览…</p>" }}
                 />
                 <div className="ai-review-actions">
                   {ai.mode === "selection" && aiSelectionIsCurrent ? (

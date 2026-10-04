@@ -1,30 +1,17 @@
 import { LocalizedLink as Link } from "@/components/LocalizedLink";
-import { ActiveLink } from "@/components/ActiveLink";
 import { FFCalendar } from "@/components/FFCalendar";
 import { I18nText } from "@/components/I18nText";
 import { AppearancePanel } from "@/components/AppearancePanel";
 import { MusicPlayer } from "@/components/MusicPlayer";
-import { RouteDisclosure } from "@/components/RouteDisclosure";
 import { SiteAssistant } from "@/components/SiteAssistant";
 import { VisitBeacon } from "@/components/VisitBeacon";
 import { getCachedFireflyWidgetData } from "@/lib/firefly-widgets";
 import { getCachedSiteChromeSettings } from "@/lib/site-settings-cache";
 import { siteDayParts } from "@/lib/site-time";
-
-const PRIMARY_NAV_ITEMS: Array<{ href: string; zh: string; en: string; match: "exact" | "prefix" }> = [
-  { href: "/", zh: "首页", en: "Home", match: "exact" },
-  { href: "/posts", zh: "文章", en: "Posts", match: "prefix" },
-  { href: "/create", zh: "共创", en: "Co-create", match: "prefix" },
-  { href: "/community", zh: "社区", en: "Community", match: "prefix" },
-  { href: "/admin/login", zh: "管理员后台", en: "Admin", match: "prefix" }
-];
-
-const EXPLORE_NAV_ITEMS: Array<{ href: string; zh: string; en: string; match: "exact" | "prefix" }> = [
-  { href: "/write", zh: "写作工作台", en: "Writing workspace", match: "prefix" },
-  { href: "/stats", zh: "内容数据", en: "Content stats", match: "prefix" },
-  { href: "/about", zh: "关于本站", en: "About", match: "prefix" },
-  { href: "/settings", zh: "阅读设置", en: "Preferences", match: "prefix" }
-];
+import { formatChars } from "@/lib/format-chars";
+import { PublicHeader } from "@/components/public/PublicHeader";
+import { SiteMotion } from "@/components/public/SiteMotion";
+import { Icon, ShellMark } from "@/components/public/Icons";
 
 export async function PublicShell({ children }: { children: React.ReactNode }) {
   const [settings, widgets] = await Promise.all([
@@ -39,58 +26,16 @@ export async function PublicShell({ children }: { children: React.ReactNode }) {
       <a href="#site-main" className="skip-link">
         <I18nText zh="跳到主要内容" en="Skip to main content" />
       </a>
-      <header className="site-header site-header-glass">
-        <Link className="brand-mark" href="/">
-          <span className="brand-symbol" aria-hidden="true">拾</span>
-          <span className="brand-copy">
-            <strong>{siteName}</strong>
-            <span className="brand-tagline">
-              <I18nText zh={siteDescription} en="Curated ideas, clearly presented" />
-            </span>
-          </span>
-        </Link>
-        <nav className="nav" aria-label="主导航 / Primary navigation">
-          {PRIMARY_NAV_ITEMS.map((item) => (
-            <ActiveLink key={item.href} href={item.href} match={item.match}>
-              <I18nText zh={item.zh} en={item.en} />
-            </ActiveLink>
-          ))}
-          <RouteDisclosure className="nav-more">
-            <summary>
-              <I18nText zh="探索" en="Explore" />
-              <span className="nav-more-chevron" aria-hidden="true">⌄</span>
-            </summary>
-            <div className="nav-more-menu">
-              <span className="nav-more-label"><I18nText zh="更多空间" en="More spaces" /></span>
-              {EXPLORE_NAV_ITEMS.map((item) => (
-                <ActiveLink key={item.href} href={item.href} match={item.match}>
-                  <I18nText zh={item.zh} en={item.en} />
-                  <span aria-hidden="true">↗</span>
-                </ActiveLink>
-              ))}
-            </div>
-          </RouteDisclosure>
-        </nav>
-        <div className="header-actions" aria-label="账户与显示偏好 / Account and display preferences">
-          <Link
-            className="header-account-link"
-            href="/account"
-            aria-label="用户登录或账户 / Member sign-in or account"
-          >
-            <span className="header-account-icon" aria-hidden="true">{ICONS.user}</span>
-            <I18nText zh="用户登录 / 账户" en="Member sign-in" />
-          </Link>
-          <AppearancePanel
-            siteDefaults={{
-              theme: settings?.defaultTheme,
-              font: settings?.defaultFont,
-              density: settings?.defaultDensity,
-              language: settings?.defaultLanguage,
-              ui: settings?.defaultSettingsUI
-            }}
-          />
-        </div>
-      </header>
+      <SiteMotion />
+      <PublicHeader siteName={siteName} appearance={
+        <AppearancePanel siteDefaults={{
+          theme: settings?.defaultTheme,
+          font: settings?.defaultFont,
+          density: settings?.defaultDensity,
+          language: settings?.defaultLanguage,
+          ui: settings?.defaultSettingsUI
+        }} />
+      } />
 
       {/* Firefly 专属壁纸横幅：仅 data-ui="firefly" 时由 CSS 显示 */}
       <div className="ff-banner">
@@ -213,30 +158,21 @@ export async function PublicShell({ children }: { children: React.ReactNode }) {
         </aside>
       </div>
 
-      {/* data-brand: Meow 风格用 CSS attr() 渲染页脚巨型水印字 */}
-      <footer className="site-footer muted" data-brand={siteName}>
-        <p className="site-footer-note">
-          <I18nText
-            zh="由管理员审核发布。AI 生成内容仅作为信息整理与写作辅助，具体事实请以原始来源为准。"
-            en="Published after admin review. AI-generated content is for information organization and writing assistance; verify facts with original sources."
-          />
-        </p>
-        <p className="site-footer-meta">
-          <span>© {siteDayParts().year} {siteName}</span>
-          <a href="/feed.xml" className="text-link">RSS</a>
-          <a href="/sitemap.xml" className="text-link">Sitemap</a>
-        </p>
+      <footer className="publication-footer">
+        <div className="publication-footer-main">
+          <div className="publication-footer-brand"><ShellMark /><strong>{siteName}</strong><p><I18nText zh="在信息的潮汐里，拾起值得留下的。" en="Something worth keeping, in a sea of information." /></p></div>
+          <div className="publication-footer-links">
+            <div><span><I18nText zh="继续探索" en="Explore" /></span><Link href="/posts"><I18nText zh="全部文章" en="All stories" /></Link><Link href="/community"><I18nText zh="灵感社区" en="Community" /></Link><Link href="/about"><I18nText zh="关于拾贝" en="About us" /></Link></div>
+            <div><span><I18nText zh="保持连接" en="Stay connected" /></span><a href="/feed.xml">RSS <Icon name="rss" width="13" height="13" /></a><Link href="/account"><I18nText zh="我的账户" en="My account" /></Link><Link href="/settings"><I18nText zh="阅读设置" en="Preferences" /></Link></div>
+          </div>
+        </div>
+        <div className="publication-footer-bottom"><span>© {siteDayParts().year} {siteName} · <I18nText zh="保持好奇，认真阅读。" en="Stay curious. Read thoughtfully." />{widgets && widgets.stats.runDays > 0 ? <I18nText zh={` · 已运行 ${widgets.stats.runDays} 天`} en={` · ${widgets.stats.runDays} days running`} /> : null}</span><div><Link href="/admin/login"><I18nText zh="管理后台" en="Admin" /></Link><a href="/sitemap.xml">Sitemap ↗</a></div></div>
+        <p className="publication-footer-disclaimer"><I18nText zh="内容经人工审核发布。AI 仅用于信息整理与写作辅助，具体事实请以原始来源为准。" en="Human-reviewed publishing. AI assists with research and writing; verify facts with original sources." /></p>
       </footer>
       <MusicPlayer />
       <SiteAssistant siteName={siteName} siteDescription={siteDescription} />
     </div>
   );
-}
-
-function formatChars(total: number): string {
-  if (total >= 10_000) return `${(total / 10_000).toFixed(1)}w`;
-  if (total >= 1_000) return `${(total / 1_000).toFixed(1)}k`;
-  return String(total);
 }
 
 /** 可翻月日历：交互在 FFCalendar（client），这里只把服务端时间拆成纯数字防水合错位。

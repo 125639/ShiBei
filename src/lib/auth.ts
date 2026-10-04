@@ -1,4 +1,5 @@
 import { cookies } from "next/headers";
+import { cache } from "react";
 import { redirect } from "next/navigation";
 import { SignJWT, jwtVerify } from "jose";
 import { prisma } from "./prisma";
@@ -101,7 +102,10 @@ export async function clearSessionCookie() {
   });
 }
 
-export async function getSession() {
+// React cache is request-scoped, never a cross-request session cache. The
+// workspace layout and page share one revocation check; APIs and each new
+// request still validate the JWT against the current database tokenVersion.
+export const getSession = cache(async function getSession() {
   const store = await cookies();
   // Production intentionally never falls back to the legacy unprefixed name:
   // a sibling subdomain can plant a Domain/longer-Path cookie with that name.
@@ -115,19 +119,26 @@ export async function getSession() {
     // 与 DB 里的 tokenVersion 比对，实现会话吊销。缺 ver 的存量旧 token 按 0 处理。
     // DB 不可达时 jwtVerify 之后的查询会抛，落到 catch → 视为未登录（fail-closed）。
     const tokenVer = typeof payload.ver === "number" ? payload.ver : 0;
+    // username 随同一次吊销校验取出：后台侧边栏用户卡片展示用，不再为此额外查库。
     const user = await prisma.adminUser.findUnique({
       where: { id: userId },
-      select: { tokenVersion: true }
+      select: { tokenVersion: true, username: true }
     });
     if (!user || tokenVer !== user.tokenVersion) return null;
-    return { userId };
+    return { userId, username: user.username };
   } catch {
     return null;
   }
-}
+});
 
 export async function requireAdmin() {
   const session = await getSession();
   if (!session) redirect("/admin/login");
   return session;
+}
+
+// 后台侧边栏用户卡片展示用。username 已随 getSession 的吊销校验一次取出，
+// 这里不再发查询；会话无效或用户被删时返回 null。
+export async function getSessionUsername(): Promise<string | null> {
+  return (await getSession())?.username ?? null;
 }

@@ -29,6 +29,16 @@ export function MusicPlayer() {
   const audioRef = useRef<HTMLAudioElement | null>(null);
 
   useEffect(() => {
+    // A full playback bar competes with reading controls on a phone. Start as
+    // one expandable touch target; toggling it never remounts the audio element.
+    const media = window.matchMedia("(max-width: 720px)");
+    const collapse = () => { if (media.matches) setCollapsed(true); };
+    const timer = window.setTimeout(collapse, 0);
+    media.addEventListener("change", collapse);
+    return () => { clearTimeout(timer); media.removeEventListener("change", collapse); };
+  }, []);
+
+  useEffect(() => {
     // 只有用户在 /settings 显式开启音乐后才拉取曲库：本组件挂在 PublicShell，
     // 出现在每个公开页面上，而绝大多数访客从不开启音乐——不该让他们
     // 在每个页面都白付一次 API 往返 + JSON 解析。
@@ -112,7 +122,7 @@ export function MusicPlayer() {
   // 空、no-op），等 <audio> 真正挂载时该 effect 因依赖未变不会再跑——不在这里
   // 设置的话，播放器总是以浏览器默认的 100% 音量开播，而滑杆显示的是偏好值。
   return (
-    <div className="music-player" role="region" aria-label="背景音乐">
+    <div className="music-player" data-collapsed={collapsed || undefined} role="region" aria-label="背景音乐">
       <audio
         ref={(el) => {
           audioRef.current = el;

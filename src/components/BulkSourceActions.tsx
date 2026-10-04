@@ -1,6 +1,6 @@
 "use client";
 
-import Link from "next/link";
+import { AdminLink as Link } from "./admin/AdminLink";
 import { useState } from "react";
 import { I18nText } from "./I18nTextClient";
 import { SubmitButton } from "./SubmitButton";

@@ -135,7 +135,11 @@ try {
   await accountOldWork.waitFor({ state: "visible" });
   assert.equal(await page.getByText("其他会员的隐藏作品", { exact: true }).count(), 0);
   await accountOldWork.getByRole("link", { name: "继续" }).click();
-  await page.waitForURL(`${BASE}/create?work=${oldestWork.id}`);
+  await page.waitForURL((url) =>
+    url.origin === new URL(BASE).origin
+    && /^\/(?:zh|en)\/create$/.test(url.pathname)
+    && url.searchParams.get("work") === oldestWork.id
+  );
   await page.locator("#creation-title").waitFor({ state: "visible" });
   assert.equal(await page.locator("#creation-title").inputValue(), "分页作品 051");
   pass("账户页可加载并继续打开第 51 个私有作品");

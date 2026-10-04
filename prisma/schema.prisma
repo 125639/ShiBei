@@ -280,6 +280,8 @@ model Post {
   @@index([updatedAt])
 }
 
+
+
 model Video {
   id             String       @id @default(cuid())
   title          String

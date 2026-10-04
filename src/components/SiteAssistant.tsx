@@ -2,6 +2,7 @@
 
 import { useSyncExternalStore } from "react";
 import { usePathname } from "next/navigation";
+import { stripLanguagePrefix } from "@/lib/language";
 import { AiAssistant, type AssistantSuggestionGroup } from "@/components/AiAssistant";
 import { I18nText } from "@/components/I18nTextClient";
 import {
@@ -84,6 +85,7 @@ export function SiteAssistant({ siteName, siteDescription }: { siteName: string;
   if (registered) {
     return (
       <AiAssistant
+        launcherTargetId={registered.launcherTargetId}
         context={registered.context}
         contextLabel={registered.contextLabel}
         suggestionGroups={registered.suggestionGroups}
@@ -91,7 +93,7 @@ export function SiteAssistant({ siteName, siteDescription }: { siteName: string;
     );
   }
 
-  const section = SECTION_FALLBACKS.find((item) => item.match(pathname));
+  const section = SECTION_FALLBACKS.find((item) => item.match(stripLanguagePrefix(pathname)));
   const label = section?.label ?? { zh: "当前页面", en: "Current Page" };
   const context = [
     `站点：${siteName} —— ${siteDescription}`,

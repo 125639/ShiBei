@@ -6,7 +6,8 @@ import {
   formatMarkdownSelection,
   type MarkdownFormatAction
 } from "@/lib/admin-markdown-editor";
-import { markdownToHtml, type VideoForShortcode } from "@/lib/markdown";
+import type { VideoForShortcode } from "@/lib/markdown";
+import { useMarkdownHtml } from "./useMarkdownHtml";
 import { I18nText } from "./I18nTextClient";
 
 type WorkspaceMode = "split" | "edit" | "preview";
@@ -109,10 +110,25 @@ export function AdminMarkdownWorkspace({
   const deferredMarkdown = useDeferredValue(markdown);
   const stats = useMemo(() => countMarkdownText(markdown), [markdown]);
   const videosById = useMemo(() => new Map(previewVideos.map((video) => [video.id, video])), [previewVideos]);
-  const previewHtml = useMemo(
-    () => markdownToHtml(deferredMarkdown, { videosById }),
-    [deferredMarkdown, videosById]
+  const [previewVisible, setPreviewVisible] = useState(false);
+  const previewHtml = useMarkdownHtml(
+    previewVisible && mode !== "edit" && deferredMarkdown.trim() ? deferredMarkdown : null,
+    videosById
   );
+
+  // Hidden create forms and edit-only mobile views do not download or execute
+  // Markdown/sanitizer code. Reveal/previews retain the same native textarea.
+  useEffect(() => {
+    const element = workspaceRef.current;
+    if (!element) return;
+    if (typeof IntersectionObserver === "undefined") {
+      const timer = setTimeout(() => setPreviewVisible(true), 0);
+      return () => clearTimeout(timer);
+    }
+    const observer = new IntersectionObserver(([entry]) => setPreviewVisible(entry.isIntersecting));
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, []);
   const modeA11y = markdownWorkspaceModeA11y(mode);
 
   useEffect(() => {
@@ -356,7 +372,7 @@ export function AdminMarkdownWorkspace({
             tabIndex={0}
           >
             {deferredMarkdown.trim() ? (
-              <div dangerouslySetInnerHTML={{ __html: previewHtml }} />
+              <div aria-busy={previewHtml === null}>{previewHtml === null ? <p className="muted"><I18nText zh="正在准备预览…" en="Preparing preview…" /></p> : <div dangerouslySetInnerHTML={{ __html: previewHtml }} />}</div>
             ) : (
               <div className="empty-state">
                 <p><I18nText zh="开始输入后，这里会显示排版后的文章。" en="The formatted article will appear here as you type." /></p>

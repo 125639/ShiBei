@@ -41,8 +41,8 @@ export async function requestUpdateApply(): Promise<{ ok: boolean; error?: strin
 }
 
 // ---- 客户端检查缓存（弹窗 + 侧栏角标共用，单飞去重）----
-// 后台每个页面都渲染 AdminShell → 这些组件反复 mount；15 分钟内共用同一次
-// 请求结果（服务端另有 10 分钟缓存兜底），一次导航只发一个请求。
+// 后台常驻布局中的提示和两份导航角标共用一个请求；15 分钟内复用结果，
+// 不随切页重新探测（服务端另有 10 分钟缓存兜底）。
 const CLIENT_CHECK_TTL_MS = 15 * 60_000;
 let clientCheckCache: { at: number; data: CheckPayload } | null = null;
 let clientCheckInFlight: Promise<CheckPayload | null> | null = null;

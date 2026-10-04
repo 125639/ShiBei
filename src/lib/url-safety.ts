@@ -1,8 +1,22 @@
+import fs from "node:fs";
 import { lookup } from "node:dns/promises";
 import type { LookupAddress } from "node:dns";
 import net from "node:net";
 import type { LookupFunction } from "node:net";
 import { Agent, fetch as undiciFetch } from "undici";
+
+// 自定义 connect（钉 IP 的 pinnedDispatcher）会绕过 Node 默认信任链对
+// NODE_EXTRA_CA_CERTS 的合并（私有网络/代理注入的 CA 场景）。这里显式
+// 读取同一环境变量，把附加 CA 传给所有钉 IP 的 Agent。
+const EXTRA_CA_FILE = process.env.NODE_EXTRA_CA_CERTS;
+let extraCa: string | undefined;
+if (EXTRA_CA_FILE) {
+  try {
+    extraCa = fs.readFileSync(EXTRA_CA_FILE, "utf8");
+  } catch {
+    extraCa = undefined;
+  }
+}
 
 const REDIRECT_STATUSES = new Set([301, 302, 303, 307, 308]);
 
@@ -165,7 +179,7 @@ function pinnedDispatcher(target: ResolvedFetchTarget): Agent {
     );
   };
 
-  const agent = new Agent({ connect: { lookup: pinnedLookup } });
+  const agent = new Agent({ connect: { lookup: pinnedLookup, ...(extraCa ? { ca: extraCa } : {}) } });
   dispatchers.set(key, agent);
   if (dispatchers.size > MAX_PINNED_DISPATCHERS) {
     const oldestKey = dispatchers.keys().next().value as string | undefined;

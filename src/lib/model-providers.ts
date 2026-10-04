@@ -6,7 +6,6 @@ export type ModelProviderPreset = {
   note: string;
 };
 
-// All presets below are OpenAI-compatible /chat/completions endpoints.
 // 「自定义」放在首位并作为各处下拉框的默认值：用户接入的多半是自己的
 // 中转/自建服务，预选某个具体厂商（此前是 CanopyWave）会被误解为
 // "系统默认用这家服务商"。

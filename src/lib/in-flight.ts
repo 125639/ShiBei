@@ -31,10 +31,23 @@ export async function withInFlightLock<T>(
   const redis = getRedis();
 
   if (redis) {
+    // 只把「连接 + 加锁」放进 try，业务执行必须放在外面。
+    // 此前 fn() 也在同一个 try 内，业务异常（模型报错、DB 报错）会被误判成
+    // 「Redis 不可用」而落到下面的内存锁分支，于是 fn() 被**再执行一次**：
+    // 对 translate / 讲解 / 识别这类付费调用就是重复计费。
+    let acquired = false;
+    let lockServiceFailed = false;
     try {
       if (redis.status === "wait") await redis.connect();
-      const acquired = await redis.set(redisKey, token, "EX", ttlSec, "NX");
-      if (acquired !== "OK") return { ok: false, reason: "busy" };
+      acquired = (await redis.set(redisKey, token, "EX", ttlSec, "NX")) === "OK";
+    } catch {
+      lockServiceFailed = true;
+    }
+
+    if (!lockServiceFailed) {
+      // 拿不到锁 = 确实有别的请求正在执行：返回 busy，绝不降级到内存锁，
+      // 否则多实例会同时执行同一任务。
+      if (!acquired) return { ok: false, reason: "busy" };
       try {
         return { ok: true, value: await fn() };
       } finally {
@@ -45,8 +58,6 @@ export async function withInFlightLock<T>(
           token
         ).catch(() => undefined);
       }
-    } catch {
-      // Fall through to an in-process lock if Redis is temporarily unavailable.
     }
   }
 

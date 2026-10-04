@@ -125,15 +125,40 @@ export function NavigationProgress() {
       watchForNavigation(fromHref);
     }
 
+    // next/form performs GET searches as client navigations. A click-only
+    // listener misses both Enter and submit buttons, leaving slow searches inert.
+    function onSubmit(event: SubmitEvent) {
+      const form = event.target;
+      if (!(form instanceof HTMLFormElement)) return;
+      const submitter = event.submitter instanceof HTMLButtonElement || event.submitter instanceof HTMLInputElement
+        ? event.submitter : null;
+      const method = submitter?.getAttribute("formmethod") || form.method;
+      const target = submitter?.getAttribute("formtarget") || form.target;
+      if (method.toLowerCase() !== "get" || (target && target !== "_self")) return;
+      const action = submitter?.getAttribute("formaction") || form.action;
+      let url: URL;
+      try {
+        url = new URL(action, window.location.href);
+        if (url.origin !== window.location.origin) return;
+        const data = new FormData(form, submitter);
+        url.search = new URLSearchParams([...data].map(([key, value]) => [key, typeof value === "string" ? value : value.name])).toString();
+      } catch { return; }
+      if (url.pathname === window.location.pathname && url.search === window.location.search) return;
+      start();
+      watchForNavigation(window.location.href);
+    }
+
     function onPopState() {
       start();
       finishAfterCommit();
     }
 
     document.addEventListener("click", onClick, true);
+    document.addEventListener("submit", onSubmit, true);
     window.addEventListener("popstate", onPopState);
     return () => {
       document.removeEventListener("click", onClick, true);
+      document.removeEventListener("submit", onSubmit, true);
       window.removeEventListener("popstate", onPopState);
       if (safetyTimer !== null) window.clearTimeout(safetyTimer);
       if (hideTimer !== null) window.clearTimeout(hideTimer);

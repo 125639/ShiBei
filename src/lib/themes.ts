@@ -6,7 +6,8 @@ export type ThemeKey =
   | "ocean"
   | "forest"
   | "sunset"
-  | "midnight";
+  | "midnight"
+  | "panel";
 
 export type FontKey =
   | "serif-cjk"
@@ -147,6 +148,12 @@ export const THEMES: Array<{
     label: "午夜",
     desc: "深蓝夜空，星辰般的高对比配色",
     swatch: ["#0d1320", "#161e30", "#6da4d6", "#e6ebf5"]
+  },
+  {
+    key: "panel",
+    label: "深空面板",
+    desc: "与管理后台同源的深海军蓝控制台色系，数据感十足",
+    swatch: ["#0a0f1b", "#131c30", "#3f8cff", "#e7ecf6"]
   }
 ];
 

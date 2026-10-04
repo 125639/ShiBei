@@ -6,7 +6,7 @@ import {
   runWithRoutedModelFallback,
   type ChatModelConfig
 } from "../src/lib/ai";
-import { buildModelFallbackChain } from "../src/lib/model-selection";
+import { buildModelFallbackChain, selectModelConfigForUse, type ModelUse } from "../src/lib/model-selection";
 
 function config(model: string): ChatModelConfig {
   return {
@@ -66,6 +66,43 @@ test("a queued job keeps its selected model first and can use every other config
   assert.equal(chain?.model, "deepseek");
   assert.deepEqual(chain?.fallbackConfigs.map((item) => item.model), ["gpt", "qwen"]);
   assert.equal(buildModelFallbackChain([{ id: "only" }], "missing"), null);
+});
+
+test("all normal roles retain chat defaults and fallback ordering", () => {
+  const configs = [
+    { id: "default", provider: "custom", model: "default-chat", isDefault: true },
+    { id: "assistant", provider: "custom", model: "assistant-chat", isDefault: false },
+    { id: "secondary", provider: "custom", model: "secondary-chat", isDefault: false }
+  ];
+  const settings = {
+    contentModelConfigId: "default", assistantModelConfigId: "assistant",
+    writingModelConfigId: "default", translationModelConfigId: "default"
+  };
+  for (const use of ["content", "assistant", "writing", "translation"] as ModelUse[]) {
+    const result = selectModelConfigForUse(use, settings, configs);
+    assert.equal(result?.id, use === "assistant" ? "assistant" : "default");
+    assert.deepEqual(result?.fallbackConfigs.map((item) => item.id),
+      use === "assistant" ? ["default", "secondary"] : ["assistant", "secondary"]);
+  }
+  assert.deepEqual(buildModelFallbackChain(configs, "secondary")?.fallbackConfigs.map((item) => item.id), ["default", "assistant"]);
+});
+
+test("normal explicit assignments and translation fallback behavior remain unchanged", () => {
+  const configs = [
+    { id: "default", provider: "custom", model: "default-chat", isEnabled: true },
+    { id: "assigned", provider: "deepseek", model: "deepseek-chat", isEnabled: true },
+    { id: "disabled", provider: "custom", model: "disabled-chat", isEnabled: false }
+  ];
+  for (const use of ["content", "assistant", "writing", "translation"] as ModelUse[]) {
+    assert.equal(selectModelConfigForUse(use, null, configs)?.id, "default");
+    assert.equal(selectModelConfigForUse(use, {
+      contentModelConfigId: "assigned", assistantModelConfigId: "assigned", writingModelConfigId: "assigned",
+      translationModelConfigId: "assigned"
+    }, configs)?.id, "assigned");
+  }
+  assert.equal(selectModelConfigForUse("translation", { assistantModelConfigId: "assigned" }, configs)?.id, "assigned");
+  assert.equal(selectModelConfigForUse("translation", { assistantModelConfigId: "disabled" }, configs)?.id, "default");
+  assert.deepEqual(selectModelConfigForUse("content", { contentModelConfigId: "disabled" }, configs)?.fallbackConfigs.map((config) => config.id), ["assigned"]);
 });
 
 test("a failed optional review preserves the complete draft for deterministic publication checks", () => {
