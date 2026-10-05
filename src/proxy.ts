@@ -1,7 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { getAppMode, isPathAvailableInAppMode } from "@/lib/app-mode";
 import { rejectCrossOriginMutation } from "@/lib/request-origin";
-import { requestSiteOrigin } from "@/lib/site-url";
 import {
   isLanguageExemptPath,
   languageFromPath,
@@ -35,13 +34,15 @@ function looksLikeStaticFile(pathname: string): boolean {
   return last.includes(".");
 }
 
-function buildRedirectUrl(request: NextRequest, path: string): URL {
-  const origin = requestSiteOrigin(request);
-  if (origin) return new URL(`${origin}${path}`);
-
-  const url = request.nextUrl.clone();
-  url.pathname = path;
-  return url;
+/**
+ * Next's proxy adapter requires an absolute input Location, then relativizes
+ * same-origin redirects before sending them to the browser. Use the adapter's
+ * own request origin, NOT PUBLIC_URL or a separately reconstructed proxy origin.
+ * A bare relative Location here throws ERR_INVALID_URL in a production build.
+ * Keep the adapter integration test when upgrading Next.js.
+ */
+function proxyRedirect(request: NextRequest, path: string) {
+  return NextResponse.redirect(new URL(path, request.url), 307);
 }
 
 /**
@@ -50,9 +51,9 @@ function buildRedirectUrl(request: NextRequest, path: string): URL {
  * 独立成纯函数是为了可测：这里最容易犯的错是用 request.nextUrl 直接拼
  * Location。在反代/隧道后面 nextUrl 是内网地址（http://127.0.0.1:PORT），
  * 那样会把访客甩到他自己的本机上，而本地开发完全测不出来——nextUrl 在直连
- * 场景恰好就是对外地址。必须走 requestSiteOrigin 还原访客实际访问的源。
+ * 场景恰好就是对外地址。统一返回根相对路径，让浏览器保留实际访问的 HTTPS 域名与端口。
  *
- * 拿不到可信源时返回相对 Location，由浏览器按当前源解析，绝不回落到内网地址。
+ * 不论 PUBLIC_URL 或转发头如何配置，都不把服务器内部地址拼入站内导航。
  */
 export function languageRedirectLocation(
   request: Pick<Request, "url" | "headers">,
@@ -64,8 +65,7 @@ export function languageRedirectLocation(
   }
   const language = negotiateLanguage(request.headers.get("accept-language"));
   const localized = `${withLanguagePrefix(language, pathname)}${search}`;
-  const origin = requestSiteOrigin(request);
-  return origin ? `${origin}${localized}` : localized;
+  return localized;
 }
 
 export function proxy(request: NextRequest) {
@@ -86,7 +86,7 @@ export function proxy(request: NextRequest) {
     }
     // 页面导航（手输 URL 到被屏蔽的 admin 页）给浏览器一个可用的落点，
     // 而不是渲染一段裸 JSON。
-    return NextResponse.redirect(buildRedirectUrl(request, "/admin"));
+    return proxyRedirect(request, "/admin");
   }
 
   // backend 模式的公开页拦截放在语言规范化之前：否则 `/` 会先被重定向到
@@ -95,7 +95,7 @@ export function proxy(request: NextRequest) {
   if (mode === "backend") {
     const bare = stripLanguagePrefix(pathname);
     if (bare === "/" || BACKEND_PUBLIC_PREFIXES.some((p) => bare === p || bare.startsWith(p + "/"))) {
-      return NextResponse.redirect(buildRedirectUrl(request, "/admin"));
+      return proxyRedirect(request, "/admin");
     }
   }
 
@@ -107,12 +107,9 @@ export function proxy(request: NextRequest) {
   // 访客协商出的语言永久缓存给所有人。
   const location = languageRedirectLocation(request, pathname, request.nextUrl.search);
   if (location) {
-    // 用裸 Location 而不是 NextResponse.redirect(URL)：后者要求绝对 URL，
-    // 拿不到可信源时就没法回落到相对地址（与 lib/redirect.ts 同口径）。
-    return new NextResponse(null, {
-      status: 307,
-      headers: { Location: location, Vary: "Accept-Language" }
-    });
+    const response = proxyRedirect(request, location);
+    response.headers.set("Vary", "Accept-Language");
+    return response;
   }
 
   return NextResponse.next();

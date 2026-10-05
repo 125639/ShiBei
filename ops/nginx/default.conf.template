@@ -1,3 +1,10 @@
+# HTTP/3 can expose :authority through $host while $http_host is empty.
+# Preserve explicit ports when available; never send an empty Host upstream.
+map $http_host $shibei_public_authority {
+    default $http_host;
+    ''      $host;
+}
+
 map $http_upgrade $connection_upgrade {
   default upgrade;
   '' close;

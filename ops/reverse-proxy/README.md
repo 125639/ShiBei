@@ -92,3 +92,46 @@ curl -fsS https://blog.example.com/api/health
 ```
 
 确认防火墙对公网只放行 80/443，3000 只在本机可达。更新拾贝时不需要修改这些代理配置；应用更新器也不会重载代理或处理证书。
+
+
+## 域名登录回归（含 HTTP/3）
+
+后端部署必须设置 `APP_MODE=backend`；`PUBLIC_URL` 只声明对外地址，不会自动改变应用模式。
+使用 systemd/裸机部署时，在服务实际读取的 `.env` 中修改并重启应用；不要只改另一份工作目录的文件。
+
+Nginx 不应直接把 `$http_host` 作为唯一的上游 Host：某些 HTTP/3 请求中它为空，
+Nginx/应用会退回内部 upstream 名称，产生 `https://backend_xxx/admin` 一类无效跳转。
+样例通过 `map` 优先保留 `$http_host`（含显式端口），为空时使用 `$host`，并用同一值覆盖
+`Host` 和 `X-Forwarded-Host`。`map` 必须放在 `http` 上下文内，不能放进 `server`/`location`。
+不要仅用 curl 或健康接口判断登录成功：浏览器可能在收到 Alt-Svc 后切换到 HTTP/3。
+不要用关闭 CSRF 校验、关闭 Secure Cookie 或信任所有代理来绕过问题。
+
+在部署主机上，以服务用户执行：
+
+```bash
+node scripts/e2e/verify-domain-access.mjs
+```
+
+测试要求该部署已安装 Playwright Chromium，并支持 HTTP/3（UDP 443 可达）。脚本会校验浏览器
+**实际协商的协议**，分别覆盖 HTTP/1.1、HTTP/2、HTTP/3，不接受降级后“假通过”。
+它仅向 `.env` 的 `PUBLIC_URL` 发送本机管理员凭据，真实登录一次，再在内存中复用会话；
+不会输出密码/Cookie，不写文章、设置或触发任务。覆盖登录跳转、后台各页、客户端导航、
+刷新、移动视口、未登录 API 拒绝、跨域修改拒绝及伪造转发头覆盖。
+注意：已登录退出会吊销该管理员所有设备的会话，因此自动测试只验证无会话退出及跨域退出拦截。
+
+修改面板反代配置后应重新运行本测试；面板重新生成配置可能覆盖人工修复。
+
+
+### 防止「前台 HTTPS，后台跳回 HTTP IP:端口」
+
+站内后台跳转与订阅/分享链接是两类用途：`PUBLIC_URL` 继续用于站点身份与 Cookie 策略，
+但不能拿旧值拼接登录、退出或表单操作后的导航。`src/lib/redirect.ts` 统一输出根相对
+`Location: /admin/...`，包括没有 Request 参数的调用；浏览器保留当前协议、域名及端口。
+Next Proxy 对 Location 有绝对 URL 输入要求，因此在其适配器内使用当前请求同源 URL，
+让框架在发出响应前转成相对路径；对应测试实际执行 Next adapter，不只是调用纯函数。
+不要启用跳过 middleware URL normalization 的配置而不重新验证这些测试。
+
+这不代表可以省略部署配置：HTTPS 实例仍必须正确设置 `PUBLIC_URL=https://域名`、
+可信代理跳数和监听范围，否则 Cookie 安全策略、CSRF、订阅链接仍可能不正确。
+自动测试包含旧 HTTP IP 配置、缺失/异常代理头、非标准端口、无 Request 的后台跳转，
+以及 backend/full/frontend 三种模式的框架级重定向。

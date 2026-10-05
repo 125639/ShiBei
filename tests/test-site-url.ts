@@ -1,6 +1,8 @@
+import "next/dist/server/node-environment";
 import assert from "node:assert/strict";
 import test from "node:test";
-import { languageRedirectLocation } from "../src/proxy";
+import { languageRedirectLocation, proxy } from "../src/proxy";
+import { adapter } from "next/dist/server/web/adapter";
 import { redirectTo } from "../src/lib/redirect";
 import {
   absoluteSiteUrl,
@@ -108,7 +110,7 @@ test("direct HTTP redirects keep the request scheme instead of assuming HTTPS", 
     assert.equal(requestSiteOrigin(request), "http://203.0.113.10:3000");
     assert.equal(
       redirectTo("/admin", request).headers.get("location"),
-      "http://203.0.113.10:3000/admin"
+      "/admin"
     );
   });
 });
@@ -171,7 +173,7 @@ test("configured PUBLIC_URL wins for direct listeners without a trusted proxy", 
     assert.equal(requestSiteOrigin(request), "https://canonical.example.test");
     assert.equal(
       redirectTo("/admin", request).headers.get("location"),
-      "https://canonical.example.test/admin"
+      "/admin"
     );
   } finally {
     restoreEnv("PUBLIC_URL", previousPublicUrl);
@@ -203,7 +205,7 @@ test("behind a trusted proxy, redirects follow the browser-visible origin (cloud
     assert.equal(requestSiteOrigin(request), "https://blog.example.test");
     assert.equal(
       redirectTo("/admin", request).headers.get("location"),
-      "https://blog.example.test/admin"
+      "/admin"
     );
   } finally {
     restoreEnv("PUBLIC_URL", previousPublicUrl);
@@ -259,7 +261,7 @@ test("non-standard public ports survive X-Forwarded-Host without a port", () => 
     assert.equal(requestSiteOrigin(request), "https://blog.example.test:8443");
     assert.equal(
       redirectTo("/admin", request).headers.get("location"),
-      "https://blog.example.test:8443/admin"
+      "/admin"
     );
 
     // 端口不一致（XFH 显式带了另一个端口）说明代理刻意声明了对外端口，以 XFH 为准。
@@ -337,12 +339,12 @@ test("language redirects target the visitor-facing origin, never the internal on
     };
     assert.equal(
       languageRedirectLocation(throughTunnel, "/posts", ""),
-      "https://blog.example.com/zh/posts"
+      "/zh/posts"
     );
     // 查询串必须保留，否则 /posts?topic=x 重定向后丢掉筛选条件
     assert.equal(
       languageRedirectLocation(throughTunnel, "/posts", "?topic=tech&q=ai"),
-      "https://blog.example.com/zh/posts?topic=tech&q=ai"
+      "/zh/posts?topic=tech&q=ai"
     );
     // Accept-Language 决定落地语种
     assert.equal(
@@ -351,7 +353,7 @@ test("language redirects target the visitor-facing origin, never the internal on
         "/",
         ""
       ),
-      "https://blog.example.com/en"
+      "/en"
     );
   } finally {
     restoreEnv("PUBLIC_URL", previousPublicUrl);
@@ -370,4 +372,77 @@ test("language redirects skip paths that have no language version", () => {
   // 已带语言段的不再重定向（否则会无限循环）
   assert.equal(languageRedirectLocation(req, "/zh/posts", ""), null);
   assert.equal(languageRedirectLocation(req, "/en", ""), null);
+});
+
+test("all in-site redirects retain the browser's HTTPS origin despite stale deployment URLs", () => {
+  const saved = { PUBLIC_URL: process.env.PUBLIC_URL, NEXT_PUBLIC_SITE_URL: process.env.NEXT_PUBLIC_SITE_URL, TRUST_PROXY_HOPS: process.env.TRUST_PROXY_HOPS };
+  try {
+    for (const configured of ["http://127.0.0.1:8884", "http://203.0.113.10:8884", "https://old.example.test", ""]) {
+      process.env.PUBLIC_URL = configured;
+      process.env.NEXT_PUBLIC_SITE_URL = "http://localhost:3000";
+      for (const hops of ["0", "1", "2"]) {
+        process.env.TRUST_PROXY_HOPS = hops;
+        for (const headers of [
+          {},
+          { host: "127.0.0.1:8884" },
+          { host: "backend_internal", "x-forwarded-proto": "http" },
+          { host: "test.example.com", "x-forwarded-proto": "https" },
+          { host: "internal:3000", "x-forwarded-host": "attacker.invalid", "x-forwarded-proto": "http" }
+        ]) {
+          const request = new Request("http://127.0.0.1:8884/api/admin/login", { headers: headers as Record<string, string> });
+          for (const path of ["/admin", "/admin/login?error=1", "/admin/settings?tab=models", "/admin/posts?publishError=blocked"]) {
+            for (const response of [redirectTo(path), redirectTo(path, request), redirectTo(path, 307)]) {
+              assert.equal(response.headers.get("location"), path);
+              for (const browserOrigin of ["https://test.example.com", "https://test.example.com:8443", "http://203.0.113.10:8884"]) {
+                assert.equal(new URL(response.headers.get("location")!, browserOrigin).origin, browserOrigin);
+              }
+            }
+          }
+          assert.equal(languageRedirectLocation(request, "/posts", "?topic=tech"), "/zh/posts?topic=tech");
+        }
+      }
+    }
+  } finally {
+    for (const [key, value] of Object.entries(saved)) restoreEnv(key as keyof typeof saved, value);
+  }
+});
+
+test("root-relative redirect helper rejects external authorities and preserves status/query/fragment", () => {
+  for (const value of ["https://evil.test", "//evil.test", "/\\evil.test", "/admin\r\nLocation: https://evil.test", "admin", "javascript:alert(1)"]) {
+    assert.throws(() => redirectTo(value), /root-relative/);
+  }
+  assert.equal(redirectTo("/admin/posts?q=a%20b#draft", 307).headers.get("location"), "/admin/posts?q=a%20b#draft");
+  assert.equal(redirectTo("/admin", 307).status, 307);
+  assert.equal(redirectTo("/admin").status, 303);
+  assert.equal(redirectTo("/admin", new Request("http://internal/"), 308).status, 308);
+});
+
+
+test("Next production proxy adapter emits relative redirects, never configured IPs", async () => {
+  const previousMode = process.env.APP_MODE;
+  const previousUrl = process.env.PUBLIC_URL;
+  async function throughAdapter(path: string) {
+    return (await adapter({
+      page: "/proxy",
+      request: { url: `http://127.0.0.1:8884${path}`, method: "GET", signal: new AbortController().signal, headers: { host: "test.example.com", "x-forwarded-proto": "https" } },
+      handler: async request => proxy(request)
+    })).response;
+  }
+  try {
+    process.env.PUBLIC_URL = "http://203.0.113.10:8884";
+    process.env.APP_MODE = "backend";
+    for (const path of ["/", "/zh", "/posts", "/en/posts", "/community", "/account"]) {
+      const response = await throughAdapter(path);
+      assert.equal(response.status, 307);
+      assert.equal(response.headers.get("location"), "/admin");
+    }
+    process.env.APP_MODE = "full";
+    assert.equal((await throughAdapter("/posts?topic=tech")).headers.get("location"), "/zh/posts?topic=tech");
+    process.env.APP_MODE = "frontend";
+    assert.equal((await throughAdapter("/admin/jobs")).headers.get("location"), "/admin");
+  } finally {
+    if (previousMode === undefined) delete process.env.APP_MODE;
+    else process.env.APP_MODE = previousMode;
+    restoreEnv("PUBLIC_URL", previousUrl);
+  }
 });

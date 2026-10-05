@@ -53,6 +53,7 @@ run_suite "alarm schedule controls" bash -c "cd '$PROJECT_DIR' && $TSX_CMD --tes
 run_suite "url safety" bash -c "cd '$PROJECT_DIR' && $TSX_CMD --test tests/test-url-safety.ts"
 run_suite "pinned browser + video egress" bash -c "cd '$PROJECT_DIR' && $TSX_CMD --test tests/test-egress-security.ts"
 run_suite "request origin + JSON security" bash -c "cd '$PROJECT_DIR' && $TSX_CMD --test tests/test-request-security.ts"
+run_suite "HTTP/3 proxy authority regression" bash -c "cd '$PROJECT_DIR' && node --test tests/test-proxy-authority.mjs"
 run_suite "runtime public URL + redirects" bash -c "cd '$PROJECT_DIR' && $TSX_CMD --test tests/test-site-url.ts"
 run_suite "frontend/backend transport boundary" bash -c "cd '$PROJECT_DIR' && $TSX_CMD --test tests/test-sync-backend-url.ts"
 run_suite "host-only auth cookie security" bash -c "cd '$PROJECT_DIR' && $TSX_CMD --test tests/test-auth-cookies.ts"
