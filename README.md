@@ -26,6 +26,8 @@
 - [常用运维命令](#常用运维命令)
 - [常见问题](#常见问题排查清单)
 - [安全建议](#安全建议)
+- [网页一键更新（updater）](#网页一键更新updater)
+- [升级到新版本](#升级到新版本)
 - [License](#许可)
 
 ---
@@ -53,7 +55,7 @@
 - **自动配图 + 手动图片上传**：开启「自动搜索并插入相关图片」后，worker 会从来源页/证据页抓取候选图，按尺寸、位置、alt 关键词、追踪域名等规则筛选，缓存到 `/public/uploads/image/` 后插入正文；管理员也可在新建文章或编辑文章时手动上传 JPG/PNG/WebP/GIF（≤8 MB），选择插入位置并填写图片来源。
 - **信息源模块化**：`SourceModule` 表，源可关联多个模块（AI / 财经 / 娱乐 …），主题抓取时只用关联模块的源，效率与相关性更高；管理员还可启用 [Exa](https://exa.ai) 作为额外检索引擎。
 - **音乐**：`/admin/music` 上传 MP3/M4A/OGG/WAV（≤30 MB），用户在 `/settings` 启用并选曲，全站浮动播放器（折叠/换曲/音量/关闭）。
-- **多语言**：默认中文；管理员可选「双语模式」或「默认语种模式」。在默认语种模式下，用户切到英文时打开文章会调 AI 自动翻译并写入缓存（`titleEn` / `summaryEn` / `contentEn`），下次复用。
+- **多语言（URL 驱动）**：公开站的语言写在路由里 —— `/zh/...` 与 `/en/...`。访问不带语言段的旧链接时，服务端会按 `Accept-Language` 协商后跳到对应语言，并保持路径与查询串。管理员在 `/admin/settings` 选「双语模式」或「默认语种模式」：默认语种模式下，另一种语言的文章首次被打开时才调 AI 翻译，结果缓存进 `titleEn` / `summaryEn` / `contentEn` 复用。RSS、sitemap、canonical 与公开页缓存失效都按语言段展开，避免中英文互相看到旧内容。
 - **AI 助手**：博客主页 + 文章页内嵌 `AiAssistant`，模型由管理员在 `/admin/settings` 配置；用户可与 AI 探讨页面文章内容，公开 AI 接口内置限流。
 - **用户写作工作台**：`/write` 提供独立写作区，**不计入博客内容**，用户写完可下载保存。AI 辅助使用管理员预设的「写作模型」；用户也可填入自己的 baseUrl / apiKey / model 走自定义模型。
 - **SEO / 订阅**：文章与视频详情页生成 canonical / Open Graph metadata，并提供 `/sitemap.xml`、`/robots.txt`、`/feed.xml`。
@@ -74,11 +76,13 @@
 
 ## 三种部署形态
 
-| 形态 | `APP_MODE` | 含 BullMQ Worker | 含 Playwright/yt-dlp | 公开页 | 同步角色 | 推荐资源 |
-| --- | --- | --- | --- | --- | --- | --- |
-| **完整版** | `full` | ✅ | ✅ | ✅ | 既能导出也能导入 | 2 核 4 GB |
-| **后端** | `backend` | ✅ | ✅ | ❌（重定向到 /admin） | 仅导出 | 2 核 2 GB |
-| **前端** | `frontend` | ❌ | ❌ | ✅ | 仅导入 | 1 核 1 GB |
+| 形态 | `APP_MODE` | Docker Hub 镜像 | 含 BullMQ Worker | 含 Playwright/yt-dlp | 公开页 | 同步角色 | 推荐资源 |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| **完整版** | `full` | `safg/shibei:full` | ✅ | ✅ | ✅ | 既能导出也能导入 | 2 核 4 GB |
+| **后端** | `backend` | `safg/shibei:backend` | ✅ | ✅ | ❌（重定向到 /admin） | 仅导出 | 2 核 2 GB |
+| **前端** | `frontend` | `safg/shibei:frontend` | ❌ | ❌ | ✅ | 仅导入 | 1 核 1 GB |
+
+三个镜像都已发布在 <https://hub.docker.com/r/safg/shibei>（linux/amd64，公开可直接 `docker pull`），另有 `safg/shibei:latest`（等同 `full`）与 `safg/shibei:updater`（网页一键更新的伴车容器，约 90 MB，三种形态通用）。每个镜像在构建时会把 git 提交与构建时间烤进 `BUILD_COMMIT` / `BUILD_TIME`，后台「更新」页与顶部版本信息显示的就是它，用来一眼确认线上跑的是哪个版本。
 
 ```text
                  ┌──────────────────────┐
@@ -167,7 +171,9 @@ cp .env.example .env
 ### 访问
 
 ```text
-http://服务器IP:3000/            # 公开站（完整版）
+http://服务器IP:3000/            # 公开站（完整版）；会按浏览器语言跳到 /zh 或 /en
+http://服务器IP:3000/zh          # 中文公开站
+http://服务器IP:3000/en          # 英文公开站
 http://服务器IP:3000/admin       # 管理后台（admin / 向导设置的密码）
 http://服务器IP:3000/api/health  # 公开健康检查
 ```
@@ -417,7 +423,7 @@ bash tests/run-all.sh     # 单元测试 / 集成测试 / 图片缓存与挂载�
 
 ### 公开站前端验收
 
-`npm run test:ui` 可对独立预览站运行浏览器回归检查，覆盖移动端导航、主题、搜索、阅读工具与无脚本阅读。组件结构、动效策略和隔离构建步骤见 [公开站前端与验收](docs/public-ui.md)。
+`npm run test:ui` 可对独立预览站运行浏览器回归检查，覆盖移动端导航、主题、搜索、阅读工具与无脚本阅读。`npm run test:lazy-ui` 单独验证列表与封面的懒加载/预览图行为。组件结构、动效策略和隔离构建步骤见 [公开站前端与验收](docs/public-ui.md)。
 
 ### 后台性能验收
 
@@ -447,45 +453,68 @@ npx prisma migrate dev --name describe_change
 ```text
 ShiBei/
 ├── prisma/
-│   ├── schema.prisma                # 数据模型（Post / Video / Music / Source / SourceModule / ContentTopic / ContentStyle …）
+│   ├── schema.prisma                # 数据模型（Post / Video / Music / Source / SourceModule / ContentTopic / ContentStyle / SyncState …）
 │   ├── seed.ts                      # 初始管理员、默认内容风格、默认主题/模块；读 INIT_AI_* 写入默认模型
-│   └── migrations/                  # SQL 迁移（随版本增长）
+│   └── migrations/                  # SQL 迁移（随版本增长，含学习模块移除与教材清理的历史迁移）
 ├── src/
-│   ├── proxy.ts                     # APP_MODE 路由守卫(Next 16 的 proxy)；frontend 屏蔽抓取相关路径，backend 把公开页重定向到 /admin
+│   ├── proxy.ts                     # APP_MODE 路由守卫 + 语言段协商（Next 16 的 proxy）；frontend 屏蔽抓取相关路径，backend 把公开页重定向到 /admin
 │   ├── app/
-│   │   ├── (public)/                # 公开页：/、/posts、/videos、/stats、/settings、/about、/write（/news 兼容重定向）
-│   │   ├── admin/                   # 管理后台：dashboard、内容、信息源、模块、主题、模型、音乐、视频、同步…
-│   │   ├── api/                     # 路由；admin/* 需 session，public/* 公开（backend 模式带 SYNC_TOKEN 校验）
+│   │   ├── (site)/[lang]/           # 公开站，语言在 URL 里：/zh、/en
+│   │   │   ├── page.tsx             # 首页
+│   │   │   ├── posts/               # 文章列表与 [slug] 详情
+│   │   │   ├── community/ create/   # 社区与共创工作室
+│   │   │   └── stats/ account/ settings/ about/ write/ news/
+│   │   ├── (console)/
+│   │   │   ├── admin/(workspace)/   # 后台工作区：posts、videos、sources、modules、auto-curation、comments、community、invites、jobs、music、ai、sync、stats、settings、update…
+│   │   │   └── login/               # 登录页（独立于工作区布局）
+│   │   ├── api/                     # admin/* 需 session；public/* 公开（backend 模式带 SYNC_TOKEN 校验）；internal/* 内部；member/* 会员；health
 │   │   ├── uploads/[...path]/       # 兜底服务运行时新写入的视频 / 音乐文件（Range 支持）
-│   │   └── layout.tsx               # 站点根布局（主题/字体/语言/UI 选择落到 <html data-*>）
-│   ├── components/                  # 复用 UI：AdminShell / PublicShell / AiAssistant / Charts / MusicPlayer …
+│   │   ├── feed.xml/ sitemap.ts robots.ts
+│   │   └── design-system.css / globals.css / publication.css / mobile.css / admin-panel.css / admin-performance.css / ui-polish.css
+│   ├── components/
+│   │   ├── public/                  # 公开站组件（PublicHeader / PostCard / PostShelf / PostsCollection / HeroScene / ReadingTools / SiteMotion）
+│   │   ├── admin/                   # 后台组件（AdminTopbar / AdminNavLink / StorageUsage / ModelConfigManager）
+│   │   ├── mobile/                  # 移动端视口与响应式对话框
+│   │   ├── writing/                 # 写作工作台（NotionEditor / slash-menu）
+│   │   ├── UpdateNotifier.tsx / UpdateNavBadge.tsx / update-flow.ts   # 新版本提示、触发与进度
+│   │   └── AdminShell.tsx / PublicShell.tsx / AiAssistant.tsx / Charts.tsx / MusicPlayer.tsx …
 │   ├── lib/
+│   │   ├── language.ts / i18n.ts / i18n-server.ts   # 支持语种（zh、en）、语言段解析与协商、文案
+│   │   ├── update.ts                # 更新检查：updater 优先，降级走 GitHub API 比对 BUILD_COMMIT
+│   │   ├── site-time.ts             # 全站「今天」的唯一口径（SITE_UTC_OFFSET_MINUTES）
 │   │   ├── ai.ts                    # OpenAI-compat 调用封装 + 内容体裁 prompt 组装
 │   │   ├── content-style.ts         # 内容体裁枚举、标签与校验
 │   │   ├── article-images.ts        # 自动配图筛选、缓存挂载、手动图片上传与正文插入
 │   │   ├── article-image-cache.ts   # 远程图片安全下载、类型/大小校验、本地缓存
 │   │   ├── app-mode.ts              # APP_MODE 读取与同步配置默认值
+│   │   ├── url-safety.ts            # 站内跳转/外部 URL 边界校验
 │   │   ├── sync/                    # ZIP 导出 / 导入 / 自动拉取 / 透明代理 / 共享密钥校验
 │   │   ├── scrape.ts / scrape-audience.ts  # Playwright 抓页面（仅 backend / full）
-│   │   ├── exa.ts                   # Exa 搜索接入
-│   │   ├── stats.ts                 # /stats 数据聚合
-│   │   ├── storage.ts               # 上传根目录 + 定期清理
+│   │   ├── storage.ts / stats.ts / exa.ts / …
 │   │   └── …
 │   ├── worker/index.ts              # BullMQ worker：fetch / research / digest / audience / schedule（仅 backend / full）
 │   └── sync-worker/index.ts         # frontend 专用轻量 sync-worker（仅 frontend）
 ├── scripts/
-│   ├── bootstrap.sh                 # 远程一键安装（curl … | bash）：装依赖检查 → git clone → init.sh
+│   ├── bootstrap.sh                 # 远程一键安装（curl … | bash）：依赖检查 → git clone → init.sh
 │   ├── init.sh                      # 交互式 .env 向导（自动检测 IP、生成密钥、选模式与 AI 模型）
+│   ├── deploy.sh                    # 常规部署脚本
 │   ├── start-app.sh                 # APP_MODE 调度的容器入口（迁移 + seed + 启动）
+│   ├── updater/server.mjs           # 网页一键更新的伴车服务（内部端口 9080，只挂 docker.sock）
+│   ├── package-runtime.mjs          # 打包精简运行包（配合 runtime/layout.mjs、report-size.mjs）
+│   ├── backup.sh / install-backup-timer.sh
+│   ├── e2e/                         # 真实环境验收脚本（公开 UI / 后台性能 / 手机端 / 域名跳转 / 同步往返 …）
 │   └── apply-migration.mjs          # 手工应用 SQL 的辅助脚本
+├── tests/                           # 单元与集成测试（bash tests/run-all.sh 全量跑）
+├── docs/                            # 发布检查清单、构建内存实测、公开站/后台/移动端验收、运行包体积、容器与域名验收记录
 ├── Dockerfile                       # 完整版镜像（Playwright + yt-dlp + ffmpeg）
 ├── Dockerfile.backend               # 后端镜像，与完整版同源，APP_MODE=backend
 ├── Dockerfile.frontend              # 前端镜像（slim 基础，无 Chromium / yt-dlp，体积小一半）
-├── docker-compose.yml               # 完整版（postgres + redis + app + worker）
-├── docker-compose.backend.yml       # 后端（postgres + redis + app + worker，APP_MODE=backend）
-├── docker-compose.frontend.yml      # 前端（postgres + app，sync-worker 在容器内并发跑）
+├── Dockerfile.updater               # 一键更新伴车镜像（safg/shibei:updater）
+├── docker-compose.yml               # 完整版（postgres + redis + app + worker + updater）
+├── docker-compose.backend.yml       # 后端（postgres + redis + app + worker + updater，APP_MODE=backend）
+├── docker-compose.frontend.yml      # 前端（postgres + app + sync-worker + updater）
 ├── docker-compose.frontdemo.yml     # 演示前端接入既有 backend 的 docker 网络
-├── .env.example                     # 必填环境变量样板（手动模式参考）
+├── .env.example                     # 必需/可选环境变量样板（手动模式参考）
 ├── README.md                        # 本文件
 ├── SYNC.md                          # 同步协议详细规格
 └── DEPLOY_NOTES.md                  # 部署历史记录与变更说明
@@ -554,6 +583,14 @@ docker compose down -v
 curl http://127.0.0.1:3000/api/health
 docker compose exec app sh -c 'echo $APP_MODE'
 
+# 当前运行的版本（镜像构建时烤入的 git 提交与构建时间）
+docker compose exec app sh -c 'echo "$BUILD_COMMIT / $BUILD_TIME"'
+
+# 一键更新伴车：日志与健康检查
+# （updater 只在 compose 网络内监听 9080，不对宿主机暴露端口）
+docker compose logs -f updater
+docker compose exec app node -e "fetch('http://updater:9080/health').then(r=>r.text()).then(console.log)"
+
 # backend 立即生成 ZIP（用 SYNC_TOKEN 鉴权）
 curl -O -J https://backend.example.com/api/admin/sync/export \
      -H "Authorization: Bearer $SYNC_TOKEN"
@@ -614,7 +651,7 @@ curl -O -J https://backend.example.com/api/admin/sync/export \
 
 `docker compose up --build` 会下 Playwright/Chromium 并跑 `next build`，内存 <4 GB 的机器几乎必然 OOM（Node 按物理内存推算的默认堆上限太小，且加 swap 也救不了构建）。两个办法：
 
-1. 改用 Docker Hub 上的预构建镜像：删 `--build`，`docker compose pull && up -d` 即可。`scripts/init.sh` 向导检测到内存 <3.5 GB 会自动走这条路；也可用 `SHIBEI_DEPLOY_SOURCE=pull`（或 `build`）显式指定。
+1. 改用 Docker Hub 上的预构建镜像：删 `--build`，`docker compose pull && up -d` 即可。`scripts/init.sh` 向导检测到内存 <3.5 GB 会自动走这条路；也可以在跑向导时用环境变量 `SHIBEI_DEPLOY_SOURCE=pull`（或 `build`）显式指定 —— 向导会把结果写进 `.env` 的 `DEPLOY_SOURCE`，一键更新伴车读的就是它。
 2. 用 4 GB+ 的机器构建，`docker push safg/shibei:xxx`，再到目标机器拉。
 
 ### ❽ 启动日志 `Unique constraint failed`
@@ -653,7 +690,24 @@ bash scripts/init.sh
 
 ---
 
+## 网页一键更新（updater）
+
+三种形态的 compose 都带一个 `updater` 伴车容器（镜像 `safg/shibei:updater`）。它只挂着宿主的 `docker.sock`，由它执行「取源码 → 重建或拉取镜像 → 滚动重启」，所以后台不用 SSH 也能更新。
+
+- **入口**：后台左上角的新版本弹窗，以及 `/admin/update` 页面。弹窗被叉掉后会把该远端版本记进浏览器 localStorage，同一版本不再打扰，出现更新的版本会再次弹出。
+- **两种更新来源**（`.env` 的 `DEPLOY_SOURCE`）：
+  - `pull`：从 Docker Hub 拉预构建镜像，不在本机编译。**内存 < 3.5 GB 的机器会自动采用这一模式**（本机 `next build` + Chromium 下载在 4 GB 以下几乎必然 OOM，见 ❼）。
+  - `build`：`git fetch` 后仅快进到 `origin/<分支>`，再在本机重建镜像。
+- **权限与边界**：`updater` 不对外发布端口（只在 compose 网络内监听 9080），app 与它之间用 `UPDATER_TOKEN` 鉴权，留空时自动复用 `AUTH_SECRET`。它只处理 compose 里声明的那几个服务（`UPDATE_SERVICES`），不会重载反代、不改 DNS、也不签发证书。
+- **当前版本怎么看**：镜像构建时会把 git 提交与构建时间烤进 `BUILD_COMMIT` / `BUILD_TIME`，`/admin/update` 顶部显示的就是「正在运行的版本」。
+- **没有 updater 时的降级**：`updater` 没起来时，应用退化成直接问 GitHub API（`UPDATE_REPO` / `UPDATE_BRANCH`，默认 `125639/ShiBei@main`）并比对 `BUILD_COMMIT`。这条路径**只能提示有新版本，不能一键更新**，页面会给出启用 updater 的说明。
+- **自己构建镜像时的注意点**：新版本提示是拿镜像里烤入的 `BUILD_COMMIT` 与远端提交做前缀比对得出的。compose 构建已经自动注入真实提交；如果你手工 `docker build`，请显式传 `--build-arg GIT_COMMIT=$(git rev-parse --short HEAD)`，否则会出现「仓库已是最新、镜像也拉过了，提示却反复出现」的假警报。
+
+---
+
 ## 升级到新版本
+
+> 用网页按钮更新的流程见上一节；下面是等价的 SSH 手动流程。
 
 ```bash
 cd /opt/ShiBei
