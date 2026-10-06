@@ -14,6 +14,7 @@ import {
 } from "../lib/source-quality";
 import { hostFromUrl } from "../lib/html";
 import { scrapeWebPage } from "../lib/scrape";
+import { researchSearchStartDate } from "../lib/research-evidence-excerpt";
 
 // 关键词/话题的证据收集(Exa + 已存 RSS 源 + Google News 搜索源),
 // 以及模型生成失败时基于证据的兜底稿构建。
@@ -37,7 +38,7 @@ export async function collectKeywordEvidence(
   const [savedEvidence, searchEvidence, exaEvidence] = await Promise.all([
     collectFromSavedSources(keyword, scope, opts),
     collectFromSearchFeeds(searchQueries, scope, opts?.onTransientFailure),
-    useExa ? collectFromExa(searchQueries[0] || keyword, scope, opts?.onTransientFailure) : Promise.resolve([])
+    useExa ? collectExaQueryEvidence(searchQueries, scope, opts?.onTransientFailure, searchWithExa, keyword) : Promise.resolve([])
   ]);
   const seen = new Set<string>();
   const evidence: EvidenceItem[] = [];
@@ -58,19 +59,45 @@ export async function collectKeywordEvidence(
   return evidence;
 }
 
-async function collectFromExa(keyword: string, scope: ResearchScope, onTransientFailure?: (error: unknown) => void) {
-  try {
-    const results = await searchWithExa(keyword, {
-      numResults: 8,
-      domesticOnly: scope === "domestic",
-      internationalOnly: scope === "international"
-    });
-    return results.map(evidenceFromExaResult);
-  } catch (error) {
-    console.error("[exa] collect failed:", error);
-    onTransientFailure?.(error);
-    return [];
+/** Search all three planned angles, serially, then share the leading slots. */
+export async function collectExaQueryEvidence(
+  queries: string[],
+  scope: ResearchScope,
+  onTransientFailure?: (error: unknown) => void,
+  search: typeof searchWithExa = searchWithExa,
+  keyword = queries.join(" "),
+  now = new Date()
+): Promise<EvidenceItem[]> {
+  const groups: ExaResult[][] = [];
+  const startPublishedDate = researchSearchStartDate(keyword, now);
+  for (const [index, query] of normalizeSearchQueries(queries, "").slice(0, 3).entries()) {
+    try {
+      groups.push(await search(query, {
+        numResults: 5,
+        domesticOnly: scope === "domestic",
+        internationalOnly: scope === "international",
+        // Keep the third angle available for historical/background research.
+        ...(index < 2 && startPublishedDate ? { startPublishedDate } : {})
+      }));
+    } catch (error) {
+      // One unavailable query must not discard the other angles' evidence.
+      console.error("[exa] collect failed:", error);
+      onTransientFailure?.(error);
+    }
   }
+  const evidence: EvidenceItem[] = [];
+  const seen = new Set<string>();
+  for (let rank = 0; rank < 5; rank++) {
+    for (const group of groups) {
+      const result = group[rank];
+      if (!result?.url) continue;
+      const key = normalizeEvidenceUrl(result.url);
+      if (seen.has(key)) continue;
+      seen.add(key);
+      evidence.push(evidenceFromExaResult(result));
+    }
+  }
+  return evidence;
 }
 
 export function evidenceFromExaResult(result: ExaResult): EvidenceItem {

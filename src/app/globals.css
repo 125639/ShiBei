@@ -3325,6 +3325,14 @@ button[aria-busy="true"] {
   font-size: 0.92rem;
 }
 
+.admin-ai-job-diagnostic {
+  flex-basis: 100%;
+  min-width: 0;
+  margin: 0;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
 .visit-top-list {
   min-width: 0;
   max-width: 100%;

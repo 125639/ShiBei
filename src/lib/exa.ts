@@ -43,23 +43,15 @@ export async function searchWithExa(query: string, opts?: {
   numResults?: number;
   domesticOnly?: boolean;
   internationalOnly?: boolean;
+  startPublishedDate?: string;
 }): Promise<ExaResult[]> {
   const apiKey = await loadExaApiKey();
   if (!apiKey) return [];
 
   const numResults = clamp(opts?.numResults ?? 8, 1, 20);
-  // Region scoping for Exa. The previous 7-domain hard whitelist starved the
-  // neural search — high-quality results from 36kr / ifanr / sina.cn / qq.com
-  // were dropped just because they weren't on the list. We now use a broader
-  // curated allowlist that covers the bulk of Chinese / international news +
-  // tech outlets Exa actually surfaces for tech and AI queries. The keyword's
-  // language already biases neural search toward the right region; the
-  // allowlist is a safety net, not the primary mechanism.
-  const includeDomains = opts?.domesticOnly
-    ? DOMESTIC_DOMAINS
-    : opts?.internationalOnly
-    ? INTERNATIONAL_DOMAINS
-    : undefined;
+  // International research must be able to discover central banks, government
+  // statistics, universities and papers, not just a fixed list of news sites.
+  const domainFilter = buildExaDomainFilter(opts);
 
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 30_000);
@@ -74,9 +66,10 @@ export async function searchWithExa(query: string, opts?: {
       body: JSON.stringify({
         query,
         numResults,
+        ...(opts?.startPublishedDate ? { startPublishedDate: opts.startPublishedDate } : {}),
         useAutoprompt: true,
-        contents: { text: { maxCharacters: 2000 } },
-        ...(includeDomains ? { includeDomains } : {})
+        contents: { text: { maxCharacters: 6000 } },
+        ...domainFilter
       })
     });
     if (!res.ok) {
@@ -123,20 +116,15 @@ const DOMESTIC_DOMAINS = [
   "developer.aliyun.com", "cloud.baidu.com"
 ];
 
-// 国外新闻 / 科技媒体 / 主要 AI 厂商博客。
-const INTERNATIONAL_DOMAINS = [
-  // 主流新闻
-  "bbc.com", "reuters.com", "apnews.com", "theguardian.com", "npr.org",
-  "nytimes.com", "washingtonpost.com", "ft.com", "economist.com",
-  "bloomberg.com", "wsj.com", "axios.com",
-  // 科技媒体
-  "theverge.com", "wired.com", "techcrunch.com", "arstechnica.com",
-  "engadget.com", "theinformation.com", "semianalysis.com",
-  // AI / 研究博客 + 厂商
-  "anthropic.com", "openai.com", "deepmind.google", "ai.googleblog.com",
-  "microsoft.com", "meta.com", "huggingface.co", "lesswrong.com",
-  "simonwillison.net", "oneusefulthing.org", "newsletter.pragmaticengineer.com"
-];
+/** Region selection is a discovery filter, not a source-trust or egress policy. */
+export function buildExaDomainFilter(opts?: { domesticOnly?: boolean; internationalOnly?: boolean }): {
+  includeDomains?: string[];
+  excludeDomains?: string[];
+} {
+  if (opts?.domesticOnly) return { includeDomains: [...DOMESTIC_DOMAINS] };
+  if (opts?.internationalOnly) return { excludeDomains: [...DOMESTIC_DOMAINS] };
+  return {};
+}
 
 function clamp(v: number, min: number, max: number) {
   if (!Number.isFinite(v)) return min;

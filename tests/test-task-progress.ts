@@ -18,3 +18,10 @@ assert.equal(clampProgress(4, 10), 4);
 assert.equal(clampProgress(Number.NaN, 10), 0);
 
 console.log("task progress tests passed");
+
+
+import { formatTaskTime } from "../src/lib/task-time";
+assert.equal(formatTaskTime("2026-10-05T14:46:34.000Z", 480, true), "2026-10-05 22:46:34");
+assert.equal(formatTaskTime("2026-10-05T14:46:34.000Z", -300, true), "2026-10-05 09:46:34");
+assert.equal(formatTaskTime("2026-10-05T14:46:34.000Z", 0), "14:46:34");
+assert.equal(formatTaskTime("bad date"), "—");

@@ -5,8 +5,10 @@ import { AdminLink as Link } from "./admin/AdminLink";
 import type { JobStatus } from "@prisma/client";
 import { I18nText } from "./I18nTextClient";
 import { StatusPill } from "./StatusPill";
+import { AdminAiJobDiagnostic } from "./AdminAiJobDiagnostic";
 import { TaskProgress } from "./TaskProgress";
 import { getBatchProgress } from "@/lib/task-progress";
+import { formatTaskTime } from "@/lib/task-time";
 
 type ContentStyleOption = {
   id: string;
@@ -114,10 +116,12 @@ function cadenceText(item: RecurringPlan) {
 
 export function AdminAiManager({
   styles,
-  initialBatches
+  initialBatches,
+  siteTimeOffsetMinutes = 480
 }: {
   styles: ContentStyleOption[];
   initialBatches: AdminAiBatchView[];
+  siteTimeOffsetMinutes?: number;
 }) {
   const [request, setRequest] = useState(EXAMPLE);
   const [scope, setScope] = useState<PlannedTask["scope"]>("all");
@@ -133,6 +137,7 @@ export function AdminAiManager({
   const [executed, setExecuted] = useState<ExecuteResult | null>(null);
   const [batches, setBatches] = useState<AdminAiBatchView[]>(initialBatches);
   const [refreshing, setRefreshing] = useState(false);
+  const [batchRefreshFailed, setBatchRefreshFailed] = useState(false);
   const [retryingJobId, setRetryingJobId] = useState("");
   // 顶部批次条里当前展开明细的批次(一次一个,点卡片切换)
   const [expandedBatchId, setExpandedBatchId] = useState<string | null>(null);
@@ -225,11 +230,14 @@ export function AdminAiManager({
     if (!silent) setRefreshing(true);
     try {
       const response = await fetch("/api/admin/ai-admin", { method: "GET" });
-      if (!response.ok) return;
+      if (!response.ok) throw new Error("Batch refresh failed");
       const data = (await response.json()) as { batches: AdminAiBatchView[] };
+      if (!Array.isArray(data.batches)) throw new Error("Invalid batch response");
       setBatches(data.batches);
+      setBatchRefreshFailed(false);
     } catch {
-      // 轮询失败静默,下一轮再试
+      // 保留上次快照，但必须明确标记已过期，不能将旧 RUNNING 冒充实时状态。
+      setBatchRefreshFailed(true);
     } finally {
       if (!silent) setRefreshing(false);
     }
@@ -368,6 +376,14 @@ export function AdminAiManager({
               <Link className="text-link" href="/admin/jobs"><I18nText zh="全部任务" en="All jobs" /></Link>
             </div>
           </div>
+          {batchRefreshFailed ? (
+            <p className="admin-ai-warning" role="status">
+              <I18nText
+                zh="任务状态刷新失败，以下是上次取得的状态，不能据此确认任务仍在运行。请检查网络或登录状态后刷新。"
+                en="Task status could not be refreshed. The last known state is shown and does not confirm that work is still running. Check your connection or sign-in status, then refresh."
+              />
+            </p>
+          ) : null}
           {executed ? (
             <p className="muted">
               <I18nText
@@ -384,8 +400,7 @@ export function AdminAiManager({
               const failed = batch.jobs.filter((job) => job.status === "FAILED").length;
               const running = batch.jobs.filter((job) => job.status === "RUNNING").length;
               const queued = batch.jobs.filter((job) => job.status === "QUEUED").length;
-              const active = batch.jobs.some((job) => job.status === "QUEUED" || job.status === "RUNNING");
-              const batchStatus: JobStatus = active ? "RUNNING" : failed ? "FAILED" : "COMPLETED";
+              const batchStatus: JobStatus = running ? "RUNNING" : queued ? "QUEUED" : failed ? "FAILED" : "COMPLETED";
               const expanded = expandedBatchId === batch.id;
               return (
                 <button
@@ -396,7 +411,7 @@ export function AdminAiManager({
                   onClick={() => setExpandedBatchId(expanded ? null : batch.id)}
                 >
                   <span className="admin-ai-batch-summary">{batch.summary}</span>
-                  <span className="muted admin-ai-batch-meta">{new Date(batch.createdAt).toLocaleString()}</span>
+                  <span className="muted admin-ai-batch-meta">{formatTaskTime(batch.createdAt, siteTimeOffsetMinutes, true)}</span>
                   <TaskProgress
                     compact
                     label={`批次进度 ${progress.settled}/${progress.total}`}
@@ -437,8 +452,8 @@ export function AdminAiManager({
               {expandedBatch.jobs.some((job) => job.status === "QUEUED" || job.status === "RUNNING") ? (
                 <p className="muted admin-ai-batch-request">
                   <I18nText
-                    zh="研究任务按安全并发逐项执行；复杂网页抓取和模型推理可能持续数分钟。仍显示“运行中”或“排队中”即未停止。"
-                    en="Research tasks run at a safe concurrency. Complex page collection and model reasoning can take several minutes; Running or Queued means the batch has not stopped."
+                    zh="研究任务按安全并发逐项执行；复杂网页抓取和模型推理可能持续数分钟。排队中不代表正在执行；若运行任务的心跳长时间不更新，请查看任务详情并检查 Worker / Redis。"
+                    en="Research tasks run at a safe concurrency and may take several minutes. Queued does not mean executing. If a running task’s heartbeat stops updating, inspect its details and check Worker / Redis."
                   />
                 </p>
               ) : null}
@@ -450,12 +465,12 @@ export function AdminAiManager({
                     {job.status === "RUNNING" ? (
                       <span className="muted">
                         <I18nText
-                          zh={`第 ${index + 1}/${expandedBatch.jobs.length} 项 · ${job.keyword.startsWith("文章返修：") ? "正在按审核意见返修并复检" : "正在采集、成稿并执行最多 3 轮自动返修"} · 最近活动 ${new Date(job.updatedAt).toLocaleTimeString()}`}
-                          en={`Item ${index + 1}/${expandedBatch.jobs.length} · ${job.keyword.startsWith("文章返修：") ? "Repairing against publication feedback" : "Collecting, drafting, and running up to 3 repair rounds"} · Last active ${new Date(job.updatedAt).toLocaleTimeString()}`}
+                          zh={`第 ${index + 1}/${expandedBatch.jobs.length} 项 · ${job.keyword.startsWith("文章返修：") ? "正在按审核意见返修并复检" : "正在采集、成稿并执行最多 3 轮自动返修"} · 最近心跳 ${formatTaskTime(job.updatedAt, siteTimeOffsetMinutes)}`}
+                          en={`Item ${index + 1}/${expandedBatch.jobs.length} · ${job.keyword.startsWith("文章返修：") ? "Repairing against publication feedback" : "Collecting, drafting, and running up to 3 repair rounds"} · Last heartbeat ${formatTaskTime(job.updatedAt, siteTimeOffsetMinutes)}`}
                         />
                       </span>
                     ) : job.status === "QUEUED" ? (
-                      <span className="muted"><I18nText zh="等待前序任务" en="Waiting for earlier tasks" /></span>
+                      <span className="muted"><I18nText zh="等待 Worker 执行" en="Waiting for a worker" /></span>
                     ) : null}
                     {job.status === "FAILED" ? (
                       <button
@@ -469,6 +484,7 @@ export function AdminAiManager({
                           : <I18nText zh="重试" en="Retry" />}
                       </button>
                     ) : null}
+                    <AdminAiJobDiagnostic job={job} />
                   </li>
                 ))}
               </ul>

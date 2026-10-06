@@ -116,3 +116,82 @@ test("a failed optional review preserves the complete draft for deterministic pu
     /local parser bug/
   );
 });
+
+
+test("a fallback authentication error cannot erase a retryable primary outage", async () => {
+  const attempts: string[] = [];
+  const primary = { ...config("primary"), fallbackConfigs: [config("fallback")] };
+  await assert.rejects(runWithRoutedModelFallback(primary, async (candidate) => {
+    attempts.push(candidate.model);
+    throw new ModelRequestError(candidate.model === "primary" ? "HTTP 524" : "HTTP 401: Invalid API key", {
+      retryable: candidate.model === "primary"
+    });
+  }, { warn() {} }), (error: unknown) => {
+    assert.ok(error instanceof ModelRequestError);
+    assert.equal(error.retryable, true, "the queue must be able to retry the recoverable primary");
+    assert.equal(error.truncated, false);
+    assert.match(error.message, /primary: HTTP 524/);
+    assert.match(error.message, /fallback: HTTP 401/);
+    return true;
+  });
+  assert.deepEqual(attempts, ["primary", "fallback"]);
+});
+
+test("all temporary connection failures retain their individual diagnostics", async () => {
+  const primary = { ...config("primary"), fallbackConfigs: [config("fallback")] };
+  await assert.rejects(runWithRoutedModelFallback(primary, async (candidate) => {
+    throw new ModelRequestError(`${candidate.model} unavailable`, { retryable: true });
+  }, { warn() {} }), (error: unknown) => {
+    assert.ok(error instanceof ModelRequestError);
+    assert.equal(error.retryable, true);
+    assert.match(error.message, /primary unavailable/);
+    assert.match(error.message, /fallback unavailable/);
+    return true;
+  });
+});
+
+test("fallback truncation and local errors are never turned into retryable outages", async () => {
+  const primary = { ...config("primary"), fallbackConfigs: [config("fallback")] };
+  for (const finalError of [
+    new ModelRequestError("length", { retryable: false, truncated: true }),
+    new Error("local parser bug")
+  ]) {
+    await assert.rejects(runWithRoutedModelFallback(primary, async (candidate) => {
+      if (candidate.model === "primary") throw new ModelRequestError("HTTP 503", { retryable: true });
+      throw finalError;
+    }, { warn() {} }), (error: unknown) => error === finalError);
+  }
+});
+
+
+test("a pipeline reuses its working fallback without changing routing for another task", async () => {
+  const primary = { ...config("primary"), fallbackConfigs: [config("backup")] };
+  const calls: string[] = [];
+  const execute = async (candidate: ChatModelConfig) => {
+    calls.push(candidate.model);
+    if (candidate.model === "primary") throw new ModelRequestError("HTTP 504", { retryable: true });
+    return "draft";
+  };
+  await runWithRoutedModelFallback(primary, execute, { warn() {} });
+  await runWithRoutedModelFallback(primary, execute, { warn() {} });
+  assert.deepEqual(calls, ["primary", "backup", "backup"]);
+  calls.length = 0;
+  await runWithRoutedModelFallback({ ...primary }, execute, { warn() {} });
+  assert.deepEqual(calls, ["primary", "backup"], "fresh tasks retain configured primary ordering");
+});
+
+test("an unavailable preferred fallback can return to the configured primary", async () => {
+  const primary = { ...config("primary"), fallbackConfigs: [config("backup")] };
+  await runWithRoutedModelFallback(primary, async (candidate) => {
+    if (candidate.model === "primary") throw new ModelRequestError("HTTP 503", { retryable: true });
+    return "draft";
+  }, { warn() {} });
+  const calls: string[] = [];
+  const result = await runWithRoutedModelFallback(primary, async (candidate) => {
+    calls.push(candidate.model);
+    if (candidate.model === "backup") throw new ModelRequestError("HTTP 401", { retryable: false });
+    return "review";
+  }, { warn() {} });
+  assert.equal(result, "review");
+  assert.deepEqual(calls, ["backup", "primary"]);
+});

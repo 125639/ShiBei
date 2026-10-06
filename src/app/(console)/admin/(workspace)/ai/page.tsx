@@ -1,6 +1,7 @@
 import { AdminAiManager, type AdminAiBatchView } from "@/components/AdminAiManager";
 import { requireAdmin } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { siteUtcOffsetMinutes } from "@/lib/site-time";
 
 export const dynamic = "force-dynamic";
 import { parseKeywordResearchUrl } from "@/lib/research";
@@ -62,7 +63,7 @@ export default async function AdminAiPage() {
       <div className="admin-page-header">
         <h1><I18nText zh="AI 管理员" en="AI Admin" /></h1>
       </div>
-      <AdminAiManager styles={styles} initialBatches={initialBatches} />
+      <AdminAiManager styles={styles} initialBatches={initialBatches} siteTimeOffsetMinutes={siteUtcOffsetMinutes()} />
     </>
   );
 }

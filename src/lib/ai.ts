@@ -1,4 +1,5 @@
 import type { ResearchDepth, ResearchScope } from "./research";
+import { selectResearchEvidenceExcerpt } from "./research-evidence-excerpt";
 import type { SourceType } from "@prisma/client";
 import { contentModeLabel, normalizeContentMode, type ContentMode } from "./content-style";
 import { decryptSecret } from "./crypto";
@@ -332,6 +333,9 @@ function deterministicEnglishResearchQuery(keyword: string) {
     [/^(?:风险资本)$/i, "venture capital"],
     [/^(?:差距|融资差距|投资规模差距)$/i, "gap"],
     [/^(?:监管)$/i, "regulation"],
+    [/^(?:欧洲人工智能监管|欧盟AI法案|欧洲AI监管)$/i, "EU AI Act regulation"],
+    [/^(?:创新投资)$/i, "innovation investment"],
+    [/^(?:监管实施)$/i, "regulatory implementation"],
     [/^(?:合规成本)$/i, "compliance costs"],
     [/^(?:算力|算力短缺)$/i, "compute shortage"],
     [/^(?:云基础设施)$/i, "cloud infrastructure"],
@@ -354,7 +358,9 @@ function deterministicEnglishResearchQuery(keyword: string) {
     [/^(?:通胀)$/i, "inflation"],
     [/^(?:日本央行)$/i, "Bank of Japan"],
     [/^(?:欧洲央行)$/i, "ECB"],
-    [/^(?:加息|加息预期|利率|利率路径)$/i, "interest rates"],
+    [/^(?:加息|加息预期|利率|利率路径|利率政策)$/i, "interest rates monetary policy"],
+    [/^(?:日元|日元汇率)$/i, "yen exchange rate"],
+    [/^(?:企业融资)$/i, "corporate financing lending credit"],
     [/^(?:消费)$/i, "consumption"],
     [/^(?:股市)$/i, "stock market"],
     [/^(?:估值|估值压力)$/i, "valuation"],
@@ -739,7 +745,7 @@ export async function repairUnpublishableArticle(input: {
         title: item.title,
         sourceName: item.sourceName,
         url: item.url,
-        text: truncateForPrompt(stripUnapprovedMarkdownLinks(item.summary), 1800)
+        text: selectResearchEvidenceExcerpt(stripUnapprovedMarkdownLinks(item.summary), input.gateReason, 2400)
       })),
       article: truncateForPrompt(input.article, 9000)
     }),
@@ -813,7 +819,7 @@ async function repairInlineArticleCitations(input: {
         title: item.title,
         sourceName: item.sourceName,
         url: item.url,
-        text: truncateForPrompt(stripUnapprovedMarkdownLinks(item.summary), 1200)
+        text: selectResearchEvidenceExcerpt(stripUnapprovedMarkdownLinks(item.summary), input.gateReason, 2400)
       }))
     }),
     "",
@@ -1280,8 +1286,15 @@ export async function generateContentArticle(input: GenerateContentArticleInput)
   const mode = normalizeContentMode(input.style.contentMode);
   // 与其把十几条来源各切成很短的片段，不如给靠前、相关性最高的资料留下
   // 足够上下文。这样模型更容易看清主体、时间与因果边界，也更少用常识补洞。
+  const selectedEvidence = input.evidence.slice(0, depthConfig.maxEvidenceItems);
+  const excerptLimit = Math.min(6000, Math.max(depthConfig.perEvidenceLimit,
+    Math.floor((depthConfig.evidenceLimit - 1600) / Math.max(1, selectedEvidence.length))));
+  const hints = `${input.keyword} ${deterministicEnglishResearchQuery(input.keyword)}`;
   const sourceText = truncateForPrompt(
-    formatEvidenceText(input.evidence.slice(0, depthConfig.maxEvidenceItems), depthConfig.perEvidenceLimit),
+    formatEvidenceText(selectedEvidence.map((item) => ({
+      ...item,
+      summary: selectResearchEvidenceExcerpt(stripUnapprovedMarkdownLinks(item.summary), hints, excerptLimit)
+    })), excerptLimit),
     depthConfig.evidenceLimit
   );
 
@@ -1343,12 +1356,12 @@ export async function generateContentArticle(input: GenerateContentArticleInput)
 
 function getDepthConfig(depth: ResearchDepth) {
   if (depth === "standard") {
-    return { label: "标准文章", range: "800—1400", evidenceLimit: 8000, maxEvidenceItems: 6, perEvidenceLimit: 1200 };
+    return { label: "标准文章", range: "800—1400", evidenceLimit: 9000, maxEvidenceItems: 4, perEvidenceLimit: 1800 };
   }
   if (depth === "deep") {
-    return { label: "深度长文", range: "2200—3600", evidenceLimit: 12000, maxEvidenceItems: 8, perEvidenceLimit: 1400 };
+    return { label: "深度长文", range: "2200—3600", evidenceLimit: 20000, maxEvidenceItems: 6, perEvidenceLimit: 3000 };
   }
-  return { label: "长文章", range: "1400—2400", evidenceLimit: 10000, maxEvidenceItems: 7, perEvidenceLimit: 1300 };
+  return { label: "长文章", range: "1400—2400", evidenceLimit: 18000, maxEvidenceItems: 6, perEvidenceLimit: 2600 };
 }
 
 export async function generateDigest(input: GenerateDigestInput) {
@@ -1481,30 +1494,52 @@ export async function requestChatCompletion(
  * genuinely transient failure. Configuration/authentication errors and
  * deterministic truncation stay pinned to the selected model and fail loudly.
  */
+// Operation-local affinity: a draft, review and repairs share one config object.
+// Do not repeatedly wait on an unavailable primary after a fallback has worked.
+const routedModelAffinity = new WeakMap<ChatModelConfig, ChatModelConfig>();
+
 export async function runWithRoutedModelFallback<T>(
   modelConfig: ChatModelConfig,
   execute: (candidate: ChatModelConfig) => Promise<T>,
   logger: Pick<Console, "warn"> = console
 ): Promise<T> {
-  const candidates = [modelConfig, ...(modelConfig.fallbackConfigs || [])];
-  let lastError: unknown;
+  const configured = [modelConfig, ...(modelConfig.fallbackConfigs || [])];
+  const preferred = routedModelAffinity.get(modelConfig);
+  const candidates = preferred && configured.includes(preferred)
+    ? [preferred, ...configured.filter((candidate) => candidate !== preferred)]
+    : configured;
+  const failures: Array<{ model: string; error: ModelRequestError }> = [];
   for (let index = 0; index < candidates.length; index += 1) {
     const candidate = candidates[index];
     try {
-      return await execute(candidate);
+      const result = await execute(candidate);
+      if (configured.length > 1) routedModelAffinity.set(modelConfig, candidate);
+      return result;
     } catch (error) {
-      lastError = error;
-      const mayFailOver = error instanceof ModelRequestError
-        && error.retryable
-        && !error.truncated
-        && index + 1 < candidates.length;
-      if (!mayFailOver) throw error;
+      // Local programming errors and deterministic truncation must retain their
+      // original behavior; neither is evidence of a provider outage.
+      if (!(error instanceof ModelRequestError) || error.truncated) throw error;
+      failures.push({ model: candidate.model, error });
+      const failedPreferredFallback = index === 0 && candidate === preferred && candidate !== modelConfig;
+      if (failedPreferredFallback) routedModelAffinity.delete(modelConfig);
+      const mayFailOver = (error.retryable || failedPreferredFallback) && index + 1 < candidates.length;
+      if (!mayFailOver) {
+        if (failures.length === 1) throw error;
+        // A fallback's bad credentials do not make the primary's temporary
+        // outage permanent. Keep the whole route eligible for the queue's
+        // bounded retries, while retaining both errors for diagnosis.
+        throw new ModelRequestError(
+          `模型连接均失败：${failures.map((failure) => `${failure.model}: ${failure.error.message}`).join("；")}`,
+          { cause: error, retryable: failures.some((failure) => failure.error.retryable) }
+        );
+      }
       logger.warn(
-        `[ai] model ${candidate.model} temporarily failed; trying configured fallback ${candidates[index + 1].model}`
+        `[ai] model ${candidate.model} failed (${error.message}); trying configured fallback ${candidates[index + 1].model}`
       );
     }
   }
-  throw lastError;
+  // candidates always contains the primary configuration.
+  throw new ModelRequestError("No model connection was attempted", { retryable: false });
 }
 
 export async function requestChatCompletionWithPlainKey(
