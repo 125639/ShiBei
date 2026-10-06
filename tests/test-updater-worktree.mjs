@@ -216,3 +216,31 @@ test("repairing the known mode artifact never hides another administrator modifi
   assert.equal(await readFile(path.join(f.repo, "docker-compose.yml"), "utf8"), "services: {custom: {image: private}}\n");
   assert.equal((await stat(f.init)).mode & 0o111, 0);
 });
+
+
+test("an old dirty installation can load the published repair without checking out new code", async (t) => {
+  const f = await fixture(t);
+  const oldHead = await git(f.repo, "rev-parse", "HEAD");
+  await chmod(f.init, 0o755);
+  await mkdir(path.join(f.origin, "scripts/updater"), { recursive: true });
+  await writeFile(path.join(f.origin, "scripts/updater/worktree.mjs"), await readFile(path.join(root, "scripts/updater/worktree.mjs")));
+  await git(f.origin, "add", ".");
+  await git(f.origin, "commit", "-m", "publish repair");
+  const docs = await readFile(path.join(root, "docs/updater-worktree-safety.md"), "utf8");
+  const shell = docs.match(/<<'SH'\n([\s\S]*?)\nSH/)[1];
+  const options = { env: { ...process.env, REPO_DIR: f.repo } };
+  const result = await exec("sh", ["-eu", "-c", shell], options);
+  assert.match(result.stdout, /已修复.*纯执行权限差异/);
+  assert.match(result.stdout, /备份/);
+  assert.equal(await git(f.repo, "rev-parse", "HEAD"), oldHead, "recovery must not checkout or merge new code");
+  assert.equal(await git(f.repo, "status", "--porcelain"), "");
+  assert.equal(await readFile(f.init, "utf8"), script);
+  assert.equal((await stat(f.init)).mode & 0o111, 0);
+  await writeFile(f.init, script + "# real customization\n");
+  await chmod(f.init, 0o755);
+  await assert.rejects(exec("sh", ["-eu", "-c", shell], options), (error) => {
+    assert.match(error.stderr, /仍有真实修改/);
+    return true;
+  });
+  assert.equal(await readFile(f.init, "utf8"), script + "# real customization\n");
+});

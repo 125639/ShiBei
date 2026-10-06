@@ -12,6 +12,39 @@ Git 中 `scripts/init.sh` 的权限是 `100644`。旧 `scripts/bootstrap.sh` 会
 - 备份保存在 Git 管理目录的 `shibei-updater-backups/init-mode-*`，含原文件及原权限元数据，不会制造新的未跟踪文件。
 - 恢复执行位后重新检查完整工作区。真实内容修改、暂存修改、其他权限修改、未跟踪文件、本地提交、分支不一致等仍拒绝更新；不会 stash、强制 reset、覆盖文件或关闭 Git 的权限检查。
 
+## 后端 pull 部署：修复代码已发布，但旧更新器仍被拦住
+
+若日志显示 `project shibei`、`docker-compose.backend.yml`、`pull`，且仍只报 `M scripts/init.sh`，先不要反复点击更新：运行中的 updater 不会自动加载仓库里的新版自身代码；另外，单独一个 `M` 也可能是真实内容改动，不能直接当作纯权限变化。
+
+在部署服务器上、包含 `docker-compose.backend.yml` 的安装目录执行下面这一段。它利用旧 updater 容器已有的 Git 和 Node，**只 fetch 新修复脚本，不 checkout/pull/reset 仓库**，因此可以在原工作区仍脏时完成安全校验与备份修复；宿主无须安装 Node。
+
+```bash
+docker compose -p shibei -f docker-compose.backend.yml exec -T updater sh -eu <<'SH'
+cd "${REPO_DIR:-/repo}"
+git fetch origin main
+repair_dir=$(mktemp -d /tmp/shibei-init-mode.XXXXXX)
+repair="$repair_dir/worktree.mjs"
+trap 'rm -- "$repair"; rmdir -- "$repair_dir"' EXIT
+git show origin/main:scripts/updater/worktree.mjs > "$repair"
+node "$repair" "$PWD"
+status=$(git status --porcelain)
+if [ -n "$status" ]; then
+  git status --short
+  echo "仍有真实修改或其他未处理文件，已停止；不要执行强制 reset。" >&2
+  exit 1
+fi
+echo "工作区已恢复干净，现在可返回网页重新执行更新。"
+SH
+```
+
+网页更新成功、仓库已取得新版代码后，再让 updater 自身加载修复：
+
+```bash
+docker compose -p shibei -f docker-compose.backend.yml up -d --no-deps --build updater
+```
+
+这条命令只重建轻量 updater，不在本机编译 app/worker 的 Next.js 镜像，也不重启数据库。app/worker 的更新仍按原来的 pull 模式执行。若 `git show` 提示找不到修复脚本，说明配置的 origin/main 尚未包含该修复，命令会安全停止，不能用强制覆盖代替。
+
 ## 已部署旧版的临时处理
 
 旧 updater 进程不会自动加载刚下载的自身代码，第一次可能仍需管理员处理一次旧权限。
