@@ -74,6 +74,9 @@ services:
       - .env
     environment:
       APP_MODE: backend
+      # APP_BIND_IP limits the published host port; the app must still listen
+      # on the container interface for Docker port forwarding to reach it.
+      APP_HOST: 0.0.0.0
       TRUST_PROXY_HOPS: ${TRUST_PROXY_HOPS:-0}
       # 堆上限须显著低于 mem_limit(768m)：V8 老生代涨满上限时，堆外内存
       # 会先触发 cgroup OOMKill 而不是 GC。

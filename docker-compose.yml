@@ -66,6 +66,9 @@ services:
       - .env
     environment:
       APP_MODE: full
+      # APP_BIND_IP limits the published host port; the app must still listen
+      # on the container interface for Docker port forwarding to reach it.
+      APP_HOST: 0.0.0.0
       # PUBLIC_URL is supplied at runtime by .env. Existing installs may keep
       # NEXT_PUBLIC_SITE_URL; the application resolves that legacy fallback.
       # Set this to the exact number of reverse-proxy hops when deploying

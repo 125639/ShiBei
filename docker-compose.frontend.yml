@@ -57,6 +57,9 @@ services:
       - .env
     environment:
       APP_MODE: frontend
+      # APP_BIND_IP limits the published host port; the app must still listen
+      # on the container interface for Docker port forwarding to reach it.
+      APP_HOST: 0.0.0.0
       TRUST_PROXY_HOPS: ${TRUST_PROXY_HOPS:-0}
       # Next 使用 192MB 堆；start-app.sh 会把 sync-worker 单独压到 128MB。
       # 生产构建连续巡检公开路由可稳定运行，同时给 ZIP Buffer 留出余量。
