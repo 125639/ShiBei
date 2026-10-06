@@ -5,7 +5,7 @@
 FROM docker:27-cli
 RUN apk add --no-cache git nodejs
 WORKDIR /updater
-COPY scripts/updater/server.mjs ./server.mjs
+COPY scripts/updater/server.mjs scripts/updater/worktree.mjs ./
 EXPOSE 9080
 # docker:cli 的 docker-entrypoint.sh 会把 CMD 当成 docker 子命令执行
 # （node → `docker node`，直接崩溃退出）。置空继承来的 entrypoint，让 CMD 直接跑。

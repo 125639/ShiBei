@@ -80,7 +80,5 @@ fi
 cd "$TARGET"
 
 # ---------- 调用 init.sh -----------------------------------------------------
-if [ ! -x scripts/init.sh ]; then
-  chmod +x scripts/init.sh 2>/dev/null || true
-fi
+# 使用 bash 调用不需要执行位；chmod 会把干净克隆改脏，导致网页更新拒绝。
 exec bash scripts/init.sh

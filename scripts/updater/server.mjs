@@ -25,6 +25,7 @@ import http from "node:http";
 import { spawn } from "node:child_process";
 import { timingSafeEqual } from "node:crypto";
 import { readFileSync } from "node:fs";
+import { repairLegacyInitMode } from "./worktree.mjs";
 
 const PORT = Number(process.env.UPDATER_PORT || 9080);
 const REPO_DIR = process.env.REPO_DIR || "/repo";
@@ -288,19 +289,21 @@ async function doUpdate() {
       // git fetch 成功等于让一键更新永远不可用。跳过仓库同步，仅更新镜像。
       logLine("! git 远端不可达（国内服务器访问 GitHub 常见）。跳过仓库同步，直接拉取预构建镜像更新应用；compose 文件/脚本层面的改动需等仓库可同步时才会生效。");
     } else {
-      const [dirty, currentBranch] = await Promise.all([
-        git(["status", "--porcelain"]),
-        git(["rev-parse", "--abbrev-ref", "HEAD"])
-      ]);
+      const currentBranch = await git(["rev-parse", "--abbrev-ref", "HEAD"]);
+      if (currentBranch.code !== 0 || currentBranch.out !== branch) {
+        throw new Error(
+          `当前分支为 ${currentBranch.out || "未知"}，目标分支为 ${branch}；为避免更新错误分支，已拒绝自动切换。`
+        );
+      }
+      const repaired = await repairLegacyInitMode(REPO_DIR);
+      if (repaired.repaired) {
+        logLine(`已恢复旧引导脚本遗留的 scripts/init.sh 执行权限差异（内容与 HEAD/暂存区完全一致）。备份：${repaired.backupDir}`);
+      }
+      const dirty = await git(["status", "--porcelain"]);
       if (dirty.code !== 0) throw new Error("无法检查仓库工作区状态，已拒绝更新");
       if (dirty.out) {
         throw new Error(
           `仓库存在未提交或未跟踪文件，已拒绝更新以防数据丢失。请先由管理员备份并处理这些改动：\n${dirty.out.slice(0, 1200)}`
-        );
-      }
-      if (currentBranch.code !== 0 || currentBranch.out !== branch) {
-        throw new Error(
-          `当前分支为 ${currentBranch.out || "未知"}，目标分支为 ${branch}；为避免更新错误分支，已拒绝自动切换。`
         );
       }
       const divergence = await git(["rev-list", "--left-right", "--count", `HEAD...origin/${branch}`]);
