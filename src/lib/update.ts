@@ -11,6 +11,7 @@
 // updater 服务的 COMPOSE_FILE_NAME / UPDATE_SERVICES 环境变量。
 
 import { getBuildInfo } from "@/lib/build-info";
+import { classifyChangeScope } from "@/lib/update-scope";
 
 export type UpdateCommit = {
   sha: string;
@@ -31,6 +32,8 @@ export type UpdateCheckResult = {
   behind: number | null;
   commits: UpdateCommit[];
   hasUpdate: boolean;
+  // 远端有新提交，但只涉及 docs/tests/CI 等不影响运行镜像的路径
+  docsOnly: boolean;
   updaterAvailable: boolean;
   source: "updater" | "github" | "none";
   error: string | null;
@@ -105,6 +108,7 @@ async function checkViaUpdater(): Promise<UpdateCheckResult | null> {
     behind: null,
     commits: [],
     hasUpdate: false,
+    docsOnly: false,
     updaterAvailable: true,
     source: "updater",
     error: null
@@ -115,6 +119,8 @@ async function checkViaUpdater(): Promise<UpdateCheckResult | null> {
     remoteCommit?: string | null;
     behind?: number;
     commits?: UpdateCommit[];
+    changedFiles?: unknown;
+    changedFilesTruncated?: boolean;
     error?: string;
   };
   try {
@@ -127,15 +133,19 @@ async function checkViaUpdater(): Promise<UpdateCheckResult | null> {
   }
   const behind = Number(data.behind || 0);
   const repoUpToDateButStale = sameCommit(build.commit, data.localCommit) === false;
+  // 远端新提交若只动文档/测试/CI，就不算"有更新可装"（镜像内容不会变）。
+  const scope = classifyChangeScope(data.changedFiles, Boolean(data.changedFilesTruncated));
   return {
     ...base,
     branch: data.branch || null,
     remoteCommit: data.remoteCommit || null,
     repoCommit: data.localCommit || null,
-    behind,
+    behind: scope.docsOnly ? 0 : behind,
     commits: Array.isArray(data.commits) ? data.commits.slice(0, 20) : [],
-    // 落后于远端，或仓库已拉取但镜像还没重建，都算"有更新可装"。
-    hasUpdate: behind > 0 || repoUpToDateButStale
+    docsOnly: scope.docsOnly,
+    // 落后于远端（且改动影响镜像），或仓库已拉取但镜像还没重建，都算"有更新可装"。
+    // 注意：镜像落后于仓库属于真的没重建，即使这段差异是文档也不放过。
+    hasUpdate: (behind > 0 && !scope.docsOnly) || repoUpToDateButStale
   };
 }
 
@@ -153,6 +163,7 @@ async function checkViaGithub(): Promise<UpdateCheckResult> {
     behind: null,
     commits: [],
     hasUpdate: false,
+    docsOnly: false,
     updaterAvailable: false,
     source: "github",
     error: null
@@ -179,8 +190,9 @@ async function checkViaGithub(): Promise<UpdateCheckResult> {
     }
     if (same) return base;
 
-    // 有差异：再用 compare API 拿落后数量与提交列表（失败不致命）。
+    // 有差异：再用 compare API 拿落后数量、提交列表与变更文件（失败不致命）。
     const local = build.commit.replace(/-dirty$/, "");
+    let docsOnly = false;
     try {
       const cmp = await fetch(
         `https://api.github.com/repos/${repo}/compare/${encodeURIComponent(local)}...${encodeURIComponent(branch)}`,
@@ -190,6 +202,7 @@ async function checkViaGithub(): Promise<UpdateCheckResult> {
         const diff = (await cmp.json()) as {
           ahead_by?: number;
           commits?: Array<{ sha: string; commit?: { message?: string; author?: { name?: string; date?: string } } }>;
+          files?: Array<{ filename?: string }>;
         };
         base.behind = typeof diff.ahead_by === "number" ? diff.ahead_by : null;
         base.commits = (diff.commits || [])
@@ -201,11 +214,14 @@ async function checkViaGithub(): Promise<UpdateCheckResult> {
             date: c.commit?.author?.date,
             subject: (c.commit?.message || "").split("\n")[0]
           }));
+        // 只改了 docs/tests/CI 这类不进入运行镜像的路径时，不必提示更新。
+        // 拿不到文件列表、或列表可能被截断时，classifyChangeScope 会保守地返回 false。
+        docsOnly = classifyChangeScope((diff.files || []).map((f) => f.filename)).docsOnly;
       }
     } catch {
       /* compare 拿不到就只报"有新版本" */
     }
-    return { ...base, hasUpdate: true };
+    return { ...base, hasUpdate: !docsOnly, docsOnly, behind: docsOnly ? 0 : base.behind };
   } catch (err) {
     return {
       ...base,

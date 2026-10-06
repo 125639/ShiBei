@@ -93,6 +93,7 @@ run_suite "mobile charts + overlay behavior" bash -c "cd '$PROJECT_DIR' && $TSX_
 run_suite "admin navigation + query performance" bash -c "cd '$PROJECT_DIR' && $TSX_CMD --test tests/test-admin-performance.ts"
 run_suite "public reading + search experience" bash -c "cd '$PROJECT_DIR' && $TSX_CMD --test tests/test-public-experience.ts"
 run_suite "language routing + site time" bash -c "cd '$PROJECT_DIR' && $TSX_CMD --test tests/test-language-site-time.ts"
+run_suite "update change scope" bash -c "cd '$PROJECT_DIR' && $TSX_CMD --test tests/test-update-scope.ts"
 
 echo
 echo "============================================="

@@ -185,7 +185,14 @@ export function UpdateClient({ mode, composeFile, runningCommit, builtAt }: Prop
             </p>
           ) : (
             <p style={{ margin: 0, color: "var(--color-success, #2a8)" }}>
-              <I18nText zh="已是最新版本。" en="You are up to date." />
+              {check.docsOnly ? (
+                <I18nText
+                  zh="已是最新版本。远端有新提交，但只涉及文档 / 测试 / CI，不影响运行镜像，无需重建。"
+                  en="Up to date. Newer upstream commits only touch docs / tests / CI and do not affect the running image."
+                />
+              ) : (
+                <I18nText zh="已是最新版本。" en="You are up to date." />
+              )}
             </p>
           )
         ) : null}

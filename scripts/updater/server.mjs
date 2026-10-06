@@ -73,6 +73,10 @@ const UPDATE_FETCH_TIMEOUT_MS = DEPLOY_SOURCE === "pull" ? 45_000 : 180_000;
 
 const LOG_LIMIT = 800; // ring buffer 行数上限
 
+// /check 最多回传多少个变更文件名。达到上限时带上 truncated 标记，
+// app 侧（src/lib/update-scope.ts）会据此放弃"纯文档提交"的判定。
+const MAX_SCOPE_FILES = 300;
+
 /** @type {{running:boolean, phase:string, startedAt:string|null, finishedAt:string|null, ok:boolean|null, error:string|null, log:string[]}} */
 const state = {
   running: false,
@@ -216,11 +220,14 @@ async function doCheck() {
   }
   const branch = await resolveBranch();
   const remoteRef = `origin/${branch}`;
-  const [localHead, remoteHead, behindOut, logOut] = await Promise.all([
+  const [localHead, remoteHead, behindOut, logOut, changedOut] = await Promise.all([
     git(["rev-parse", "HEAD"]),
     git(["rev-parse", remoteRef]),
     git(["rev-list", "--count", `HEAD..${remoteRef}`]),
-    git(["log", `HEAD..${remoteRef}`, "--pretty=format:%h%x1f%an%x1f%ad%x1f%s", "--date=iso-strict", "-n", "20"])
+    git(["log", `HEAD..${remoteRef}`, "--pretty=format:%h%x1f%an%x1f%ad%x1f%s", "--date=iso-strict", "-n", "20"]),
+    // 变更文件列表：交给 app 侧判断是否影响运行镜像（见 src/lib/update-scope.ts）。
+    // updater 不自己下结论，避免两处规则各自演化。
+    git(["diff", "--name-only", `HEAD..${remoteRef}`], 30_000)
   ]);
   if (remoteHead.code !== 0) {
     return { error: `找不到远端分支 ${remoteRef}` };
@@ -231,12 +238,17 @@ async function doCheck() {
         return { sha, author, date, subject };
       })
     : [];
+  const allChanged = changedOut.code === 0 && changedOut.out
+    ? changedOut.out.split("\n").map((line) => line.trim()).filter(Boolean)
+    : [];
   return {
     branch,
     localCommit: localHead.out || null,
     remoteCommit: remoteHead.out || null,
     behind: Number(behindOut.out || 0),
-    commits
+    commits,
+    changedFiles: allChanged.slice(0, MAX_SCOPE_FILES),
+    changedFilesTruncated: allChanged.length > MAX_SCOPE_FILES
   };
 }
 
