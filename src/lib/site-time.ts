@@ -102,3 +102,10 @@ export function siteShortLabel(instant: Date): string {
 export function siteHourOf(instant: Date): number {
   return new Date(instant.getTime() + offsetMs()).getUTCHours();
 }
+
+/** BullMQ/cron-parser accepts fixed-offset zones; match the site's calendar exactly. */
+export function siteScheduleTimeZone(): string {
+  const offset = siteUtcOffsetMinutes();
+  const absolute = Math.abs(offset);
+  return `UTC${offset < 0 ? "-" : "+"}${String(Math.floor(absolute / 60)).padStart(2, "0")}:${String(absolute % 60).padStart(2, "0")}`;
+}

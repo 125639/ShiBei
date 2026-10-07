@@ -1,3 +1,4 @@
+import { siteScheduleTimeZone } from "./site-time";
 import type { Queue } from "bullmq";
 import { prisma } from "./prisma";
 import { getScheduleQueue } from "./queue";
@@ -54,7 +55,7 @@ export async function syncSchedule(scheduleId: string) {
     // 坏 cron 让 upsert 抛错时旧调度已被删掉、DB 已提交坏值，主题从此静默停更。
     const nextJob = await queue.upsertJobScheduler(
       id,
-      { pattern: schedule.cron },
+      { pattern: schedule.cron, tz: siteScheduleTimeZone() },
       {
         name: SCHEDULE_JOB_NAME,
         data: { topicId: schedule.topicId },
@@ -101,7 +102,7 @@ export async function bootstrapAllSchedules() {
       try {
         const nextJob = await queue.upsertJobScheduler(
           id,
-          { pattern: schedule.cron },
+          { pattern: schedule.cron, tz: siteScheduleTimeZone() },
           {
             name: SCHEDULE_JOB_NAME,
             data: { topicId: schedule.topicId },

@@ -52,6 +52,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
 
   const moderatedSurface = await findCurrentModeratedSurface(work);
   const gate = canPublishWork({
+    scoreDetail: work.scoreDetail,
     score: work.score,
     threshold: work.genre.threshold,
     scoredHash: work.scoredHash,

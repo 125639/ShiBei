@@ -1,3 +1,5 @@
+import { localizedAlternates } from "@/lib/language";
+import { setRequestLanguage } from "@/lib/i18n-server";
 import { LocalizedLink as Link } from "@/components/LocalizedLink";
 import { Icon, type IconName } from "@/components/public/Icons";
 import type { Metadata } from "next";
@@ -15,11 +17,14 @@ import { getCachedFireflyWidgetData } from "@/lib/firefly-widgets";
 // but do not generate an ISR HTML entry for this page on its first request.
 export const dynamic = "force-dynamic";
 
-export const metadata: Metadata = {
-  title: "数据看板",
-  description: "站点收录、访问量与趋势的实时统计。",
-  alternates: { canonical: "/stats" }
-};
+export async function generateMetadata({ params }: { params: Promise<{ lang: string }> }): Promise<Metadata> {
+  const language = setRequestLanguage((await params).lang);
+  return {
+    title: "数据看板",
+    description: "站点收录、访问量与趋势的实时统计。",
+    alternates: localizedAlternates(language, "/stats")
+  };
+}
 
 const VALID: StatsWindow[] = ["today", "week", "total"];
 

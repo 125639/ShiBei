@@ -781,7 +781,7 @@ case "$AUTO_START" in
           ui_warn "磁盘可用仅 ${PULL_AVAIL_MB}MB，拉取+解压镜像可能不够；建议先 docker system prune -af 清理旧缓存。"
         fi
         if (cd "$PROJECT_DIR" \
-            && ${DOCKER_SUDO:+sudo }docker compose "${COMPOSE_ARGS[@]}" pull \
+            && ${DOCKER_SUDO:+sudo }docker compose "${COMPOSE_ARGS[@]}" pull --policy always \
             && ${DOCKER_SUDO:+sudo }docker compose "${COMPOSE_ARGS[@]}" "${COMPOSE_UP_ARGS[@]}"); then
           START_OK=1
         fi
@@ -889,7 +889,7 @@ else
 fi
 printf "  ${BOLD}健康检查：${NC}curl ${PUBLIC_URL%/}/api/health\n"
 printf "  ${BOLD}管理后台：${NC}${ACCENT_BRIGHT}${PUBLIC_URL%/}/admin${NC}\n"
-printf "  ${BOLD}登录账号：${NC}${ADMIN_USERNAME} / ${BOLD}${ADMIN_PASSWORD}${NC}\n"
+printf "  ${BOLD}首次初始化账号（已有账号不会被覆盖）：${NC}${ADMIN_USERNAME} / ${BOLD}${ADMIN_PASSWORD}${NC}\n"
 
 if [ "$APP_MODE" = "backend" ]; then
   echo

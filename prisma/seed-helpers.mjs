@@ -60,14 +60,19 @@ export function buildAdminCreateData(env, passwordHash) {
   };
 }
 
-/**
- * Existing install: this mutation must only be used after bcrypt.compare proves
- * ADMIN_PASSWORD is actually different. Rotating both fields makes every JWT
- * signed under the old password version immediately invalid.
- */
-export function buildAdminPasswordRotationData(passwordHash) {
-  return {
-    passwordHash,
-    tokenVersion: { increment: 1 }
-  };
+/** Bootstrap the first administrator; never reconcile existing credentials with .env. */
+export async function seedAdminIfNeeded(table, env, hashPassword) {
+  const existing = await table.findFirst();
+  if (existing) return existing;
+  const password = env.ADMIN_PASSWORD;
+  if (!password || password.trim().length < 8 || password === "change-me-now") {
+    throw new Error("首次初始化必须设置非默认且至少 8 位的 ADMIN_PASSWORD；已有管理员请在后台修改密码。");
+  }
+  const passwordHash = await hashPassword(password);
+  // A concurrent bootstrap of the same username must not overwrite its password.
+  return table.upsert({
+    where: { username: adminUsernameFromEnv(env) },
+    update: {},
+    create: buildAdminCreateData(env, passwordHash)
+  });
 }

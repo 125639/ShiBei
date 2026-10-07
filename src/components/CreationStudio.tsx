@@ -31,6 +31,7 @@ type ModeMeta = { label: string; description: string };
 type InterviewEntry = { question: string; answer: string };
 
 type ScoreDetail = {
+  fallback?: boolean;
   dimensions: Array<{ key: string; label: string; weight: number; score: number; feedback: string }>;
   total: number;
   threshold: number;
@@ -688,8 +689,9 @@ export function CreationStudio() {
   }
 
   // ============ 第三步：草稿编辑 + 评分 + 发布 ============
-  const detail = work.scoreDetail;
-  const scoreValid = work.scoreCurrent && work.score !== null && !touchedAfterScore && !isDirty;
+  // 未保存编辑也不能继续展示针对旧内容的结构预检。
+  const detail = work.scoreDetail?.fallback && isDirty ? null : work.scoreDetail;
+  const scoreValid = work.scoreCurrent && work.score !== null && !detail?.fallback && !touchedAfterScore && !isDirty;
   const isManualWork = work.mode === "MANUAL";
   const moderationSurfaceDirty =
     editTitle.trim() !== work.title.trim()
@@ -803,10 +805,14 @@ export function CreationStudio() {
       {detail ? (
         <section className="form-card form-stack">
           <div className="row between">
-            <h2>AI 评分</h2>
-            <span className={`tag ${detail.publishable ? "creation-score-pass" : "creation-score-fail"}`}>
-              总分 {detail.total} / 门槛 {detail.threshold}（{detail.publishable ? "已达标" : "未达标"}）
-            </span>
+            <h2>{detail.fallback ? "结构预检（非正式评分）" : "AI 评分"}</h2>
+            {detail.fallback ? (
+              <span className="tag creation-score-fail">模型暂时不可用 · 不能发布</span>
+            ) : (
+              <span className={`tag ${detail.publishable ? "creation-score-pass" : "creation-score-fail"}`}>
+                总分 {detail.total} / 门槛 {detail.threshold}（{detail.publishable ? "已达标" : "未达标"}）
+              </span>
+            )}
           </div>
           {detail.overallComment ? <p className="muted-block">{detail.overallComment}</p> : null}
           <div className="creation-score-grid">
@@ -882,7 +888,9 @@ export function CreationStudio() {
             )
           ) : (
             <p className="muted">
-              {detail.publishable
+              {detail.fallback
+                ? "本次仅为非正式结构预检，不能用于发布。请在模型恢复后重新提交 AI 评分。"
+                : detail.publishable
                 ? work.scoreRubricCurrent
                   ? "内容有改动，重新评分通过后即可发布。"
                   : "题材评分标尺或篇幅预期已更新，请按当前标尺重新评分。"

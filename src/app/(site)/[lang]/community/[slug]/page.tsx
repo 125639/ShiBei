@@ -1,3 +1,5 @@
+import { setRequestLanguage } from "@/lib/i18n-server";
+import { localizedAlternates } from "@/lib/language";
 import type { Metadata } from "next";
 import { LocalizedLink as Link } from "@/components/LocalizedLink";
 import { unstable_cache } from "next/cache";
@@ -56,8 +58,9 @@ const loadSharedWork = cache((slug: string) =>
   )()
 );
 
-export async function generateMetadata({ params }: { params: Promise<{ slug: string }> }): Promise<Metadata> {
-  const { slug } = await params;
+export async function generateMetadata({ params }: { params: Promise<{ lang: string; slug: string }> }): Promise<Metadata> {
+  const { slug, lang } = await params;
+  const language = setRequestLanguage(lang);
   const work = await loadSharedWork(slug);
   // Metadata resolves before streamed UI. Throwing here gives removed slugs a
   // real HTTP 404 instead of a streamed "soft 404" with a 200 status header.
@@ -65,7 +68,7 @@ export async function generateMetadata({ params }: { params: Promise<{ slug: str
   return {
     title: work.title,
     ...(work.metadataDescription ? { description: work.metadataDescription } : {}),
-    alternates: { canonical: `/community/${slug}` }
+    alternates: localizedAlternates(language, `/community/${slug}`)
   };
 }
 

@@ -1,3 +1,4 @@
+import { withInFlightLock } from "@/lib/in-flight";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
@@ -50,6 +51,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
     );
   }
 
+  const mode = work.mode;
   const interview = parseInterview(work.interview);
   interview.push({ question: work.pendingQuestion, answer: parsed.data.answer });
 
@@ -70,51 +72,62 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
     return NextResponse.json({ done: true, work: await serializeWorkForOwner(updated) });
   }
 
-  // 必须先验证作品所有权与状态；未授权请求不能消耗用户或全站 AI 配额。
-  const budget = await checkCreationAiBudget(request, "creation-answer", 60);
-  if (budget) return budget;
-
-  let next: Awaited<ReturnType<typeof generateNextInterviewQuestion>>;
-  let questionFallback = false;
-  try {
-    next = await generateNextInterviewQuestion({
-      genreName: work.genre.name,
-      genreDescription: work.genre.description,
-      dimensions: parseGenreDimensions(work.genre.dimensions),
-      mode: work.mode,
-      depth: work.depth,
-      topic: work.topic,
-      interview
-    });
-  } catch (error) {
-    console.error("[creation-answer] AI call failed:", error);
-    next = generateNextInterviewQuestionFallback({
-      mode: work.mode,
-      depth: work.depth,
-      topic: work.topic,
-      interview
-    });
-    questionFallback = true;
-  }
-
-  // 乐观并发保护：只在 pendingQuestion 未被其他并发请求消费时写入，
-  // 防止双击/重放把同一问题追加两次。
-  const claimed = await prisma.creativeWork.updateMany({
-    where: { ...workRevisionWhere(work), pendingQuestion: work.pendingQuestion },
-    data: {
-      interview: JSON.stringify(interview),
-      pendingQuestion: next.done ? null : next.question
+  const locked = await withInFlightLock(`creation-answer:${work.id}`, 10 * 60, async () => {
+    // A previous request may have finished between the initial read and lock acquisition.
+    const current = await prisma.creativeWork.findUnique({ where: { id: work.id }, select: { updatedAt: true } });
+    if (!current || current.updatedAt.getTime() !== work.updatedAt.getTime()) {
+      return NextResponse.json({ error: "这个问题已经回答过了，请刷新查看最新进度" }, { status: 409 });
     }
+    // 必须先验证作品所有权与状态；未授权请求不能消耗用户或全站 AI 配额。
+    const budget = await checkCreationAiBudget(request, "creation-answer", 60);
+    if (budget) return budget;
+
+    let next: Awaited<ReturnType<typeof generateNextInterviewQuestion>>;
+    let questionFallback = false;
+    try {
+      next = await generateNextInterviewQuestion({
+        genreName: work.genre.name,
+        genreDescription: work.genre.description,
+        dimensions: parseGenreDimensions(work.genre.dimensions),
+        mode,
+        depth: work.depth,
+        topic: work.topic,
+        interview
+      });
+    } catch (error) {
+      console.error("[creation-answer] AI call failed:", error);
+      next = generateNextInterviewQuestionFallback({
+        mode,
+        depth: work.depth,
+        topic: work.topic,
+        interview
+      });
+      questionFallback = true;
+    }
+
+    // 乐观并发保护：只在 pendingQuestion 未被其他并发请求消费时写入，
+    // 防止双击/重放把同一问题追加两次。
+    const claimed = await prisma.creativeWork.updateMany({
+      where: { ...workRevisionWhere(work), pendingQuestion: work.pendingQuestion },
+      data: {
+        interview: JSON.stringify(interview),
+        pendingQuestion: next.done ? null : next.question
+      }
+    });
+    if (claimed.count === 0) {
+      return NextResponse.json({ error: "这个问题已经回答过了，请刷新查看最新进度" }, { status: 409 });
+    }
+
+    const updated = await prisma.creativeWork.findUniqueOrThrow({ where: { id: work.id }, include: { genre: true } });
+
+    return NextResponse.json({
+      done: next.done,
+      work: await serializeWorkForOwner(updated),
+      questionFallback
+    });
   });
-  if (claimed.count === 0) {
-    return NextResponse.json({ error: "这个问题已经回答过了，请刷新查看最新进度" }, { status: 409 });
+  if (!locked.ok) {
+    return NextResponse.json({ error: locked.reason === "busy" ? "正在处理这个回答，请勿重复提交" : "暂时无法获取处理锁，请稍后重试" }, { status: locked.reason === "busy" ? 409 : 503 });
   }
-
-  const updated = await prisma.creativeWork.findUniqueOrThrow({ where: { id: work.id }, include: { genre: true } });
-
-  return NextResponse.json({
-    done: next.done,
-    work: await serializeWorkForOwner(updated),
-    questionFallback
-  });
+  return locked.value;
 }

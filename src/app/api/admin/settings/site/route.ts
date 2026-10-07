@@ -83,12 +83,8 @@ export async function POST(request: Request) {
   });
   revalidateTag("site-settings", { expire: 0 });
   // 语言模式 / 视频开关等设置会影响 ISR 缓存的文章页与列表页，保存时一并失效。
-  revalidatePath("/posts/[slug]", "page");
-  revalidatePath("/posts");
-  revalidatePath("/");
-  // 读取站点默认值的 ISR 页面（默认主题/字体/语言/音乐开关）。
-  revalidatePath("/settings");
-  revalidatePath("/about");
+  revalidatePath("/[lang]", "layout");
+  for (const path of ["/feed.xml", "/sitemap.xml", "/robots.txt"]) revalidatePath(path);
   return redirectTo(`/admin/settings?tab=${settingsTab}&saved=1`);
 }
 

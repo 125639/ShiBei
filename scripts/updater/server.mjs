@@ -107,6 +107,7 @@ function run(cmd, args, opts = {}) {
     const child = spawn(cmd, args, {
       cwd: opts.cwd || REPO_DIR,
       env: { ...process.env, ...(opts.env || {}) },
+      detached: process.platform !== "win32",
       stdio: ["ignore", "pipe", "pipe"]
     });
     let out = "";
@@ -128,7 +129,11 @@ function run(cmd, args, opts = {}) {
     const timer = opts.timeoutMs
       ? setTimeout(() => {
           logLine(`! 超时（${opts.timeoutMs}ms），终止：${cmd} ${args.join(" ")}`);
-          child.kill("SIGKILL");
+          // Compose is a child plugin; killing only the docker CLI leaves it running.
+          try {
+            if (process.platform !== "win32" && child.pid) process.kill(-child.pid, "SIGKILL");
+            else child.kill("SIGKILL");
+          } catch { child.kill("SIGKILL"); }
         }, opts.timeoutMs)
       : null;
     child.on("error", (err) => {
@@ -345,7 +350,7 @@ async function doUpdate() {
     if (DEPLOY_SOURCE === "pull") {
       // 低配机：绝不本地 build（必 OOM 拖死整机），拉 Docker Hub 预构建镜像。
       state.phase = "pulling";
-      r = await run("docker", [...composeArgs, "pull", ...UPDATE_SERVICES], {
+      r = await run("docker", [...composeArgs, "pull", "--policy", "always", ...UPDATE_SERVICES], {
         timeoutMs: 30 * 60_000
       });
       if (r.code !== 0) throw new Error(`docker compose pull 失败（exit ${r.code}）；检查磁盘空间（df -h）与网络后重试`);

@@ -87,11 +87,16 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
     });
   } catch (error) {
     console.error("[creation-score] AI call failed:", error);
-    result = scoreCreativeWorkFallback({ dimensions, depth: work.depth, content: work.content });
+    result = scoreCreativeWorkFallback({ dimensions, threshold: work.genre.threshold, depth: work.depth, content: work.content });
     scoreFallback = true;
   }
 
   const detail: ScoreDetail = {
+    fallback: scoreFallback,
+    ...(scoreFallback ? {
+      precheckSurfaceHash: workScoreFingerprint(work),
+      precheckRubricHash: workRubricFingerprint(work)
+    } : {}),
     dimensions: dimensions.map((dim) => {
       const scored = result.dimensionScores.find((item) => item.key === dim.key);
       return {
@@ -104,7 +109,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
     }),
     total: result.total,
     threshold: work.genre.threshold,
-    publishable: result.total >= work.genre.threshold,
+    publishable: !scoreFallback && result.total >= work.genre.threshold,
     overallComment: result.overallComment,
     suggestions: result.suggestions
   };
@@ -117,11 +122,11 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
       genre: { updatedAt: work.genre.updatedAt }
     },
     data: {
-      score: result.total,
+      score: scoreFallback ? null : result.total,
       scoreDetail: JSON.stringify(detail),
-      scoredAt: new Date(),
-      scoredHash: workScoreFingerprint(work),
-      scoredRubricHash: workRubricFingerprint(work)
+      scoredAt: scoreFallback ? null : new Date(),
+      scoredHash: scoreFallback ? null : workScoreFingerprint(work),
+      scoredRubricHash: scoreFallback ? null : workRubricFingerprint(work)
     }
   });
   if (claimed.count === 0) {

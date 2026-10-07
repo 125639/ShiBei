@@ -71,7 +71,8 @@ export function invalidateClientCheck() {
 export type UpdateRunPhase = "idle" | "starting" | "working" | "restarting" | "done" | "failed";
 
 const POLL_INTERVAL_MS = 3000;
-const RUN_DEADLINE_MS = 20 * 60_000;
+// Must exceed all sequential backend command timeouts, including cleanup.
+const RUN_DEADLINE_MS = 100 * 60_000;
 
 export function useUpdateRunner() {
   const [phase, setPhase] = useState<UpdateRunPhase>("idle");
@@ -94,7 +95,7 @@ export function useUpdateRunner() {
         if (!aliveRef.current) return;
         if (Date.now() > deadline) {
           setPhase("failed");
-          setError("等待更新结果超时（20 分钟）。请到「系统更新」页查看日志，或登录服务器排查。");
+          setError("等待更新结果超时（100 分钟），尚不能确认更新结果。请到「系统更新」页查看日志，或登录服务器排查，勿重复发起更新。");
           return;
         }
         const data = await fetchAdminJson<StatusPayload>("/api/admin/update/status");

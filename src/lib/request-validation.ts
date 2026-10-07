@@ -23,7 +23,7 @@ export const MAX_JSON_BODY_BYTES = 2 * 1024 * 1024;
  * 静默替换成 U+FFFD 后进入业务逻辑。
  */
 export async function readBoundedText(
-  request: Request,
+  request: Pick<Request, "body">,
   maxBytes: number
 ): Promise<string | null> {
   if (!request.body) return "";

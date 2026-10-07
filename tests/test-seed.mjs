@@ -5,8 +5,7 @@ import {
   buildModelConfigInput,
   shouldSeedAiModel,
   adminUsernameFromEnv,
-  buildAdminCreateData,
-  buildAdminPasswordRotationData
+  buildAdminCreateData
 } from "../prisma/seed-helpers.mjs";
 
 describe("buildModelConfigInput", () => {
@@ -138,10 +137,4 @@ describe("admin seed helpers", () => {
     });
   });
 
-  test("actual password rotation updates hash and increments tokenVersion", () => {
-    assert.deepEqual(buildAdminPasswordRotationData(HASH), {
-      passwordHash: HASH,
-      tokenVersion: { increment: 1 }
-    });
-  });
 });

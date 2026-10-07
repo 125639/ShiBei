@@ -171,7 +171,7 @@ test("real updater HTTP flow repairs the bootstrap artifact, fast-forwards, then
   assert.equal(await git(f.repo, "rev-parse", "HEAD"), await git(f.origin, "rev-parse", "HEAD"));
   assert.equal(await git(f.repo, "status", "--porcelain"), "");
   assert.ok(status.log.some((line) => line.includes("备份") && line.includes("执行权限")));
-  assert.match(docker, /compose -p test-original-project .* pull app worker/);
+  assert.match(docker, /compose -p test-original-project .* pull --policy always app worker/);
   assert.match(docker, /up -d --no-deps app worker/);
   assert.doesNotMatch(docker, / build /);
 });

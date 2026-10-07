@@ -6,7 +6,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { isInviteCodeFormat, normalizeInviteCodeInput } from "@/lib/invite-codes";
 import { prisma } from "@/lib/prisma";
-import { checkRateLimit, checkSubjectRateLimit } from "@/lib/rate-limit";
+import { checkRateLimit, checkSubjectRateLimit, resetLoginFailureLimits } from "@/lib/rate-limit";
 import { parseJsonBody } from "@/lib/request-validation";
 import {
   clearMemberCredentialUpgradeCookie,
@@ -33,6 +33,8 @@ const BodySchema = z
   });
 
 export async function POST(request: Request) {
+  const ipLimited = await checkRateLimit({ namespace: "member-login-ip", request, limit: 30, windowSec: 15 * 60 });
+  if (!ipLimited.ok) return NextResponse.json({ error: "登录尝试过于频繁，请稍后再试" }, { status: 429, headers: { "Retry-After": String(ipLimited.retryAfterSec) } });
   const parsed = await parseJsonBody(request, BodySchema);
   if (!parsed.ok) return parsed.response;
   const account = (parsed.data.account || parsed.data.email || "").trim();
@@ -87,6 +89,8 @@ export async function POST(request: Request) {
   if (!member || !ok) {
     return NextResponse.json({ error: "账号或密码错误" }, { status: 401 });
   }
+
+  await resetLoginFailureLimits({ namespace: "member-login", request, subject: account.toLowerCase() });
 
   if (member.credentialState === "LEGACY_INVITE_UPGRADE_REQUIRED") {
     // 旧邀请码绝不签发会员 session；只签发十分钟、路径受限且带 purpose 的升级凭据。

@@ -1,3 +1,4 @@
+import { commentCursorWhere, encodeCommentCursor, parseCommentCursor } from "@/lib/comment-pagination";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { getCurrentMember } from "@/lib/member-auth";
@@ -23,7 +24,7 @@ function authorName(member: { displayName: string | null; username: string | nul
 const COMMENT_PAGE_SIZE = 200;
 
 export async function GET(
-  _request: Request,
+  request: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
   const { id } = await params;
@@ -31,11 +32,15 @@ export async function GET(
     return NextResponse.json({ enabled: false, comments: [], member: null, total: 0, hasMore: false });
   }
 
+  let cursor;
+  try { cursor = parseCommentCursor(new URL(request.url).searchParams.get("cursor")); }
+  catch { return NextResponse.json({ error: "评论分页参数无效" }, { status: 400 }); }
+
   const visiblePostWhere = { status: "PUBLISHED" as const, publicationBlockedReason: null };
   const [rows, member, total] = await Promise.all([
     prisma.comment.findMany({
-      where: { postId: id, post: visiblePostWhere },
-      orderBy: { createdAt: "asc" },
+      where: { postId: id, post: visiblePostWhere, ...commentCursorWhere(cursor) },
+      orderBy: [{ createdAt: "asc" }, { id: "asc" }],
       // 多取一条只为判断"还有更多"，不返回给客户端。
       take: COMMENT_PAGE_SIZE + 1,
       include: { member: { select: { displayName: true, username: true, email: true } } }
@@ -52,6 +57,7 @@ export async function GET(
     member: member ? { id: member.id, name: authorName(member) } : null,
     total,
     hasMore,
+    nextCursor: hasMore && page.length ? encodeCommentCursor(page[page.length - 1]) : null,
     comments: page.map((row) => ({
       id: row.id,
       content: row.content,

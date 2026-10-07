@@ -1,10 +1,11 @@
+import { declaredLengthExceeds, readBoundedText } from "@/lib/request-validation";
 import bcrypt from "bcryptjs";
 
 // 与真实密码哈希同 cost(12) 的常量哈希，用于「用户不存在」路径的时序对齐。
 const TIMING_EQUALIZER_HASH = "$2a$12$L2IUnMg38dhnkZZ8JwUpM.l5YetxGZ6KXzrByNyeu4QTPSXE60C66";
 import { createSession, setSessionCookie } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
-import { checkRateLimit, checkSubjectRateLimit } from "@/lib/rate-limit";
+import { checkRateLimit, checkSubjectRateLimit, resetLoginFailureLimits } from "@/lib/rate-limit";
 import { redirectTo } from "@/lib/redirect";
 
 export async function POST(request: Request) {
@@ -16,9 +17,14 @@ export async function POST(request: Request) {
     );
   }
 
+  const ipLimited = await checkRateLimit({ namespace: "admin-login-ip", request, limit: 30, windowSec: 15 * 60 });
+  if (!ipLimited.ok) return redirectTo("/admin/login?error=rate", request);
+  const maxBytes = 16 * 1024;
+  const raw = declaredLengthExceeds(request, maxBytes) ? null : await readBoundedText(request, maxBytes);
+  if (raw === null) return Response.json({ error: "登录表单过大" }, { status: 413 });
   let form: FormData;
   try {
-    form = await request.formData();
+    form = await new Response(raw, { headers: { "Content-Type": request.headers.get("content-type")! } }).formData();
   } catch {
     return Response.json(
       { error: "登录表单格式无效" },
@@ -67,6 +73,7 @@ export async function POST(request: Request) {
     return redirectTo("/admin/login?error=1", request);
   }
 
+  await resetLoginFailureLimits({ namespace: "admin-login", request, subject: username || "blank" });
   await setSessionCookie(await createSession(user.id, user.tokenVersion));
   return redirectTo("/admin", request);
 }

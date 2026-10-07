@@ -1,3 +1,4 @@
+import { publicRevalidationPaths } from "@/lib/public-revalidation-paths";
 import { NextResponse } from "next/server";
 import { revalidatePath } from "next/cache";
 import { translatePostToEnglish } from "@/lib/ai";
@@ -129,7 +130,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
 
     // 文章页是 ISR 缓存的：翻译落库后失效对应页面，下次访问直接带上 contentEn，
     // 客户端不用再走轮询（本次请求的调用方已经拿到返回值，不受影响）。
-    revalidatePath(`/posts/${post.slug}`);
+    for (const path of publicRevalidationPaths([`/posts/${post.slug}`])) revalidatePath(path);
 
     return { ...translated, cached: false };
   }).catch((error: unknown) => {
@@ -144,6 +145,9 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
     );
   }
 
+  if (!locked.ok && locked.reason === "unavailable") {
+    return NextResponse.json({ error: "翻译服务暂时不可用，请稍后重试" }, { status: 503, headers: { "Retry-After": "5" } });
+  }
   if (!locked.ok) {
     return NextResponse.json(
       { pending: true, error: "translation already in progress" },

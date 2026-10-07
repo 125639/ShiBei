@@ -30,14 +30,15 @@ async function login(context, username, password) {
   return page;
 }
 
-async function change(page, username, password) {
-  return page.evaluate(async ({ username, password }) => {
+async function change(page, username, password, currentPassword = oldPassword) {
+  return page.evaluate(async ({ username, password, currentPassword }) => {
     const form = new FormData();
     form.set("username", username);
     form.set("password", password);
+    form.set("currentPassword", currentPassword);
     const response = await fetch("/api/admin/settings/admin", { method: "POST", body: form, redirect: "follow" });
     return { status: response.status, url: response.url, text: await response.text() };
-  }, { username, password });
+  }, { username, password, currentPassword });
 }
 
 let changed = false;

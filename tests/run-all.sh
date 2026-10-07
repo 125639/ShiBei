@@ -31,6 +31,7 @@ run_suite() {
   fi
 }
 
+run_suite "audit regression fixes" bash -c "cd '$PROJECT_DIR' && $TSX_CMD --test tests/test-audit-fixes.ts"
 run_suite "bash unit tests"      bash "$SCRIPT_DIR/test-init.sh"
 run_suite "bash e2e tests"       bash "$SCRIPT_DIR/test-init-e2e.sh"
 run_suite "updater worktree safety" bash -c "cd '$PROJECT_DIR' && node --test tests/test-updater-worktree.mjs"

@@ -8,6 +8,7 @@ import {
 import { clearSessionCookie, requireAdmin } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { redirectTo } from "@/lib/redirect";
+import { checkRateLimit } from "@/lib/rate-limit";
 import { rejectCrossOriginMutation } from "@/lib/request-origin";
 
 export async function POST(request: Request) {
@@ -15,7 +16,10 @@ export async function POST(request: Request) {
   const originDenied = rejectCrossOriginMutation(request);
   if (originDenied) return originDenied;
 
+  const limited = await checkRateLimit({ namespace: "admin-credentials", request, limit: 8, windowSec: 15 * 60 });
+  if (!limited.ok) return redirectTo("/admin/settings?tab=account&accountError=rate", request);
   const form = await request.formData();
+  const currentPassword = String(form.get("currentPassword") || "");
   const username = normalizeAdminUsername(String(form.get("username") || ""));
   const password = String(form.get("password") || "");
   if (adminUsernameProblem(username)) {
@@ -32,6 +36,9 @@ export async function POST(request: Request) {
   if (!admin) {
     await clearSessionCookie();
     return redirectTo("/admin/login?error=1", request);
+  }
+  if (!currentPassword || !(await bcrypt.compare(currentPassword, admin.passwordHash))) {
+    return redirectTo("/admin/settings?tab=account&accountError=current_password", request);
   }
   if (password && await bcrypt.compare(password, admin.passwordHash)) {
     return redirectTo("/admin/settings?tab=account&accountError=same_password", request);

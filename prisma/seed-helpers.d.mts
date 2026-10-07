@@ -25,7 +25,8 @@ export function buildAdminCreateData(
   passwordHash: string;
 };
 
-export function buildAdminPasswordRotationData(passwordHash: string): {
-  passwordHash: string;
-  tokenVersion: { increment: number };
-};
+export function seedAdminIfNeeded(
+  table: Pick<import("@prisma/client").PrismaClient["adminUser"], "findFirst" | "upsert">,
+  env: Record<string, string | undefined>,
+  hashPassword: (password: string) => Promise<string>
+): Promise<import("@prisma/client").AdminUser>;

@@ -20,6 +20,7 @@ type CommentsPayload = {
   total: number;
   /** 服务端还有未返回的评论。 */
   hasMore: boolean;
+  nextCursor: string | null;
 };
 
 /**
@@ -32,11 +33,15 @@ export function PostComments({ postId }: { postId: string }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (cursor?: string) => {
     try {
-      const response = await fetch(`/api/public/posts/${postId}/comments`);
+      const response = await fetch(`/api/public/posts/${postId}/comments${cursor ? `?cursor=${encodeURIComponent(cursor)}` : ""}`);
       if (!response.ok) return;
-      setData((await response.json()) as CommentsPayload);
+      const page = (await response.json()) as CommentsPayload;
+      setData((previous) => cursor && previous ? {
+        ...page,
+        comments: [...new Map([...previous.comments, ...page.comments].map((comment) => [comment.id, comment])).values()]
+      } : page);
     } catch {
       // 评论加载失败不影响正文阅读
     }
@@ -46,6 +51,13 @@ export function PostComments({ postId }: { postId: string }) {
     const timer = window.setTimeout(() => void load(), 0);
     return () => window.clearTimeout(timer);
   }, [load]);
+
+  async function loadMore() {
+    if (busy || !data?.nextCursor) return;
+    setBusy(true);
+    try { await load(data.nextCursor); }
+    finally { setBusy(false); }
+  }
 
   async function submit(event: React.FormEvent) {
     event.preventDefault();
@@ -117,13 +129,14 @@ export function PostComments({ postId }: { postId: string }) {
               </li>
             ))}
           </ul>
-          {/* 静默截断会让读者以为评论就这么多。超出部分明确说明。 */}
+          {/* Cursor pagination keeps older and newer comments reachable. */}
           {data.hasMore ? (
             <p className="muted comment-truncated" role="status">
               <I18nText
-                zh={`仅显示最早的 ${data.comments.length} 条，共 ${data.total} 条。`}
+                zh={`已显示 ${data.comments.length} 条，共 ${data.total} 条。`}
                 en={`Showing the first ${data.comments.length} of ${data.total} comments.`}
               />
+              {data.nextCursor ? <button type="button" className="text-link" disabled={busy} onClick={() => void loadMore()}><I18nText zh="加载更多评论" en="Load more comments" /></button> : null}
             </p>
           ) : null}
         </>

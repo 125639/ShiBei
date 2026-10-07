@@ -97,12 +97,12 @@ export async function loadStats(window: StatsWindow = "week", opts: { publicOnly
     prisma.video.count({ where: { AND: [videoVisibilityWhere, { createdAt: { gte: todayStart } }] } }),
     prisma.video.count({ where: { AND: [videoVisibilityWhere, { createdAt: { gte: weekStart } }] } }),
     prisma.post.findMany({
-      where: { ...postVisibilityWhere, createdAt: { gte: new Date(now.getTime() - 29 * DAY_MS) } },
+      where: { ...postVisibilityWhere, createdAt: { gte: new Date(todayStart.getTime() - 29 * DAY_MS) } },
       select: { createdAt: true },
       orderBy: { createdAt: "asc" }
     }),
     prisma.video.findMany({
-      where: { AND: [videoVisibilityWhere, { createdAt: { gte: new Date(now.getTime() - 29 * DAY_MS) } }] },
+      where: { AND: [videoVisibilityWhere, { createdAt: { gte: new Date(todayStart.getTime() - 29 * DAY_MS) } }] },
       select: { createdAt: true },
       orderBy: { createdAt: "asc" }
     }),

@@ -1,3 +1,4 @@
+import { withEvaluateTimeout } from "./scrape-timeout";
 import { chromium } from "playwright";
 import type { SourceType } from "@prisma/client";
 import { assertSafeResolvedFetchUrl } from "./url-safety";
@@ -15,7 +16,7 @@ export async function scrapeAudienceData(url: string, type: SourceType) {
     const page = await safeContext.context.newPage();
     await page.goto(url, { waitUntil: "domcontentloaded", timeout: 30000 });
 
-    const result = await page.evaluate((sourceType) => {
+    const result = await withEvaluateTimeout(page.evaluate((sourceType) => {
       function parseAudienceNumber(text: string): number {
         if (!text) return 0;
         const normalized = text.replace(/[,\s]/g, "").toLowerCase();
@@ -82,11 +83,14 @@ export async function scrapeAudienceData(url: string, type: SourceType) {
       const pageText = text.slice(0, 8000);
 
       return { rawMetrics, pageText, foundExactNumber: exactNumber };
-    }, type);
+    }, type), 15_000);
 
     return result;
   } finally {
-    await safeContext?.close().catch(() => undefined);
-    await browser.close();
+    // Close the browser concurrently: context shutdown can itself wait on a hung renderer.
+    await withEvaluateTimeout(Promise.all([
+      safeContext?.close().catch(() => undefined),
+      browser.close().catch(() => undefined)
+    ]), 5_000).catch((error) => console.warn("[scrape-audience] browser cleanup:", error));
   }
 }

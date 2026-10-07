@@ -1,3 +1,5 @@
+import { localizedAlternates } from "@/lib/language";
+import { setRequestLanguage } from "@/lib/i18n-server";
 import type { Metadata } from "next";
 import { I18nText } from "@/components/I18nText";
 import { UserSettingsClient } from "@/components/UserSettingsClient";
@@ -20,12 +22,15 @@ import {
 // 整页 ISR 复用 HTML，不再每请求查库。
 export const revalidate = 300;
 
-export const metadata: Metadata = {
-  title: "设置",
-  description: "个性化主题、字体、密度、语言与背景音乐，只保存在你的浏览器中。",
-  robots: { index: false },
-  alternates: { canonical: "/settings" }
-};
+export async function generateMetadata({ params }: { params: Promise<{ lang: string }> }): Promise<Metadata> {
+  const language = setRequestLanguage((await params).lang);
+  return {
+    title: "设置",
+    description: "个性化主题、字体、密度、语言与背景音乐，只保存在你的浏览器中。",
+    robots: { index: false },
+    alternates: localizedAlternates(language, "/settings")
+  };
+}
 
 type SettingsUi = "system" | UiStyleKey;
 

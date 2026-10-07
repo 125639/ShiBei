@@ -339,12 +339,14 @@ export function BulkPostActions({ posts, allowAiRepair = true }: { posts: BulkPo
 
   return (
     <form className="form-stack" action="/api/admin/posts/bulk" method="post" onSubmit={handleSubmit}>
+      <input type="hidden" name="action" value={action} />
+      {activeSelectedIds.map((id) => <input key={id} type="hidden" name="postId" value={id} />)}
       <div className="bulk-toolbar">
         <label>
           <input type="checkbox" checked={allSelected} disabled={backgroundActive} onChange={(event) => toggleAll(event.target.checked)} /> <I18nText zh="全选" en="Select all" />
         </label>
         <span className="muted" role="status"><I18nText zh={`已选择 ${activeSelectedIds.length} / ${posts.length}`} en={`Selected ${activeSelectedIds.length} / ${posts.length}`} /></span>
-        <select name="action" value={action} disabled={backgroundActive} onChange={(event) => setAction(event.target.value)} aria-label="批量操作类型">
+        <select value={action} disabled={backgroundActive} onChange={(event) => setAction(event.target.value)} aria-label="批量操作类型">
           <option value="delete">批量删除 / Delete</option>
           {allowAiRepair ? <option value="publish">AI 审核、返修并发布（最多 3 轮）</option> : null}
           <option value="draft">改为草稿 / To draft</option>
@@ -396,7 +398,6 @@ export function BulkPostActions({ posts, allowAiRepair = true }: { posts: BulkPo
             <label className="row-checkbox" aria-label={`选择 ${post.title}`}>
               <input
                 type="checkbox"
-                name="postId"
                 value={post.id}
                 checked={activeSelectedIds.includes(post.id)}
                 disabled={backgroundActive}

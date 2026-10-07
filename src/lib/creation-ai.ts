@@ -966,6 +966,7 @@ export function buildCreativeDraftFallback(input: {
 }
 
 export function scoreCreativeWorkFallback(input: {
+  threshold?: number;
   dimensions: CreationDimension[];
   depth: CreationDepth;
   content: string;
@@ -980,9 +981,9 @@ export function scoreCreativeWorkFallback(input: {
   const target = input.depth === "SHORT" ? 300 : 1_200;
   const lengthPoints = Math.min(8, Math.floor((visibleLength / Math.max(target, 1)) * 8));
   const structurePoints = Math.min(4, Math.max(0, paragraphs - 1));
-  // Keep a fallback review below the normal public threshold (70). It is useful
-  // feedback, not a substitute for the configured AI reviewer.
-  const provisionalScore = Math.min(69, 55 + lengthPoints + structurePoints);
+  // Structure-only feedback must stay below this genre’s publication threshold.
+  const ceiling = Math.max(0, Math.ceil(input.threshold ?? 65) - 1);
+  const provisionalScore = Math.min(ceiling, 55 + lengthPoints + structurePoints);
   const dimensionScores = input.dimensions.map((dimension) => ({
     key: dimension.key,
     score: provisionalScore,

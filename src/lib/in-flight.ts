@@ -1,3 +1,4 @@
+import { waitForRedisReady } from "./redis-ready";
 import crypto from "node:crypto";
 import IORedis from "ioredis";
 
@@ -7,14 +8,13 @@ const globalForInFlight = globalThis as unknown as { shibeiInFlightRedis?: IORed
 function getRedis() {
   const url = process.env.REDIS_URL;
   if (!url) return null;
-  if (!globalForInFlight.shibeiInFlightRedis) {
+  if (!globalForInFlight.shibeiInFlightRedis || globalForInFlight.shibeiInFlightRedis.status === "end") {
     const redis = new IORedis(url, {
       maxRetriesPerRequest: 1,
       enableOfflineQueue: false,
       lazyConnect: true
     });
-    // Redis errors fall through to the in-process lock; consume the matching
-    // EventEmitter error so the handled outage is not logged as unhandled.
+    // Consume handled connection errors; configured Redis failures must fail closed.
     redis.on("error", () => undefined);
     globalForInFlight.shibeiInFlightRedis = redis;
   }
@@ -25,7 +25,7 @@ export async function withInFlightLock<T>(
   key: string,
   ttlSec: number,
   fn: () => Promise<T>
-): Promise<{ ok: true; value: T } | { ok: false; reason: "busy" }> {
+): Promise<{ ok: true; value: T } | { ok: false; reason: "busy" | "unavailable" }> {
   const token = crypto.randomBytes(16).toString("hex");
   const redisKey = `shibei:lock:${key}`;
   const redis = getRedis();
@@ -38,26 +38,28 @@ export async function withInFlightLock<T>(
     let acquired = false;
     let lockServiceFailed = false;
     try {
-      if (redis.status === "wait") await redis.connect();
+      await waitForRedisReady(redis);
       acquired = (await redis.set(redisKey, token, "EX", ttlSec, "NX")) === "OK";
     } catch {
       lockServiceFailed = true;
     }
 
-    if (!lockServiceFailed) {
-      // 拿不到锁 = 确实有别的请求正在执行：返回 busy，绝不降级到内存锁，
-      // 否则多实例会同时执行同一任务。
-      if (!acquired) return { ok: false, reason: "busy" };
-      try {
-        return { ok: true, value: await fn() };
-      } finally {
-        await redis.eval(
-          "if redis.call('get', KEYS[1]) == ARGV[1] then return redis.call('del', KEYS[1]) else return 0 end",
-          1,
-          redisKey,
-          token
-        ).catch(() => undefined);
-      }
+    if (lockServiceFailed) {
+      console.error("[in-flight] Redis unavailable; refusing paid work without a distributed lock");
+      return { ok: false, reason: "unavailable" };
+    }
+    // 拿不到锁 = 确实有别的请求正在执行：返回 busy，绝不降级到内存锁，
+    // 否则多实例会同时执行同一任务。
+    if (!acquired) return { ok: false, reason: "busy" };
+    try {
+      return { ok: true, value: await fn() };
+    } finally {
+      await redis.eval(
+        "if redis.call('get', KEYS[1]) == ARGV[1] then return redis.call('del', KEYS[1]) else return 0 end",
+        1,
+        redisKey,
+        token
+      ).catch(() => undefined);
     }
   }
 

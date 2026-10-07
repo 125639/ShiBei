@@ -1,14 +1,19 @@
+import { localizedAlternates } from "@/lib/language";
+import { setRequestLanguage } from "@/lib/i18n-server";
 import type { Metadata } from "next";
 import Link from "next/link";
 import { I18nText } from "@/components/I18nText";
 import { AccountClient } from "@/components/AccountClient";
 
 // 纯客户端外壳：无服务端数据，整页构建期预渲染，命中即静态直出。
-export const metadata: Metadata = {
-  title: "账户",
-  description: "使用邀请码开户并设置自己的密码，登录后管理共创作品：导出与删除权完全归创作者。",
-  alternates: { canonical: "/account" }
-};
+export async function generateMetadata({ params }: { params: Promise<{ lang: string }> }): Promise<Metadata> {
+  const language = setRequestLanguage((await params).lang);
+  return {
+    title: "账户",
+    description: "使用邀请码开户并设置自己的密码，登录后管理共创作品：导出与删除权完全归创作者。",
+    alternates: localizedAlternates(language, "/account")
+  };
+}
 
 export default function AccountPage() {
   return (

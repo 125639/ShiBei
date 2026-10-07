@@ -7,17 +7,13 @@ import { seedDefaultCreationGenres } from "../src/lib/creation";
 import { BUNDLED_STYLE_PRESETS, DEFAULT_BLOG_STYLE, isLegacyBundledStyle } from "../src/lib/content-style";
 import { normalizeModelBaseUrl } from "../src/lib/model-config-input";
 import {
-  adminUsernameFromEnv,
-  buildAdminCreateData,
-  buildAdminPasswordRotationData,
+  seedAdminIfNeeded,
   shouldSeedAiModel
 } from "./seed-helpers.mjs";
 
 const prisma = new PrismaClient();
 
 async function main() {
-  const password = process.env.ADMIN_PASSWORD || "change-me-now";
-
   await prisma.siteSettings.upsert({
     where: { id: "site" },
     update: {},
@@ -30,23 +26,8 @@ async function main() {
     }
   });
 
-  // .env 仍是管理员密码的权威来源，但普通重启不能因为 bcrypt 每次产生新盐就
-  // 重写 hash 或强制退出。先 compare 现有 hash；只有密码实际变化时才更新，
-  // 并递增 tokenVersion 吊销旧 JWT。首次安装正常创建，版本沿用 DB 默认值 0。
-  const env = process.env as Record<string, string | undefined>;
-  const adminUsername = adminUsernameFromEnv(env);
-  const existingAdmin = await prisma.adminUser.findUnique({ where: { username: adminUsername } });
-  if (!existingAdmin) {
-    const passwordHash = await bcrypt.hash(password, 12);
-    await prisma.adminUser.create({ data: buildAdminCreateData(env, passwordHash) });
-  } else if (!(await bcrypt.compare(password, existingAdmin.passwordHash))) {
-    const passwordHash = await bcrypt.hash(password, 12);
-    await prisma.adminUser.update({
-      where: { id: existingAdmin.id },
-      data: buildAdminPasswordRotationData(passwordHash)
-    });
-    console.log("[seed] ADMIN_PASSWORD 已变化：管理员密码已同步，旧会话已吊销");
-  }
+  // Bootstrap only: deployment variables must never undo a password changed in the UI.
+  await seedAdminIfNeeded(prisma.adminUser, process.env, (password: string) => bcrypt.hash(password, 12));
 
   const bundledStyle = await prisma.contentStyle.findUnique({ where: { id: "default-style" } });
   if (!bundledStyle) {

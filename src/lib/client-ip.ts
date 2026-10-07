@@ -1,5 +1,7 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
 
+let lastMissingSignatureWarning = 0;
+
 /**
  * Production requests receive this header only from scripts/trusted-next-server.mjs,
  * which overwrites any caller value from the TCP peer/trusted proxy chain.
@@ -18,7 +20,13 @@ export function trustedClientIp(request: Request): string {
 
   // Unit tests and `next dev` do not run through the production wrapper. Keep the
   // familiar headers there, but production fails closed instead of trusting input.
-  if (process.env.NODE_ENV === "production") return "unknown";
+  if (process.env.NODE_ENV === "production") {
+    if (Date.now() - lastMissingSignatureWarning > 60_000) {
+      lastMissingSignatureWarning = Date.now();
+      console.error("[client-ip] Missing or invalid trusted IP signature: requests share the unknown rate-limit bucket. Start with npm start (trusted-next-server.mjs); never trust unsigned forwarding headers.");
+    }
+    return "unknown";
+  }
   return (
     request.headers.get("x-real-ip")?.trim() ||
     request.headers.get("x-forwarded-for")?.split(",").at(-1)?.trim() ||

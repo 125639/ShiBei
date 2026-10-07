@@ -691,10 +691,10 @@ export function SettingsClient({
           <p className="muted-block" id="admin-account-security-note">
             <I18nText
               zh={<>
-                设置新密码会立即吊销所有设备（包括当前页面）的管理员会话，保存后需要重新登录。部署环境中的 <code>ADMIN_USERNAME</code> / <code>ADMIN_PASSWORD</code> 是启动 seed 的权威配置；若与数据库不同，重启或再次 seed 可能恢复密码或另建环境变量指定的管理员。要永久修改，请同步更新部署环境变量。
+                设置新密码会立即吊销所有设备（包括当前页面）的管理员会话，保存后需要重新登录。部署环境中的 <code>ADMIN_USERNAME</code> / <code>ADMIN_PASSWORD</code> 仅用于首次初始化，重启不会覆盖在此保存的账号。
               </>}
               en={<>
-                Setting a new password immediately revokes every admin session, including this one, and requires a fresh sign-in. <code>ADMIN_USERNAME</code> / <code>ADMIN_PASSWORD</code> remain authoritative during deployment seeding; a restart or seed may restore that password or recreate the environment-defined administrator. Update the deployment variables as well for a persistent change.
+                Setting a new password immediately revokes every admin session, including this one, and requires a fresh sign-in. <code>ADMIN_USERNAME</code> / <code>ADMIN_PASSWORD</code> are used only for initial setup. Restarting will not overwrite credentials saved here.
               </>}
             />
           </p>
@@ -712,6 +712,10 @@ export function SettingsClient({
               spellCheck={false}
               aria-describedby="admin-account-security-note"
             />
+          </div>
+          <div className="field">
+            <label htmlFor="currentPassword"><I18nText zh="当前密码" en="Current password" /></label>
+            <input id="currentPassword" name="currentPassword" type="password" required maxLength={100} autoComplete="current-password" />
           </div>
           <div className="field">
             <label htmlFor="password"><I18nText zh="新密码" en="New Password" /></label>
@@ -750,6 +754,8 @@ function accountErrorMessage(code: string) {
       zh: "用户名需为 3–80 个字符，且不能包含控制字符。",
       en: "The username must be 3–80 characters and contain no control characters."
     },
+    current_password: { zh: "当前密码不正确", en: "Current password is incorrect." },
+    rate: { zh: "尝试过于频繁，请稍后再试", en: "Too many attempts. Please try again later." },
     weak_password: {
       zh: "新密码不符合下方强度要求，账号未修改。",
       en: "The new password does not meet the requirements below; the account was not changed."

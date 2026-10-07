@@ -1,11 +1,20 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { serializeWorkForOwner } from "../src/lib/creation-server";
+import { build } from "esbuild";
+import { chromium } from "playwright";
+import { createRequire } from "node:module";
+import path from "node:path";
 import {
   anonymousWorkWasPublished,
   canPublishWork,
   findModeratedSurfaceMatch,
   legacyWorkScoreFingerprint,
   publicationSnapshotWhere,
+  ownerScoreDetail,
+  ownerScorePresentation,
+  scoreInvalidationData,
+  workRubricFingerprint,
   workDeletionWhere,
   workRevisionWhere,
   workScoreFingerprint
@@ -24,6 +33,26 @@ type WorkRecord = {
   ownerId: string | null;
   publishedOnceAt: Date | null;
 };
+
+function fallbackDraft() {
+  const work = {
+    ...passingDraft(), ...scoreInvalidationData(),
+    depth: "SHORT" as const, mode: "MANUAL" as const, topic: "预检主题",
+    genre: { id: "genre", slug: "story", name: "叙事", description: "", threshold: 65,
+      dimensions: JSON.stringify([{ key: "quality", label: "质量", weight: 1, hint: "" }]) },
+    slug: null, interview: "[]", pendingQuestion: null, anonId: "anon",
+    draftGeneratedAt: null, publishedAt: null, createdAt: new Date()
+  };
+  return { ...work, scoreDetail: JSON.stringify({
+    fallback: true,
+    precheckSurfaceHash: workScoreFingerprint(work),
+    precheckRubricHash: workRubricFingerprint(work),
+    dimensions: [{ key: "quality", label: "质量", weight: 1, score: 50, feedback: "结构反馈" }],
+    total: 50, threshold: 65, publishable: false,
+    overallComment: "AI 评审服务暂时不可用，本次只完成了保守的结构预检。",
+    suggestions: ["模型恢复后重新评分"]
+  }) };
+}
 
 const RUBRIC_HASH = "rubric-v1";
 
@@ -62,6 +91,96 @@ function passingDraft(): WorkRecord {
     publishedOnceAt: null
   };
 }
+
+test("fallback owner response keeps outage detail without any formal score credentials", async () => {
+  const draft = fallbackDraft();
+  const response = await serializeWorkForOwner(draft as Parameters<typeof serializeWorkForOwner>[0], null);
+  assert.equal(response.scoreDetail?.fallback, true);
+  assert.match(response.scoreDetail?.overallComment ?? "", /服务暂时不可用/);
+  assert.equal(response.scoreDetail?.publishable, false);
+  assert.equal(response.score, null);
+  assert.equal(response.scoredAt, null);
+  assert.equal(response.scoreCurrent, false);
+  assert.equal(response.hasHistoricalScore, false);
+  assert.equal(draft.scoredHash, null);
+  assert.equal(draft.scoredRubricHash, null);
+  assert.equal(canPublishWork({ ...draft, threshold: 65, currentRubricHash: workRubricFingerprint(draft) }).ok, false);
+
+  for (const patch of [{ title: "新标题" }, { summary: "新摘要" }, { content: "    新正文" },
+    { depth: "FULL" as const }, { genre: { ...draft.genre, threshold: 60 } }]) {
+    assert.equal(ownerScoreDetail({ ...draft, ...patch }), null, "stale precheck must not survive content/rubric changes");
+  }
+  assert.equal(ownerScoreDetail({ ...draft, ...scoreInvalidationData() }), null);
+  assert.equal(ownerScoreDetail({ ...draft, scoreDetail: "{broken" }), null);
+  assert.equal(ownerScoreDetail({ ...draft, scoreDetail: JSON.stringify({ fallback: true }) }), null);
+  const forged = { ...draft, score: 99, scoredHash: workScoreFingerprint(draft), scoredRubricHash: workRubricFingerprint(draft),
+    scoreDetail: draft.scoreDetail.replace('"publishable":false', '"publishable":true') };
+  assert.equal(ownerScoreDetail(forged)?.publishable, false);
+  assert.equal(canPublishWork({ ...forged, threshold: 65, currentRubricHash: workRubricFingerprint(draft) }).ok, false);
+  assert.equal(ownerScorePresentation(draft).current, false);
+});
+
+test("browser shows fallback explanation, never publication, and hides precheck on local edits", async () => {
+  // Bundle the real component into an isolated in-memory page; no app/production server is started.
+  const require = createRequire(import.meta.url);
+  const bundle = await build({
+    stdin: { contents: 'import React from "react"; import {createRoot} from "react-dom/client"; import {CreationStudio} from "./src/components/CreationStudio"; createRoot(document.getElementById("root")).render(<CreationStudio/>);',
+      resolveDir: process.cwd(), loader: "tsx" },
+    bundle: true, write: false, platform: "browser", format: "iife", jsx: "automatic",
+    define: { "process.env.NODE_ENV": '"production"' },
+    plugins: [{ name: "isolated-studio-dependencies", setup(build) {
+      build.onResolve({ filter: /LocalizedLink|anon-bootstrap|useMarkdownHtml|TaskProgress|useUnsavedChangesGuard/ }, (args) => ({ path: args.path, namespace: "fixture" }));
+      build.onLoad({ filter: /.*/, namespace: "fixture" }, (args) => ({ loader: "jsx", resolveDir: path.dirname(require.resolve("react")), contents:
+        args.path.includes("LocalizedLink") ? 'export const LocalizedLink = ({children,...props}) => <a {...props}>{children}</a>;' :
+        args.path.includes("anon-bootstrap") ? 'export const ANON_CREATION_SEED_HEADER="seed"; export async function ensureAnonymousBootstrap(){return "seed";}' :
+        args.path.includes("useMarkdownHtml") ? 'export const useMarkdownHtml=()=>"";' :
+        args.path.includes("TaskProgress") ? 'export const TaskProgress=()=>null;' : 'export const useUnsavedChangesGuard=()=>{};'
+      }));
+    } }]
+  });
+  const browser = await chromium.launch({ headless: true, args: ["--no-sandbox"] });
+  try {
+    const page = await browser.newPage();
+    const draft = fallbackDraft();
+    let work = await serializeWorkForOwner(draft as Parameters<typeof serializeWorkForOwner>[0], null);
+    await page.route("http://creation.test/**", async (route) => {
+      const url = new URL(route.request().url());
+      if (!url.pathname.startsWith("/api/")) return route.fulfill({ contentType: "text/html", body: '<div id="root"></div>' });
+      const body = url.pathname.endsWith("/genres") ? { genres: [work.genre], depths: {}, modes: {} } :
+        url.pathname.endsWith("/works") ? { works: [], nextCursor: null, isMember: false, anonQuotaRemaining: 2, anonWorkLimit: 2 } :
+        { work, scoreFallback: true };
+      await route.fulfill({ json: body });
+    });
+    await page.goto("http://creation.test/create?work=work-1");
+    await page.addScriptTag({ content: bundle.outputFiles[0].text });
+    await page.getByRole("heading", { name: "结构预检（非正式评分）" }).waitFor();
+    assert.match(await page.locator("body").innerText(), /AI 评审服务暂时不可用/);
+    assert.equal(await page.getByRole("button", { name: /公开到社区|确认发布/ }).count(), 0);
+    assert.equal(await page.getByText(/已达标|总分/).count(), 0);
+    for (const id of ["creation-title", "creation-summary", "creation-content"]) {
+      const original = await page.locator(`#${id}`).inputValue();
+      await page.locator(`#${id}`).fill(`${original} 修改`);
+      assert.equal(await page.getByRole("heading", { name: "结构预检（非正式评分）" }).count(), 0);
+      await page.locator(`#${id}`).fill(original);
+      await page.getByRole("heading", { name: "结构预检（非正式评分）" }).waitFor();
+    }
+    const [scoreResponse] = await Promise.all([
+      page.waitForResponse((response) => response.url().endsWith("/score")),
+      page.getByRole("button", { name: "提交 AI 评分" }).click()
+    ]);
+    const scoreBody = await scoreResponse.json();
+    assert.equal(scoreBody.scoreFallback, true);
+    assert.equal(scoreBody.work.scoreDetail.fallback, true);
+    assert.equal(scoreBody.work.scoreCurrent, false);
+    await page.getByRole("button", { name: "提交 AI 评分" }).waitFor();
+    await page.getByRole("heading", { name: "结构预检（非正式评分）" }).waitFor();
+    await page.locator("#creation-content").fill("保存后的新正文");
+    work = await serializeWorkForOwner({ ...draft, content: "保存后的新正文", ...scoreInvalidationData() } as Parameters<typeof serializeWorkForOwner>[0], null);
+    await page.getByRole("button", { name: "保存修改" }).click();
+    await page.getByRole("button", { name: "已保存" }).waitFor();
+    assert.equal(await page.getByRole("heading", { name: "结构预检（非正式评分）" }).count(), 0);
+  } finally { await browser.close(); }
+});
 
 test("publication gate and CAS publish the unchanged scored snapshot", () => {
   const draft = passingDraft();

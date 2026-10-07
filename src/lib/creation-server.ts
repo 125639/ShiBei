@@ -9,11 +9,11 @@ import {
   CREATION_DEPTHS,
   isScoredRubricCurrent,
   legacyWorkScoreFingerprint,
+  ownerScoreDetail,
   ownerScorePresentation,
   parseGenreDimensions,
   parseInterview,
-  workScoreFingerprint,
-  type ScoreDetail
+  workScoreFingerprint
 } from "./creation";
 
 // ============ 共创工作室：仅服务端（Route Handler）使用的辅助 ============
@@ -155,14 +155,7 @@ export async function serializeWorkForOwner(
     ? await findCurrentModeratedSurface(work)
     : knownModeratedSurface;
   const scorePresentation = ownerScorePresentation(work);
-  let scoreDetail: ScoreDetail | null = null;
-  if (scorePresentation.current && work.scoreDetail) {
-    try {
-      scoreDetail = JSON.parse(work.scoreDetail) as ScoreDetail;
-    } catch {
-      scoreDetail = null;
-    }
-  }
+  const scoreDetail = ownerScoreDetail(work);
   return {
     id: work.id,
     slug: work.slug,

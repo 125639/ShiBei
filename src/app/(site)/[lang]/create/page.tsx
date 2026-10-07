@@ -1,13 +1,18 @@
+import { localizedAlternates } from "@/lib/language";
+import { setRequestLanguage } from "@/lib/i18n-server";
 import type { Metadata } from "next";
 import { I18nText } from "@/components/I18nText";
 import { CreationStudio } from "@/components/CreationStudio";
 
 // 纯客户端外壳：无服务端数据，整页构建期预渲染，命中即静态直出。
-export const metadata: Metadata = {
-  title: "共创工作室",
-  description: "AI 访谈式创作：2-3 问快速生成文章，或用 8-10 问深度成文；草稿可编辑，始终由你决定是否公开。",
-  alternates: { canonical: "/create" }
-};
+export async function generateMetadata({ params }: { params: Promise<{ lang: string }> }): Promise<Metadata> {
+  const language = setRequestLanguage((await params).lang);
+  return {
+    title: "共创工作室",
+    description: "AI 访谈式创作：2-3 问快速生成文章，或用 8-10 问深度成文；草稿可编辑，始终由你决定是否公开。",
+    alternates: localizedAlternates(language, "/create")
+  };
+}
 
 export default function CreatePage() {
   return (

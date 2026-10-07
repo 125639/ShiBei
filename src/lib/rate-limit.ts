@@ -1,3 +1,5 @@
+import { waitForRedisReady } from "./redis-ready";
+import { createHash } from "node:crypto";
 import IORedis from "ioredis";
 import { trustedClientIp } from "./client-ip";
 
@@ -36,7 +38,7 @@ let lastPruneAt = 0;
 function getRedis() {
   const url = process.env.REDIS_URL;
   if (!url) return null;
-  if (!globalForRateLimit.shibeiRateLimitRedis) {
+  if (!globalForRateLimit.shibeiRateLimitRedis || globalForRateLimit.shibeiRateLimitRedis.status === "end") {
     const redis = new IORedis(url, {
       maxRetriesPerRequest: 1,
       enableOfflineQueue: false,
@@ -70,6 +72,24 @@ export async function checkSubjectRateLimit(input: SubjectRateLimitInput): Promi
   return incrementLimitKey(key, input.limit, input.windowSec);
 }
 
+/** Authenticated success clears failure budgets, not the all-requests IP bucket. */
+export async function resetLoginFailureLimits(input: { namespace: string; request: Request; subject: string }): Promise<void> {
+  const keys = [
+    `shibei:rate:${input.namespace}:${clientIdentity(input.request)}:${sanitizeKeyPart(input.subject)}`,
+    `shibei:rate:${input.namespace}:subject:${sanitizeKeyPart(input.subject)}`
+  ];
+  const redis = getRedis();
+  if (redis) {
+    try {
+      await waitForRedisReady(redis);
+      await redis.del(...keys);
+    } catch {
+      // A successful login must not fail just because failure-budget cleanup failed.
+    }
+  }
+  for (const key of keys) memoryBuckets.delete(key);
+}
+
 // 单次往返完成 INCR + EXPIRE +（超限时）TTL：
 // - 原先 incr→expire→ttl 是最多三次串行网络往返，且进程在 incr 与 expire 之间
 //   崩溃会让计数键永远没有 TTL，限流窗口永不重置（等于把用户永久封在窗口外）。
@@ -94,7 +114,7 @@ async function incrementLimitKey(key: string, limit: number, windowSec: number):
 
   if (redis) {
     try {
-      if (redis.status === "wait") await redis.connect();
+      await waitForRedisReady(redis);
       const [count, ttl] = (await redis.eval(
         RATE_LIMIT_LUA,
         1,
@@ -127,7 +147,7 @@ function clientIdentity(request: Request) {
 }
 
 function sanitizeKeyPart(raw: string) {
-  return raw.replace(/[^a-zA-Z0-9:._-]/g, "_").slice(0, 80);
+  return createHash("sha256").update(raw).digest("hex");
 }
 
 function pruneMemoryBuckets(now: number) {

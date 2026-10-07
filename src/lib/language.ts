@@ -136,3 +136,15 @@ export function languageLabel(value: string | null | undefined) {
 export function contentLanguageModeLabel(value: string | null | undefined) {
   return CONTENT_LANGUAGE_MODE_OPTIONS.find((option) => option.value === value)?.label || "默认语种模式";
 }
+
+/** Child metadata replaces alternates rather than inheriting the layout's language map. */
+export function localizedAlternates(language: LanguageKey, path: string) {
+  return {
+    canonical: withLanguagePrefix(language, path),
+    languages: {
+      "zh-CN": withLanguagePrefix("zh", path),
+      en: withLanguagePrefix("en", path),
+      "x-default": withLanguagePrefix("zh", path)
+    }
+  };
+}

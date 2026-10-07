@@ -29,6 +29,10 @@ export type ScoreDimensionResult = {
 };
 
 export type ScoreDetail = {
+  fallback?: boolean;
+  // 非正式预检自己的展示快照；绝不作为 scoredHash/scoredRubricHash 的发布凭证。
+  precheckSurfaceHash?: string;
+  precheckRubricHash?: string;
   dimensions: ScoreDimensionResult[];
   total: number; // 服务端按权重计算，不信任模型的算术
   threshold: number;
@@ -240,6 +244,29 @@ export function ownerScorePresentation(input: WorkScoreSurface & WorkRubricSurfa
   };
 }
 
+/** 明细展示与正式评分有效性分开：只允许快照仍匹配的非正式预检。 */
+export function ownerScoreDetail(input: WorkScoreSurface & WorkRubricSurface & {
+  score: number | null;
+  scoreDetail: string | null;
+  scoredHash: string | null;
+  scoredRubricHash: string | null;
+}): ScoreDetail | null {
+  if (!input.scoreDetail) return null;
+  try {
+    const detail = JSON.parse(input.scoreDetail) as ScoreDetail | null;
+    if (!detail || typeof detail !== "object" || Array.isArray(detail)) return null;
+    if (isFallbackScoreDetail(input.scoreDetail)) {
+      // 旧预检缺少独立快照时不能证明其对应当前内容，宁可隐藏并请用户重试。
+      if (detail.precheckSurfaceHash !== workScoreFingerprint(input)
+        || detail.precheckRubricHash !== workRubricFingerprint(input)) return null;
+      return { ...detail, fallback: true, publishable: false };
+    }
+    return ownerScorePresentation(input).current ? detail : null;
+  } catch {
+    return null;
+  }
+}
+
 /** 导出文本不能把历史分数和当前题材门槛拼成一份并不存在的评审结论。 */
 export function ownerExportScoreLabel(input: WorkScoreSurface & WorkRubricSurface & {
   score: number | null;
@@ -428,7 +455,19 @@ export function verificationClarificationData(
     : { pendingQuestion };
 }
 
+export function isFallbackScoreDetail(raw: string | null | undefined): boolean {
+  if (!raw) return false;
+  try {
+    const detail = JSON.parse(raw);
+    return detail?.fallback === true || (
+      typeof detail?.overallComment === "string" &&
+      detail.overallComment.startsWith("AI 评审服务暂时不可用，本次只完成了保守的结构预检")
+    );
+  } catch { return false; }
+}
+
 export function canPublishWork(input: {
+  scoreDetail?: string | null;
   score: number | null;
   threshold: number;
   scoredHash: string | null;
@@ -443,7 +482,7 @@ export function canPublishWork(input: {
   if (input.moderationBlocked) {
     return { ok: false, reason: moderationBlockedMessage(input.moderationReason ?? null) };
   }
-  if (input.score === null || input.scoredHash === null) {
+  if (isFallbackScoreDetail(input.scoreDetail) || input.score === null || input.scoredHash === null) {
     return { ok: false, reason: "发布前需要先完成 AI 评分。" };
   }
   if (!isScoredSurfaceCurrent(input)) {

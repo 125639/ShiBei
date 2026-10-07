@@ -15,7 +15,7 @@ export const dynamic = "force-dynamic";
 
 const PatchSchema = z.object({
   expectedUpdatedAt: z.string().datetime(),
-  title: z.string().max(300).optional(),
+  title: z.string().max(200).optional(),
   content: z.string().max(MAX_WRITING_DOC_CONTENT_LENGTH, "文档过大").optional()
 });
 
@@ -57,7 +57,7 @@ export async function PATCH(request: Request, { params }: Params) {
   const claimed = await prisma.writingDoc.updateMany({
     where: editableWritingDocRevisionWhere(doc, identity, expectedUpdatedAt),
     data: {
-      ...(parsed.data.title !== undefined ? { title: parsed.data.title.trim().slice(0, 300) } : {}),
+      ...(parsed.data.title !== undefined ? { title: parsed.data.title.trim().slice(0, 200) } : {}),
       ...(parsed.data.content !== undefined ? { content: parsed.data.content } : {}),
       // 完成后又修改就回到未完成状态；不触碰已交接的 CreativeWork。
       ...(

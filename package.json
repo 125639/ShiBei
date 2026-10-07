@@ -11,6 +11,7 @@
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
     "test": "bash tests/run-all.sh",
+    "test:audit-live": "node scripts/e2e/verify-audit-live.mjs",
     "test:ui": "node scripts/e2e/verify-public-ui.mjs",
     "test:admin-ui": "node scripts/e2e/verify-admin-performance.mjs",
     "test:mobile": "node scripts/e2e/verify-mobile-experience.mjs",

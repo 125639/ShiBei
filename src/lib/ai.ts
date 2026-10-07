@@ -1776,10 +1776,13 @@ export async function translatePostToEnglish(input: {
     { maximumOutputTokens: 8_000, disableThinking: true, requestTimeoutMs: 180_000 }
   );
   const parsed = parseJsonObject(raw) as { title?: string; summary?: string; content?: string };
+  if (typeof parsed?.content !== "string" || !parsed.content.trim()) {
+    throw new Error("翻译响应缺少有效正文，未保存不完整结果");
+  }
   return {
     title: String(parsed.title || input.title).slice(0, 240),
     summary: String(parsed.summary || input.summary),
-    content: String(parsed.content || raw)
+    content: parsed.content
   };
 }
 

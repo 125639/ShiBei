@@ -1,3 +1,4 @@
+import { readBoundedText } from "./request-validation";
 import { decryptSecret } from "./crypto";
 import { hostFromUrl as hostFromUrlOrNull } from "./html";
 import { prisma } from "./prisma";
@@ -75,7 +76,9 @@ export async function searchWithExa(query: string, opts?: {
     if (!res.ok) {
       throw new Error(`Exa 搜索请求失败：HTTP ${res.status}`);
     }
-    const data: ExaSearchResponse = await res.json();
+    const raw = await readBoundedText(res, 2 * 1024 * 1024);
+    if (raw === null) throw new Error("Exa 响应超出 2MB 上限或编码无效");
+    const data: ExaSearchResponse = JSON.parse(raw);
     if (!Array.isArray(data?.results)) {
       throw new Error("Exa 返回了无法解析的响应结构");
     }

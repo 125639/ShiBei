@@ -34,15 +34,18 @@ export async function POST(request: Request) {
       const video = await tx.video.findUnique({ where: { id }, select: { id: true, localPath: true } });
       if (!video) return null;
 
-      // A shortcode can legally appear outside Video.postId. Lock the Post set
-      // while scanning so a pending/live reference cannot appear between the
-      // check and deletion. This admin-only operation is rare; correctness is
-      // more important than briefly serializing article writes.
-      await tx.$queryRaw(Prisma.sql`SELECT "id" FROM "Post" ORDER BY "id" FOR UPDATE`);
-      const posts = await tx.post.findMany({
-        select: { id: true, slug: true, content: true, contentEn: true, pendingRevision: true }
-      });
+      // Shortcodes can appear outside Video.postId. Filter in SQL and lock only
+      // matching rows, never materialize/lock every article in a large database.
       const token = `[[video:${video.id}]]`;
+      const posts = await tx.$queryRaw<Array<{
+        id: string; slug: string; content: string; contentEn: string | null; pendingRevision: Prisma.JsonValue;
+      }>>(Prisma.sql`
+        SELECT "id", "slug", "content", "contentEn", "pendingRevision" FROM "Post"
+        WHERE strpos("content", ${token}) > 0
+          OR strpos(COALESCE("contentEn", ''), ${token}) > 0
+          OR strpos(COALESCE("pendingRevision"::text, ''), ${token}) > 0
+        ORDER BY "id" FOR UPDATE
+      `);
       const referencedPosts = posts.filter((post) =>
         post.content.includes(token) || Boolean(post.contentEn?.includes(token))
       );
